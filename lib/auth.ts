@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { nextCookies } from 'better-auth/next-js'
+import { userAdditionalFields } from './auth-user-fields'
 import { db } from './db'
 import { createTrainerForUser } from './trainer'
 
@@ -41,11 +42,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       // Trainer phone — collected at registration, synced to ERPNext on first login
-      phone: {
-        type: 'string',
-        required: false,
-        defaultValue: '',
-      },
+      ...userAdditionalFields,
     },
   },
 

@@ -1,4 +1,6 @@
+import { inferAdditionalFields } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/react'
+import { userAdditionalFields } from '@/lib/auth-user-fields'
 
 /**
  * Better Auth — browser client.
@@ -10,7 +12,9 @@ import { createAuthClient } from 'better-auth/react'
  * in the browser, so this works on any port (dev, staging, production)
  * without env var changes.
  */
-export const authClient = createAuthClient()
+export const authClient = createAuthClient({
+  plugins: [inferAdditionalFields({ user: userAdditionalFields })],
+})
 
 // Re-export the hook and sign-in helpers for convenient imports
 export const { useSession, signIn, signOut, signUp } = authClient

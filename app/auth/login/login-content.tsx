@@ -1,68 +1,56 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { signIn, signUp, useSession } from '@/lib/auth-client'
+import { signIn, useSession } from '@/lib/auth-client'
 
-export default function RegisterPage() {
+export default function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: session, isPending: sessionLoading } = useSession()
   const [loading, setLoading] = useState(false)
+
+  const raw = searchParams.get('callbackUrl') ?? '/dashboard'
+  const callbackUrl = raw.startsWith('/') ? raw : '/dashboard'
 
   // Redirect if already authenticated
   useEffect(() => {
     if (!sessionLoading && session) {
-      router.replace('/dashboard')
+      router.replace(callbackUrl)
     }
-  }, [session, sessionLoading, router])
+  }, [session, sessionLoading, router, callbackUrl])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
 
-    const name = fd.get('name') as string
-    const email = fd.get('email') as string
-    const phone = fd.get('phone') as string
-    const password = fd.get('password') as string
-    const confirm = fd.get('confirmPassword') as string
-
-    if (password !== confirm) {
-      toast.error('Passwords do not match.')
-      return
-    }
-
-    if (password.length < 8) {
-      toast.error('Password must be at least 8 characters.')
-      return
-    }
-
     setLoading(true)
-    const { error } = await signUp.email({
-      name,
-      email,
-      password,
-      phone: phone || undefined,
+    const { error } = await signIn.email({
+      email: fd.get('email') as string,
+      password: fd.get('password') as string,
     })
     setLoading(false)
 
     if (error) {
-      toast.error(error.message ?? 'Registration failed. Please try again.')
+      toast.error(error.message ?? 'Sign in failed. Check your credentials.')
       return
     }
 
-    toast.success('Account created! Signing you in…')
-    router.replace('/dashboard')
+    router.replace(callbackUrl)
   }
 
   async function handleGoogle() {
-    await signIn.social({ provider: 'google', callbackURL: '/dashboard' })
+    await signIn.social({
+      provider: 'google',
+      callbackURL: callbackUrl,
+    })
   }
 
   return (
     <div
-      className="flex min-h-dvh items-center justify-center p-4 py-8"
+      className="flex min-h-dvh items-center justify-center p-4"
       style={{ backgroundColor: 'var(--fd-bg)' }}
     >
       <div className="w-full max-w-sm space-y-8">
@@ -73,7 +61,7 @@ export default function RegisterPage() {
             FitDesk
           </p>
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            Create your trainer account
+            Sign in to your account
           </p>
         </div>
 
@@ -83,17 +71,6 @@ export default function RegisterPage() {
           style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
         >
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Field label="Full name">
-              <input
-                type="text"
-                name="name"
-                required
-                autoComplete="name"
-                placeholder="Alex Johnson"
-                className="input-base"
-              />
-            </Field>
-
             <Field label="Email">
               <input
                 type="email"
@@ -105,40 +82,18 @@ export default function RegisterPage() {
               />
             </Field>
 
-            <Field label="Phone number">
-              <input
-                type="tel"
-                name="phone"
-                autoComplete="tel"
-                placeholder="+1 555 000 0000"
-                className="input-base"
-              />
-            </Field>
-
             <Field label="Password">
               <input
                 type="password"
                 name="password"
                 required
-                autoComplete="new-password"
-                placeholder="Min. 8 characters"
-                minLength={8}
-                className="input-base"
-              />
-            </Field>
-
-            <Field label="Confirm password">
-              <input
-                type="password"
-                name="confirmPassword"
-                required
-                autoComplete="new-password"
+                autoComplete="current-password"
                 placeholder="••••••••"
                 className="input-base"
               />
             </Field>
 
-            <SubmitButton loading={loading}>Create account</SubmitButton>
+            <SubmitButton loading={loading}>Sign in</SubmitButton>
           </form>
 
           <Divider />
@@ -147,13 +102,13 @@ export default function RegisterPage() {
         </div>
 
         <p className="text-center text-sm" style={{ color: 'var(--fd-muted)' }}>
-          Already have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link
-            href="/auth/login"
+            href="/auth/register"
             className="font-semibold transition-opacity hover:opacity-80"
             style={{ color: 'var(--fd-accent)' }}
           >
-            Sign in
+            Create one
           </Link>
         </p>
       </div>

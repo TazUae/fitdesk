@@ -28,7 +28,7 @@ export default function NotFoundPage() {
           Page not found
         </h2>
         <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-          The page you're looking for doesn't exist or has been moved.
+          The page you&apos;re looking for doesn&apos;t exist or has been moved.
         </p>
       </div>
 

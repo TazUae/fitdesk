@@ -45,6 +45,35 @@ function toStatus(raw?: string): WhatsAppConnectionStatus {
   return 'not_connected'
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+function parseUnknownJsonArray(raw: string): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function parseUnknownJsonObject(raw: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return asRecord(parsed) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+function stringFromUnknown(v: unknown): string | undefined {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+  return undefined
+}
+
 function rowToConnection(row: typeof trainerWhatsAppConnection.$inferSelect): WhatsAppConnection {
   return {
     id: row.id,
@@ -257,24 +286,25 @@ export async function fetchWhatsAppConnectionStatus(trainerId: string): Promise<
     })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let instances: any[] = []
-  try {
-    instances = JSON.parse(instancesText)
-  } catch {
-    instances = []
-  }
-
-  const matched = instances.find(instance => instance?.name === current.instanceName)
+  const instances = parseUnknownJsonArray(instancesText)
+  const matched = instances.find((row): row is Record<string, unknown> => {
+    const rec = asRecord(row)
+    return rec !== undefined && stringFromUnknown(rec['name']) === current.instanceName
+  })
   if (matched) {
-    const status = toStatus(matched?.connectionStatus)
+    const setting = asRecord(matched['Setting'])
+    const instanceId =
+      stringFromUnknown(matched['id']) ??
+      stringFromUnknown(setting?.['instanceId']) ??
+      current.instanceId
+    const status = toStatus(stringFromUnknown(matched['connectionStatus']))
     return upsertConnection({
       trainerId,
       instanceName: current.instanceName,
-      instanceId: matched?.id ?? matched?.Setting?.instanceId ?? current.instanceId,
+      instanceId,
       status,
-      phoneNumber: matched?.number ?? current.phoneNumber,
-      displayName: matched?.profileName ?? current.displayName,
+      phoneNumber: stringFromUnknown(matched['number']) ?? current.phoneNumber,
+      displayName: stringFromUnknown(matched['profileName']) ?? current.displayName,
       qrCode: status === 'connected' ? undefined : current.qrCode,
       pairingCode: status === 'connected' ? undefined : current.pairingCode,
       lastError: undefined,
@@ -307,16 +337,11 @@ export async function fetchWhatsAppConnectionStatus(trainerId: string): Promise<
     })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let payload: any = {}
-  try {
-    payload = JSON.parse(text)
-  } catch {
-    payload = {}
-  }
-
-  const state = payload?.instance?.state ?? payload?.state ?? payload?.status
-  const status = toStatus(state)
+  const payload = parseUnknownJsonObject(text)
+  const instanceObj = asRecord(payload['instance'])
+  const stateRaw =
+    instanceObj?.['state'] ?? payload['state'] ?? payload['status']
+  const status = toStatus(stringFromUnknown(stateRaw))
 
   return upsertConnection({
     trainerId,
