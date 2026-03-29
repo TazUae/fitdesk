@@ -9,12 +9,20 @@ services:
     expose:
       - "3000"
 
+    # Dokploy/Compose can override the image CMD in some setups.
+    # Be explicit: Next.js standalone server entrypoint.
+    command: ["node", "server.js"]
+
     # Load all environment variables from .env file.
     # Never commit .env — see .env.example for required variables.
     env_file: .env
 
     # No host ports: Dokploy (or similar) attaches the reverse proxy to the
     # compose network and routes https://your-domain → container :3000 internally.
+
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
 
     volumes:
       # Persist the SQLite auth database across container restarts.
