@@ -46,6 +46,13 @@ services:
     networks:
       - dokploy-network
 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.fitdesk.rule=Host(`fit.zaidan-group.com`)
+      - traefik.http.routers.fitdesk.entrypoints=websecure
+      - traefik.http.routers.fitdesk.tls.certresolver=letsencrypt
+      - traefik.http.services.fitdesk.loadbalancer.server.port=3000
+
 volumes:
   db_data:
     driver: local
