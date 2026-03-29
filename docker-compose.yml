@@ -5,6 +5,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
 
+    # Tell Dokploy which internal container port to route to.
+    expose:
+      - "3000"
+
     # Load all environment variables from .env file.
     # Never commit .env — see .env.example for required variables.
     env_file: .env
