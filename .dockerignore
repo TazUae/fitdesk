@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+
+# Build artefacts — not needed in build context
+.next
+out
+build
+
+# Dependencies — installed fresh inside the container
+node_modules
+
+# Local environment files — NEVER send secrets to the build context
+.env
+.env.local
+.env.*.local
+
+# Local auth database — must not be baked into the image
+auth.db
+
+# Developer tooling
+.claude
+*.md
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# These are build instructions / project config that don't need to be
+# part of the Docker build context (image content is controlled by COPY)
+Dockerfile
+docker-compose.yml

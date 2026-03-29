@@ -1,0 +1,40 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+    # Load all environment variables from .env file.
+    # Never commit .env — see .env.example for required variables.
+    env_file: .env
+
+    ports:
+      # Bind to localhost only — the reverse proxy (Nginx/Caddy/Traefik) handles
+      # external TLS termination and forwards to this port.
+      # Change to "3000:3000" only if you want direct external access (not recommended).
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      # Persist the SQLite auth database across container restarts.
+      # In production with Turso this volume is unused — Better Auth will use
+      # the remote libsql URL from DATABASE_URL instead.
+      - db_data:/app/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Named volume — survives docker-compose down (use down -v to also remove it)
+volumes:
+  db_data:
+    driver: local

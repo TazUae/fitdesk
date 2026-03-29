@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FITDESK DESIGN TOKENS
+   Raw hex values — use directly in custom CSS or as var(--fd-*)
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --fd-bg:      #0F1117;
+  --fd-surface: #1A1D27;
+  --fd-card:    #21253A;
+  --fd-accent:  #E8C547;
+  --fd-text:    #F0EDE6;
+  --fd-muted:   #8A8FA8;
+  --fd-border:  #2E3248;
+  --fd-green:   #4ECBA0;
+  --fd-red:     #E85C6A;
+  --fd-blue:    #5B9CF6;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SHADCN / TAILWIND VARIABLE MAPPING
+   Values are in HSL channel format (no wrapper) so Tailwind can compose them:
+   hsl(var(--background)), hsl(var(--primary)), etc.
+   ───────────────────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    --background:           225 21% 7%;       /* #0F1117 */
+    --foreground:           42  25% 92%;      /* #F0EDE6 */
+
+    --card:                 230 27% 18%;      /* #21253A */
+    --card-foreground:      42  25% 92%;
+
+    --popover:              226 20% 13%;      /* #1A1D27 */
+    --popover-foreground:   42  25% 92%;
+
+    --primary:              47  78% 59%;      /* #E8C547 accent gold */
+    --primary-foreground:   225 21% 7%;
+
+    --secondary:            226 20% 13%;      /* #1A1D27 surface */
+    --secondary-foreground: 42  25% 92%;
+
+    --muted:                231 22% 23%;      /* #2E3248 */
+    --muted-foreground:     230 15% 60%;      /* #8A8FA8 */
+
+    --accent:               47  78% 59%;      /* #E8C547 */
+    --accent-foreground:    225 21% 7%;
+
+    --destructive:          354 75% 64%;      /* #E85C6A */
+    --destructive-foreground: 42 25% 92%;
+
+    --border:               231 22% 23%;      /* #2E3248 */
+    --input:                226 20% 13%;      /* #1A1D27 */
+    --ring:                 47  78% 59%;      /* accent for focus rings */
+
+    --radius: 0.75rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BASE STYLES
+   ───────────────────────────────────────────────────────────────────────── */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    @apply border-border box-border;
+  }
+
+  html {
+    /* Prevent iOS font size inflation on orientation change */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Smooth anchor scrolling */
+    scroll-behavior: smooth;
+    /* Use dynamic viewport height on mobile (avoids address-bar overflow) */
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--fd-bg);
+    color: var(--fd-text);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    min-height: 100dvh;
+    @apply antialiased;
+
+    /* Mobile tap highlight removal */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+
+    /* iPhone notch / home bar padding */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Text selection — accent gold on dark bg */
+  ::selection {
+    background-color: var(--fd-accent);
+    color: var(--fd-bg);
+  }
+
+  /* Thin scrollbar on desktop */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--fd-border);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fd-muted);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COMPONENT UTILITIES
+   Reusable class names shared across form inputs throughout the app.
+   ───────────────────────────────────────────────────────────────────────── */
+@layer components {
+  .input-base {
+    width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid var(--fd-border);
+    background-color: var(--fd-card);
+    color: var(--fd-text);
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .input-base::placeholder {
+    color: var(--fd-muted);
+  }
+
+  .input-base:focus {
+    border-color: var(--fd-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fd-accent) 20%, transparent);
+  }
+}

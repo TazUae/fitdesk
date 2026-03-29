@@ -1,0 +1,37 @@
+# Claude Code — local permissions
+.claude/settings.local.json
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# Production build
+build/
+
+# Local SQLite (e.g. Better Auth dev)
+auth.db
+
+# Environment files — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
