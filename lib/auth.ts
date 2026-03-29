@@ -15,10 +15,22 @@ import { createTrainerForUser } from './trainer'
  *   npx better-auth generate   → outputs SQL
  *   npx better-auth migrate    → applies it to DATABASE_URL
  */
-const secret = process.env.BETTER_AUTH_SECRET
-if (!secret || secret.length < 32) {
+/**
+ * During `next build`, Next sets NEXT_PHASE=phase-production-build and evaluates
+ * server modules while collecting page data — often without deployment secrets
+ * (e.g. Docker build). Use a dummy secret only in that phase; runtime must set
+ * BETTER_AUTH_SECRET (e.g. in Dokploy / compose).
+ */
+function resolveAuthSecret(): string {
+  const s = process.env.BETTER_AUTH_SECRET
+  if (s && s.length >= 32) return s
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return 'build-only-placeholder-not-for-production-min-32-chars'
+  }
   throw new Error('BETTER_AUTH_SECRET must be set and at least 32 chars')
 }
+
+const secret = resolveAuthSecret()
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
