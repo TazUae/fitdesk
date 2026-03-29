@@ -35,7 +35,13 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# Named volume — survives docker-compose down (use down -v to also remove it)
+    networks:
+      - dokploy-network
+
 volumes:
   db_data:
     driver: local
+
+networks:
+  dokploy-network:
+    external: true
