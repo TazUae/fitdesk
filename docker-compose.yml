@@ -9,11 +9,8 @@ services:
     # Never commit .env — see .env.example for required variables.
     env_file: .env
 
-    ports:
-      # Bind to localhost only — the reverse proxy (Nginx/Caddy/Traefik) handles
-      # external TLS termination and forwards to this port.
-      # Change to "3000:3000" only if you want direct external access (not recommended).
-      - "127.0.0.1:3000:3000"
+    # No host ports: Dokploy (or similar) attaches the reverse proxy to the
+    # compose network and routes https://your-domain → container :3000 internally.
 
     volumes:
       # Persist the SQLite auth database across container restarts.
