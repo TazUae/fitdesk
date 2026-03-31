@@ -41,6 +41,10 @@ export async function generateDraftMessage(
 ): Promise<ActionResult<string>> {
   const session = await auth.api.getSession({ headers: headers() })
   if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const sessionPhone =
+    typeof (session.user as { phone?: string | null }).phone === 'string'
+      ? (session.user as { phone?: string | null }).phone
+      : undefined
 
   let draftTrainerId: string
   try {
@@ -48,7 +52,7 @@ export async function generateDraftMessage(
       userId: session.user.id,
       name: session.user.name,
       email: session.user.email,
-      phone: session.user.phone,
+      phone: sessionPhone,
     })
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }
@@ -106,6 +110,10 @@ export async function sendMessage(opts: {
 }): Promise<ActionResult<MessageLog>> {
   const session = await auth.api.getSession({ headers: headers() })
   if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const sessionPhone =
+    typeof (session.user as { phone?: string | null }).phone === 'string'
+      ? (session.user as { phone?: string | null }).phone
+      : undefined
 
   let trainerId: string
   try {
@@ -113,7 +121,7 @@ export async function sendMessage(opts: {
       userId: session.user.id,
       name: session.user.name,
       email: session.user.email,
-      phone: session.user.phone,
+      phone: sessionPhone,
     })
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }

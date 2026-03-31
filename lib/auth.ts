@@ -81,7 +81,7 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        after: async (user) => {
+        after: async (user, _context) => {
           try {
             const activeProvisioning = await db.query.workspaceProvisioning.findFirst({
               where: and(
@@ -91,7 +91,7 @@ export const auth = betterAuth({
               orderBy: [desc(workspaceProvisioning.createdAt)],
             })
 
-            if (activeProvisioning) return activeProvisioning
+            if (activeProvisioning) return
 
             const workspaceName = resolveWorkspaceName(user.name, user.email)
             const slug = slugifyWorkspaceName(workspaceName)
