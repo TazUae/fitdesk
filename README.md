@@ -61,6 +61,7 @@ Copy `.env.example` to `.env` and fill in the required values.
 |---|---|
 | `BETTER_AUTH_SECRET` | Random 32+ char secret. Generate: `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | Full public URL of the app, e.g. `https://fitdesk.yourdomain.com` |
+| `INTERNAL_API_URL` | Internal same-container URL for server-side self-calls (recommended: `http://127.0.0.1:3000`) |
 | `DATABASE_URL` | LibSQL connection string. Local: `file:./auth.db`. Docker: `file:/app/data/auth.db`. Turso: `libsql://your-db.turso.io` |
 
 ### ERPNext (required for all business data)
@@ -87,6 +88,7 @@ To generate ERPNext keys: ERPNext → Settings → Users → select user → API
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | Google sign-in hidden from login page |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | — |
 | `DATABASE_AUTH_TOKEN` | Turso auth token (only needed with a remote libsql URL) | — |
+| `NEXT_PUBLIC_API_URL` | Browser API base path for internal calls (`/api`) | Defaults to same-origin relative API path |
 
 ### Trainer ERP ID resolution
 

@@ -7,6 +7,16 @@ type SessionResponse = {
   user: { id: string; email: string; name: string }
 }
 
+function internalApiOrigin(): string {
+  const raw =
+    process.env.INTERNAL_API_URL ??
+    process.env.BETTER_AUTH_INTERNAL_URL ??
+    'http://127.0.0.1:3000'
+  // Internal self-calls should stay on plain HTTP inside the container/network.
+  if (raw.startsWith('https://')) return 'http://127.0.0.1:3000'
+  return raw
+}
+
 /**
  * Route protection middleware.
  *
@@ -18,12 +28,15 @@ type SessionResponse = {
  * Runs on the Edge runtime (no DB access, pure HTTP).
  */
 export async function middleware(req: NextRequest) {
+  const baseURL = internalApiOrigin()
+  const cookie = req.headers.get('cookie') ?? ''
+
   const { data: session } = await betterFetch<SessionResponse>(
     '/api/auth/get-session',
     {
-      baseURL: req.nextUrl.origin,
+      baseURL,
       headers: {
-        cookie: req.headers.get('cookie') ?? '',
+        cookie,
       },
     },
   )
@@ -35,17 +48,22 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  const { data: provisioning } = await betterFetch<{ status: string | null }>(
-    '/api/provisioning/status',
-    {
-      baseURL: req.nextUrl.origin,
-      headers: {
-        cookie: req.headers.get('cookie') ?? '',
+  try {
+    const { data: provisioning } = await betterFetch<{ status: string | null }>(
+      '/api/provisioning/status',
+      {
+        baseURL,
+        headers: { cookie },
       },
-    },
-  )
+    )
 
-  if (provisioning?.status !== 'completed') {
+    if (provisioning?.status !== 'completed') {
+      return NextResponse.redirect(new URL('/onboarding', req.url))
+    }
+  } catch (err) {
+    // Avoid edge runtime crashes when internal API is temporarily unavailable.
+    // Users can still authenticate and recover from onboarding route.
+    console.error('[middleware] provisioning status check failed', err)
     return NextResponse.redirect(new URL('/onboarding', req.url))
   }
 
