@@ -1,13 +1,17 @@
-# ─── Stage 1: Install dependencies ───────────────────────────────────────────
-FROM node:20-alpine AS deps
+# Use AWS Public ECR Docker Hub mirror to reduce pull failures
+# caused by Docker Hub auth/network path issues in some environments.
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:20-alpine
+FROM ${NODE_BASE_IMAGE} AS base
 WORKDIR /app
+
+# ─── Stage 1: Install dependencies ───────────────────────────────────────────
+FROM base AS deps
 
 COPY package.json package-lock.json ./
 RUN npm ci --frozen-lockfile
 
 # ─── Stage 2: Build ───────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
-WORKDIR /app
+FROM base AS builder
 
 # Disable Next.js telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -19,8 +23,7 @@ COPY . .
 RUN npm run build
 
 # ─── Stage 3: Production runtime ──────────────────────────────────────────────
-FROM node:20-alpine AS runner
-WORKDIR /app
+FROM base AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
