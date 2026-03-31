@@ -1,6 +1,6 @@
-# Use AWS Public ECR Docker Hub mirror to reduce pull failures
-# caused by Docker Hub auth/network path issues in some environments.
-ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:20-slim
+# Use Docker Hub official Node image by default.
+# You can override NODE_BASE_IMAGE at build time if needed.
+ARG NODE_BASE_IMAGE=node:20-slim
 FROM ${NODE_BASE_IMAGE} AS base
 WORKDIR /app
 
