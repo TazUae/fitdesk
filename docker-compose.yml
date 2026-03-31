@@ -10,8 +10,8 @@ services:
       - "3000"
 
     # Dokploy/Compose can override the image CMD in some setups.
-    # Be explicit: Next.js standalone server entrypoint.
-    command: ["node", "server.js"]
+    # Be explicit: run idempotent schema migration before starting the app.
+    command: ["node", "scripts/start-with-migrations.mjs"]
 
     # Load all environment variables from .env file.
     # Never commit .env — see .env.example for required variables.

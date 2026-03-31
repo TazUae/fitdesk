@@ -37,8 +37,8 @@ npm install
 cp .env.example .env
 # Edit .env and fill in values — see Environment Variables below
 
-# 3. Create the auth database
-npx better-auth migrate
+# 3. Create the auth database schema
+npm run migrate:auth
 
 # 4. Start the dev server
 npm run dev
@@ -139,6 +139,10 @@ docker compose down -v
 
 The `docker-compose.yml` binds to `127.0.0.1:3000` only. A reverse proxy handles
 external TLS termination.
+
+On container startup, FitDesk runs an idempotent auth migration (`scripts/migrate.mjs`)
+before booting the Next.js server, so Better Auth tables are created automatically
+for SQLite (`file:/app/data/auth.db`) and remote LibSQL/Turso URLs.
 
 ### Database persistence
 
