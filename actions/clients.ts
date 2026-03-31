@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { createClient, getClientById, getClients, updateClient } from '@/lib/erpnext/client'
+import { createClient, getClientById, getClients, updateClient } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import type { ActionResult, Client } from '@/types'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'

@@ -5,8 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { addInvoice } from '@/actions/invoices'
-import { fetchClients } from '@/actions/clients'
+import { createInvoice, getClients } from '@/lib/business-data'
 import type { Client } from '@/types'
 
 interface LineItem {
@@ -31,7 +30,7 @@ function NewInvoiceForm() {
   const defaultDue = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
 
   useEffect(() => {
-    fetchClients().then(res => {
+    getClients().then(res => {
       if (res.success) setClients(res.data)
     })
   }, [])
@@ -63,7 +62,7 @@ function NewInvoiceForm() {
     }
 
     startTransition(async () => {
-      const result = await addInvoice({
+      const result = await createInvoice({
         customer: clientId,
         posting_date: today,
         due_date: fd.get('due_date') as string,

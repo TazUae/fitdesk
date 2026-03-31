@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model WorkspaceProvisioning {
+  id            String    @id @default(cuid())
+  userId        String
+  slug          String
+  tenantId      String?
+  jobId         String
+  status        String
+  failureReason String?
+  lastSyncedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([jobId])
+}

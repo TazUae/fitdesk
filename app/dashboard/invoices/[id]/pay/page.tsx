@@ -1,11 +1,11 @@
 import { notFound } from 'next/navigation'
-import { fetchInvoiceById } from '@/actions/invoices'
+import { getInvoiceById } from '@/lib/business-data'
 import { RecordPaymentForm } from './RecordPaymentForm'
 
 type Props = { params: { id: string } }
 
 export default async function PayPage({ params }: Props) {
-  const result = await fetchInvoiceById(params.id)
+  const result = await getInvoiceById(params.id)
   if (!result.success) notFound()
 
   const invoice = result.data

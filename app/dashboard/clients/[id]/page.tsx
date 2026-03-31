@@ -1,9 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
-import { fetchClientById } from '@/actions/clients'
-import { fetchSessions } from '@/actions/sessions'
-import { fetchInvoices } from '@/actions/invoices'
+import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
@@ -51,9 +49,9 @@ type Props = { params: { id: string } }
 
 export default async function ClientDetailPage({ params }: Props) {
   const [clientResult, sessionsResult, invoicesResult] = await Promise.all([
-    fetchClientById(params.id),
-    fetchSessions({ clientId: params.id }),
-    fetchInvoices({ clientId: params.id }),
+    getClientById(params.id),
+    getSessions({ clientId: params.id }),
+    getInvoices({ clientId: params.id }),
   ])
 
   if (!clientResult.success) notFound()

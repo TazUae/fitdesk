@@ -7,7 +7,7 @@ import {
   createSession,
   getSessions,
   markSessionComplete,
-} from '@/lib/erpnext/client'
+} from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import type { ActionResult, Session } from '@/types'
 import type { CreateSessionPayload } from '@/lib/erpnext/types'

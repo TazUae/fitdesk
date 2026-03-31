@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { addClient } from '@/actions/clients'
+import { createClient } from '@/lib/business-data'
 
 export default function NewClientPage() {
   const router = useRouter()
@@ -18,7 +18,7 @@ export default function NewClientPage() {
     const fd = new FormData(e.currentTarget)
 
     startTransition(async () => {
-      const result = await addClient({
+      const result = await createClient({
         first_name: fd.get('first_name') as string,
         last_name: (fd.get('last_name') as string) || undefined,
         mobile_no: (fd.get('mobile_no') as string) || undefined,

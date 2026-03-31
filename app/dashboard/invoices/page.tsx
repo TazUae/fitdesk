@@ -1,11 +1,10 @@
-import { fetchClients }  from '@/actions/clients'
-import { fetchInvoices } from '@/actions/invoices'
+import { getClients, getInvoices } from '@/lib/business-data'
 import { InvoicesView }  from '@/components/modules/InvoicesView'
 
 export default async function InvoicesPage() {
   const [invoicesResult, clientsResult] = await Promise.all([
-    fetchInvoices(),
-    fetchClients(),
+    getInvoices(),
+    getClients(),
   ])
 
   const activeClients = clientsResult.success

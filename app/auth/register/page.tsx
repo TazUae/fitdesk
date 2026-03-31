@@ -53,11 +53,11 @@ export default function RegisterPage() {
     }
 
     toast.success('Account created! Signing you in…')
-    router.replace('/dashboard')
+    router.replace('/onboarding')
   }
 
   async function handleGoogle() {
-    await signIn.social({ provider: 'google', callbackURL: '/dashboard' })
+    await signIn.social({ provider: 'google', callbackURL: '/onboarding' })
   }
 
   return (

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { editClient, fetchClientById } from '@/actions/clients'
+import { getClientById, updateClient } from '@/lib/business-data'
 import type { Client } from '@/types'
 
 type Props = { params: { id: string } }
@@ -19,7 +19,7 @@ export default function EditClientPage({ params }: Props) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchClientById(params.id).then(result => {
+    getClientById(params.id).then(result => {
       if (result.success) setClient(result.data)
       else setFetchError(result.error)
       setLoading(false)
@@ -32,7 +32,7 @@ export default function EditClientPage({ params }: Props) {
     const fd = new FormData(e.currentTarget)
 
     startTransition(async () => {
-      const result = await editClient(params.id, {
+      const result = await updateClient(params.id, {
         first_name: fd.get('first_name') as string,
         last_name: (fd.get('last_name') as string) || undefined,
         mobile_no: (fd.get('mobile_no') as string) || undefined,

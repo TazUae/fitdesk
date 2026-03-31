@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { recordPayment } from '@/actions/invoices'
+import { recordPayment } from '@/lib/business-data'
 import type { Invoice } from '@/types'
 
 interface RecordPaymentFormProps {

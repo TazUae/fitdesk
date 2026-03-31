@@ -1,5 +1,5 @@
 import { notFound }       from 'next/navigation'
-import { fetchClientById } from '@/actions/clients'
+import { getClientById } from '@/lib/business-data'
 import { getMessages }     from '@/actions/messages'
 import { MessagesView }    from '@/components/modules/MessagesView'
 
@@ -10,7 +10,7 @@ interface Props {
 
 export default async function MessagesPage({ params, searchParams }: Props) {
   const [clientResult, messagesResult] = await Promise.all([
-    fetchClientById(params.clientId),
+    getClientById(params.clientId),
     getMessages(params.clientId),
   ])
 

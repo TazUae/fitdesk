@@ -84,3 +84,19 @@ export const trainerWhatsAppConnection = sqliteTable('trainer_whatsapp_connectio
   createdAt:           integer('createdAt', { mode: 'timestamp' }).notNull(),
   updatedAt:           integer('updatedAt', { mode: 'timestamp' }).notNull(),
 })
+
+/**
+ * Tracks Control Plane workspace provisioning jobs per user.
+ */
+export const workspaceProvisioning = sqliteTable('WorkspaceProvisioning', {
+  id:            text('id').primaryKey().notNull(),
+  userId:        text('userId').notNull(),
+  slug:          text('slug').notNull(),
+  tenantId:      text('tenantId'),
+  jobId:         text('jobId').notNull(),
+  status:        text('status').notNull(),
+  failureReason: text('failureReason'),
+  lastSyncedAt:  text('lastSyncedAt'),
+  createdAt:     text('createdAt').notNull(),
+  updatedAt:     text('updatedAt').notNull(),
+})

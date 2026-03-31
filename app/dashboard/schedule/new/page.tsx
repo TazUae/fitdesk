@@ -5,8 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { addSession } from '@/actions/sessions'
-import { fetchClients } from '@/actions/clients'
+import { bookSession, getClients } from '@/lib/business-data'
 import type { Client } from '@/types'
 
 function NewSessionForm() {
@@ -21,7 +20,7 @@ function NewSessionForm() {
   const today = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
-    fetchClients().then(res => {
+    getClients().then(res => {
       if (res.success) setClients(res.data)
     })
   }, [])
@@ -40,7 +39,7 @@ function NewSessionForm() {
     if (!date) { setError('Please select a date'); return }
 
     startTransition(async () => {
-      const result = await addSession({
+      const result = await bookSession({
         client: clientId,
         session_date: date,
         session_time: rawTime ? `${rawTime}:00` : undefined,

@@ -35,6 +35,20 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  const { data: provisioning } = await betterFetch<{ status: string | null }>(
+    '/api/provisioning/status',
+    {
+      baseURL: req.nextUrl.origin,
+      headers: {
+        cookie: req.headers.get('cookie') ?? '',
+      },
+    },
+  )
+
+  if (provisioning?.status !== 'completed') {
+    return NextResponse.redirect(new URL('/onboarding', req.url))
+  }
+
   return NextResponse.next()
 }
 

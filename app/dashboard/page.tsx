@@ -1,8 +1,6 @@
 import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
-import { fetchClients }  from '@/actions/clients'
-import { fetchSessions } from '@/actions/sessions'
-import { fetchInvoices } from '@/actions/invoices'
+import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
 import type { Client, Session, Invoice } from '@/types'
 
@@ -31,9 +29,9 @@ export default async function DashboardPage() {
   // Actions resolve the trainer ID from the auth session internally.
   // Promise.allSettled so a single ERP failure doesn't blank the whole dashboard.
   const [clientsResult, sessionsResult, invoicesResult] = await Promise.allSettled([
-    fetchClients(),
-    fetchSessions(),
-    fetchInvoices(),
+    getClients(),
+    getSessions(),
+    getInvoices(),
   ])
 
   const clients: Client[] | null =

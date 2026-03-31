@@ -1,5 +1,4 @@
-import { fetchClients }  from '@/actions/clients'
-import { fetchSessions } from '@/actions/sessions'
+import { getClients, getSessions } from '@/lib/business-data'
 import { ScheduleView }  from '@/components/modules/ScheduleView'
 
 /**
@@ -14,8 +13,8 @@ import { ScheduleView }  from '@/components/modules/ScheduleView'
  */
 export default async function SchedulePage() {
   const [sessionsResult, clientsResult] = await Promise.all([
-    fetchSessions(),
-    fetchClients(),
+    getSessions(),
+    getClients(),
   ])
 
   const activeClients = clientsResult.success

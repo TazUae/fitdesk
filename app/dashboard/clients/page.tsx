@@ -1,4 +1,4 @@
-import { fetchClients } from '@/actions/clients'
+import { getClients } from '@/lib/business-data'
 import { ClientsView }  from '@/components/modules/ClientsView'
 
 /**
@@ -11,7 +11,7 @@ import { ClientsView }  from '@/components/modules/ClientsView'
  *      add-client bottom sheet.
  */
 export default async function ClientsPage() {
-  const result = await fetchClients()
+  const result = await getClients()
 
   return (
     <ClientsView

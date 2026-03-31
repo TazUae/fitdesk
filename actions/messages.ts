@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { getClientById, getInvoiceById } from '@/lib/erpnext/client'
+import { getClientById, getInvoiceById } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { sendWhatsAppMessage } from '@/lib/evolution'
 import { generateMessage } from '@/lib/claude'
