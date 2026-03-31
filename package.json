@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "migrate:auth": "node scripts/migrate.mjs"
+    "migrate:auth": "node scripts/migrate.mjs",
+    "migrate:app": "node scripts/migrate-app.mjs",
+    "migrate": "npm run migrate:auth && npm run migrate:app"
   },
   "dependencies": {
     "@libsql/client": "^0.17.2",

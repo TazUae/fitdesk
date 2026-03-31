@@ -20,7 +20,10 @@ function runNodeScript(args, label) {
 
 async function main() {
   console.log('[startup] running auth schema migration')
-  await runNodeScript(['scripts/migrate.mjs'], 'migration')
+  await runNodeScript(['scripts/migrate.mjs'], 'auth migration')
+
+  console.log('[startup] running app schema migration')
+  await runNodeScript(['scripts/migrate-app.mjs'], 'app migration')
 
   const entrypoint = process.env.FITDESK_SERVER_ENTRYPOINT ?? 'server.js'
   console.log(`[startup] starting app via ${entrypoint}`)

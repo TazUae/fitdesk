@@ -1,7 +1,8 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 // ─── Better Auth tables ───────────────────────────────────────────────────────
-// These must match the tables created by scripts/migrate.mjs exactly.
+// These must match the tables created by scripts/migrate.mjs and
+// scripts/migrate-app.mjs exactly.
 // Column names are camelCase as expected by the Drizzle adapter.
 
 export const user = sqliteTable('user', {
