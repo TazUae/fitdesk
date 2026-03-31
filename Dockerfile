@@ -1,6 +1,6 @@
 # Use AWS Public ECR Docker Hub mirror to reduce pull failures
 # caused by Docker Hub auth/network path issues in some environments.
-ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:20-alpine
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:20-slim
 FROM ${NODE_BASE_IMAGE} AS base
 WORKDIR /app
 
@@ -27,6 +27,10 @@ FROM base AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 # Bind to all interfaces so Docker can route traffic in.
 # Without HOSTNAME=0.0.0.0 the standalone server binds localhost-only.
