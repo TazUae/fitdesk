@@ -26,6 +26,8 @@ export default async function SchedulePage({
 
   const clients         = clientsResult.success ? clientsResult.data : []
   const initialClientId = searchParams.client ?? searchParams.clientId
+  const uiEngine: 'custom' | 'schedulex' =
+    process.env.SCHEDULER_UI === 'schedulex' ? 'schedulex' : 'custom'
 
   if (!configResult.success) {
     return (
@@ -42,6 +44,7 @@ export default async function SchedulePage({
       trainerConfig={configResult.data}
       error={fdResult.success ? undefined : fdResult.message}
       initialClientId={initialClientId}
+      uiEngine={uiEngine}
     />
   )
 }

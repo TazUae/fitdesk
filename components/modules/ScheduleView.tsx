@@ -59,6 +59,8 @@ interface ScheduleViewProps {
   error?:           string
   /** From `/dashboard/schedule?client=` — opens planner with client pre-selected */
   initialClientId?: string
+  /** Phase 3: 'schedulex' renders SchedulerXAdapter instead of CalendarView */
+  uiEngine?:        'custom' | 'schedulex'
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ export function ScheduleView({
   trainerConfig,
   error,
   initialClientId,
+  uiEngine = 'custom',
 }: ScheduleViewProps) {
   const [sessionState,       setSessionState]       = useState<FDSession[]>(sessions)
   const [selectedSlots,      setSelectedSlots]      = useState<Date[]>([])
@@ -199,14 +202,28 @@ export function ScheduleView({
               boxShadow: '0 28px 70px rgba(6,9,18,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
             }}
           >
-            <CalendarView
-              sessions={calendarSessions}
-              weekOnly
-              selectedSlots={selectedSlots}
-              onSlotsChange={setSelectedSlots}
-              onSessionClick={handleSessionClick}
-              onRangeSelect={handleRangeSelect}
-            />
+            {uiEngine === 'schedulex'
+              ? (
+                // Phase 3: replace with <SchedulerXAdapter ... />
+                <CalendarView
+                  sessions={calendarSessions}
+                  weekOnly
+                  selectedSlots={selectedSlots}
+                  onSlotsChange={setSelectedSlots}
+                  onSessionClick={handleSessionClick}
+                  onRangeSelect={handleRangeSelect}
+                />
+              )
+              : (
+                <CalendarView
+                  sessions={calendarSessions}
+                  weekOnly
+                  selectedSlots={selectedSlots}
+                  onSlotsChange={setSelectedSlots}
+                  onSessionClick={handleSessionClick}
+                  onRangeSelect={handleRangeSelect}
+                />
+              )}
           </div>
 
           <p className="mt-3 text-xs" style={{ color: 'var(--fd-muted)' }}>
