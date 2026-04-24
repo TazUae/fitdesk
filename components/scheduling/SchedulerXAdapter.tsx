@@ -16,10 +16,16 @@ interface SchedulerXAdapterProps {
   selectedSlots:  Date[]
   onSlotsChange:  (slots: Date[]) => void
   onSessionClick: (session: CalendarSession) => void
-  /** Accepted; drag-to-create range selection wired in Phase 5. */
   onRangeSelect:  (range: QuickAddRange) => void
   timezone:       string
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DAY_START_MIN     = 9 * 60
+const DAY_END_MIN       = 21 * 60
+const DAY_DURATION_MIN  = DAY_END_MIN - DAY_START_MIN
+const DRAG_THRESHOLD_PX = 20
 
 // ─── Status → Schedule-X calendar mapping ────────────────────────────────────
 
@@ -80,6 +86,22 @@ function toBackgroundEvents(slots: Date[], tz: string): BackgroundEvent[] {
   })
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function formatHHmm(minutes: number): string {
+  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`
+}
+
+/** Map a viewport Y-coordinate to a snapped 30-min offset inside a day column rect. */
+function yToMinutes(y: number, rect: DOMRect): number {
+  const clamped = Math.max(0, Math.min(y - rect.top, rect.height))
+  const raw     = DAY_START_MIN + (clamped / rect.height) * DAY_DURATION_MIN
+  const snapped = Math.round(raw / 30) * 30
+  return Math.max(DAY_START_MIN, Math.min(DAY_END_MIN, snapped))
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SchedulerXAdapter({
@@ -87,16 +109,20 @@ export function SchedulerXAdapter({
   selectedSlots,
   onSlotsChange,
   onSessionClick,
-  onRangeSelect: _onRangeSelect,
+  onRangeSelect,
   timezone,
 }: SchedulerXAdapterProps) {
   const sessionsRef       = useRef(sessions)
   const onSessionClickRef = useRef(onSessionClick)
   const onSlotsChangeRef  = useRef(onSlotsChange)
+  const onRangeSelectRef  = useRef(onRangeSelect)
+  // Set by drag-end so the click that follows is suppressed
+  const wasDragRef        = useRef(false)
 
   useEffect(() => { sessionsRef.current       = sessions       }, [sessions])
   useEffect(() => { onSessionClickRef.current = onSessionClick }, [onSessionClick])
   useEffect(() => { onSlotsChangeRef.current  = onSlotsChange  }, [onSlotsChange])
+  useEffect(() => { onRangeSelectRef.current  = onRangeSelect  }, [onRangeSelect])
 
   const eventsService = useMemo(() => createEventsServicePlugin(), [])
 
@@ -112,7 +138,46 @@ export function SchedulerXAdapter({
           const session = sessionsRef.current.find(s => sxId(s) === String(event.id))
           if (session) onSessionClickRef.current(session)
         },
+        onMouseDownDateTime: (startDT, downEvent) => {
+          const startY   = downEvent.clientY
+          const anchorEl = downEvent.target instanceof Element ? downEvent.target : null
+
+          const handleUp = (upEvent: MouseEvent) => {
+            const dy = upEvent.clientY - startY
+            if (Math.abs(dy) < DRAG_THRESHOLD_PX) return
+
+            const atUp     = document.elementFromPoint(upEvent.clientX, upEvent.clientY)
+            const columnEl = atUp?.closest<HTMLElement>('[data-time-grid-date]') ?? null
+            if (!columnEl) return
+
+            const columnDate = columnEl.getAttribute('data-time-grid-date')
+            if (!columnDate) return
+
+            const startDateStr = startDT.toPlainDate().toString()
+            if (columnDate !== startDateStr) return   // cross-day drags not supported
+
+            const startMin = startDT.hour * 60 + startDT.minute
+            const endMin   = yToMinutes(upEvent.clientY, columnEl.getBoundingClientRect())
+            const [lo, hi] = startMin < endMin ? [startMin, endMin] : [endMin, startMin]
+            if (hi - lo < 30) return
+
+            wasDragRef.current = true
+
+            onRangeSelectRef.current({
+              date:       columnDate,
+              startTime:  formatHHmm(lo),
+              endTime:    formatHHmm(hi),
+              anchorRect: (anchorEl ?? columnEl).getBoundingClientRect(),
+            })
+          }
+
+          document.addEventListener('mouseup', handleUp, { once: true })
+        },
         onClickDateTime: (dateTime) => {
+          if (wasDragRef.current) {
+            wasDragRef.current = false
+            return
+          }
           const slot = new Date(dateTime.toInstant().epochMilliseconds)
           onSlotsChangeRef.current([slot])
         },
