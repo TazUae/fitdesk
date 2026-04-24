@@ -7,6 +7,7 @@ import { listFDSessionsAction } from '@/actions/schedulingActions'
 import { Avatar } from '@/components/modules/Avatar'
 import { BookingPanel } from '@/components/scheduling/BookingPanel'
 import { CalendarView, type CalendarSession, type QuickAddRange } from '@/components/scheduling/CalendarView'
+import { SchedulerXAdapter } from '@/components/scheduling/SchedulerXAdapter'
 import { QuickAddPopover } from '@/components/scheduling/QuickAddPopover'
 import { SessionDetailsSheet } from '@/components/scheduling/SessionDetailsSheet'
 import { MobileShell } from '@/components/ui/MobileShell'
@@ -204,14 +205,13 @@ export function ScheduleView({
           >
             {uiEngine === 'schedulex'
               ? (
-                // Phase 3: replace with <SchedulerXAdapter ... />
-                <CalendarView
+                <SchedulerXAdapter
                   sessions={calendarSessions}
-                  weekOnly
                   selectedSlots={selectedSlots}
                   onSlotsChange={setSelectedSlots}
                   onSessionClick={handleSessionClick}
                   onRangeSelect={handleRangeSelect}
+                  timezone={trainerConfig.timezone}
                 />
               )
               : (
