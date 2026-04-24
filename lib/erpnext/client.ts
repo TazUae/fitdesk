@@ -12,32 +12,28 @@
  * ERPNext field names. All normalization happens here.
  */
 
+import { SignJWT } from 'jose'
 import type {
   Client,
-  ClientStatus,
   Invoice,
   InvoiceStatus,
   Payment,
   PaymentProvider,
-  Session,
-  SessionStatus,
 } from '@/types'
 
 import type {
   CreateClientPayload,
   CreateInvoicePayload,
   CreatePaymentEntryPayload,
-  CreateSessionPayload,
-  CreateTrainerPayload,
   ERPClient,
   ERPDocResponse,
   ERPInvoice,
   ERPListResponse,
   ERPPaymentEntry,
-  ERPSession,
-  ERPTrainer,
   UpdateClientPayload,
 } from './types'
+
+import { getTenantContext } from '@/lib/tenant/context'
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -49,29 +45,13 @@ import type {
  * before going live and update if you've named them differently.
  */
 const DOCTYPE = {
-  /** Custom DocType — e.g. "Client", "Customer", or "Contact". */
-  CLIENT: 'Client',
-  /**
-   * Custom DocType for training sessions.
-   * TODO: confirm name in your ERPNext instance (e.g. "PT Session").
-   */
-  SESSION: 'PT Session',
+  /** Standard ERPNext Customer DocType — extended with FitDesk custom fields. */
+  CLIENT: 'Customer',
   /** Standard Frappe — do not change. */
   INVOICE: 'Sales Invoice',
   /** Standard Frappe — do not change. */
   PAYMENT: 'Payment Entry',
-  /**
-   * Custom DocType for trainer records.
-   * TODO: confirm name in your ERPNext instance (e.g. "Trainer").
-   */
-  TRAINER: 'Trainer',
 } as const
-
-// ─── Environment ──────────────────────────────────────────────────────────────
-
-const BASE_URL   = process.env.ERPNEXT_BASE_URL
-const API_KEY    = process.env.ERPNEXT_API_KEY
-const API_SECRET = process.env.ERPNEXT_API_SECRET
 
 // ─── Error class ─────────────────────────────────────────────────────────────
 
@@ -88,6 +68,15 @@ export class ERPNextError extends Error {
 }
 
 // ─── Base HTTP wrapper ────────────────────────────────────────────────────────
+//
+// All ERP calls route through the Control Plane's DocType proxy instead of
+// reaching ERPNext directly. The Control Plane:
+//   1. Validates the short-lived JWT carrying tenantId
+//   2. Resolves the tenant's stored ERP site URL and API credentials
+//   3. Forwards to Frappe's /api/resource/:doctype endpoint
+//
+// This keeps ERPNext credentials server-side in the Control Plane only.
+// FitDesk holds only FITDESK_JWT_SECRET (a symmetric key shared with the CP).
 
 type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -99,24 +88,51 @@ interface FetchOptions {
   params?: Record<string, string>
 }
 
+async function signTenantJwt(tenantId: string): Promise<string> {
+  const rawSecret = process.env.FITDESK_JWT_SECRET
+  if (!rawSecret) {
+    throw new ERPNextError(
+      503, 'Not Configured', '',
+      'Set FITDESK_JWT_SECRET in your environment to enable ERP proxy calls.',
+    )
+  }
+  const secret = new TextEncoder().encode(rawSecret)
+  return new SignJWT({ tenantId })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(secret)
+}
+
 /**
- * Authenticated HTTP wrapper for all ERPNext REST calls.
+ * Authenticated HTTP wrapper — routes all ERP REST calls through the
+ * Control Plane DocType proxy at /api/erp/doctype/*.
  *
- * - Always server-side (no NEXT_PUBLIC_ env vars are used)
+ * - Always server-side (called only from server actions / route handlers)
  * - Throws ERPNextError on non-2xx responses
  * - Never caches financial data (cache: 'no-store')
  */
-async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
-  if (!BASE_URL || !API_KEY || !API_SECRET) {
-    throw new ERPNextError(
-      503, 'Not Configured', path,
-      'Set ERPNEXT_BASE_URL, ERPNEXT_API_KEY, and ERPNEXT_API_SECRET in your environment.',
-    )
+export async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
+  const cpUrl = process.env.CONTROL_PLANE_URL
+  if (!cpUrl) {
+    throw new ERPNextError(503, 'Not Configured', path, 'Set CONTROL_PLANE_URL in your environment.')
   }
 
-  const { method = 'GET', body, params } = opts
+  const tenantCtx = await getTenantContext()
+  if (!tenantCtx?.tenantId) {
+    throw new ERPNextError(503, 'No Tenant', path, 'No active provisioned workspace for this user.')
+  }
 
-  let url = `${BASE_URL}${path}`
+  const token = await signTenantJwt(tenantCtx.tenantId)
+
+  // Translate Frappe REST path → Control Plane proxy path.
+  // /api/resource/Client        → /api/erp/doctype/Client
+  // /api/resource/Client/ID-001 → /api/erp/doctype/Client/ID-001
+  const cpPath = path.replace('/api/resource/', '/api/erp/doctype/')
+
+  const { method = 'GET', body, params } = opts
+  const base = cpUrl.replace(/\/+$/, '')
+  let url = `${base}${cpPath}`
   if (params && Object.keys(params).length > 0) {
     const qs = new URLSearchParams(params).toString()
     url = `${url}${url.includes('?') ? '&' : '?'}${qs}`
@@ -126,7 +142,7 @@ async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
     method,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `token ${API_KEY}:${API_SECRET}`,
+      Authorization: `Bearer ${token}`,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: 'no-store',
@@ -142,25 +158,6 @@ async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
 
 // ─── Status mappers ───────────────────────────────────────────────────────────
 // ERPNext uses PascalCase status values; app types use lowercase.
-
-function mapClientStatus(s: string): ClientStatus {
-  const map: Record<string, ClientStatus> = {
-    Active:   'active',
-    Inactive: 'inactive',
-    Paused:   'paused',
-  }
-  return map[s] ?? 'active'
-}
-
-function mapSessionStatus(s: string): SessionStatus {
-  const map: Record<string, SessionStatus> = {
-    Scheduled: 'scheduled',
-    Completed: 'completed',
-    Missed:    'missed',
-    Cancelled: 'cancelled',
-  }
-  return map[s] ?? 'scheduled'
-}
 
 function mapInvoiceStatus(s: string): InvoiceStatus {
   const map: Record<string, InvoiceStatus> = {
@@ -185,41 +182,18 @@ function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
 // Private to this module — callers receive app types only.
 
 function normalizeClient(raw: ERPClient): Client {
-  const name = raw.full_name
-    ?? [raw.first_name, raw.last_name].filter(Boolean).join(' ')
   return {
-    id: raw.name,
-    firstName: raw.first_name,
-    lastName: raw.last_name,
-    name,
-    email: raw.email_id ?? undefined,
-    phone: raw.mobile_no ?? '',
-    status: mapClientStatus(raw.status),
-    trainerId: raw.trainer,
-    sessionCount: raw.total_sessions ?? 0,
-    goal: raw.goal,
-    notes: raw.notes,
-    createdAt: raw.creation,
-  }
-}
-
-function normalizeSession(raw: ERPSession): Session {
-  const [datePart, timePart] = raw.session_date.includes('T')
-    ? [raw.session_date.split('T')[0], raw.session_date.split('T')[1]?.slice(0, 5)]
-    : [raw.session_date, raw.session_time?.slice(0, 5)]
-
-  return {
-    id: raw.name,
-    clientId: raw.client,
-    clientName: raw.client_name ?? raw.client,
-    trainerId: raw.trainer,
-    date: datePart,
-    time: timePart,
-    durationMinutes: raw.duration,
-    sessionFee: raw.session_fee,
-    status: mapSessionStatus(raw.status),
-    notes: raw.notes,
-    createdAt: raw.creation,
+    id:                    raw.name,
+    name:                  raw.customer_name,
+    mobile:                raw.mobile_no ?? undefined,
+    fitnessGoals:          raw.custom_fitness_goals ?? undefined,
+    trainerNotes:          raw.custom_trainer_notes ?? undefined,
+    packageType:           raw.custom_package_type ?? undefined,
+    bloodType:             raw.custom_blood_type ?? undefined,
+    emergencyContactName:  raw.custom_emergency_contact_name ?? undefined,
+    emergencyContactPhone: raw.custom_emergency_contact_phone ?? undefined,
+    remainingSessions:     raw.custom_remaining_sessions ?? undefined,
+    createdAt:             raw.creation,
   }
 }
 
@@ -257,15 +231,9 @@ function normalizePayment(raw: ERPPaymentEntry, invoiceId: string): Payment {
 
 function clientFields(): string {
   return JSON.stringify([
-    'name', 'first_name', 'last_name', 'full_name', 'email_id',
-    'mobile_no', 'status', 'trainer', 'total_sessions', 'goal', 'notes', 'creation',
-  ])
-}
-
-function sessionFields(): string {
-  return JSON.stringify([
-    'name', 'client', 'client_name', 'trainer', 'session_date',
-    'session_time', 'duration', 'session_fee', 'status', 'notes', 'creation',
+    'name', 'customer_name', 'mobile_no',
+    'custom_fitness_goals', 'custom_trainer_notes', 'custom_package_type',
+    'creation',
   ])
 }
 
@@ -284,30 +252,19 @@ function invoiceFields(): string {
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 
-// ── Trainers ──────────────────────────────────────────────────────────────────
-
 /**
- * Create a Trainer record in ERPNext and return the assigned docname.
- * Called once per user during registration to establish the auth ↔ ERP link.
+ * Fetch all active clients for the tenant.
+ *
+ * Trainer-scoping is not yet implemented — the Customer DocType has no
+ * trainer link field in the current schema. All non-disabled customers
+ * for the tenant's ERPNext site are returned. Scope filtering by trainer
+ * requires provisioning a `custom_trainer_id` custom field first.
  */
-export async function createTrainer(payload: CreateTrainerPayload): Promise<string> {
-  const res = await erpFetch<ERPDocResponse<ERPTrainer>>(
-    `/api/resource/${encodeURIComponent(DOCTYPE.TRAINER)}`,
-    { method: 'POST', body: payload },
-  )
-  return res.data.name
-}
-
-// ── Clients ───────────────────────────────────────────────────────────────────
-
-/**
- * Fetch all clients for a trainer.
- * trainerId is required — never fetch clients without scoping to a trainer.
- */
-export async function getClients(trainerId: string): Promise<Client[]> {
+export async function getClients(_trainerId: string): Promise<Client[]> {
   const params: Record<string, string> = {
     fields:  clientFields(),
-    filters: JSON.stringify([['trainer', '=', trainerId]]),
+    filters: JSON.stringify([['disabled', '=', 0]]),
+    orderby: 'creation desc',
   }
 
   const res = await erpFetch<ERPListResponse<ERPClient>>(
@@ -321,15 +278,13 @@ export async function getClients(trainerId: string): Promise<Client[]> {
  * Fetch a single client by ERPNext docname.
  * Throws ERPNextError(403) if the client's trainer field does not match trainerId.
  */
-export async function getClientById(id: string, trainerId: string): Promise<Client> {
+export async function getClientById(id: string, _trainerId: string): Promise<Client> {
+  // TODO: trainer-ownership check removed — Customer has no trainer link field.
+  // Re-add once trainer-scoping strategy is decided (see getClients TODO).
   const res = await erpFetch<ERPDocResponse<ERPClient>>(
     `/api/resource/${encodeURIComponent(DOCTYPE.CLIENT)}/${encodeURIComponent(id)}`,
   )
-  const client = normalizeClient(res.data)
-  if (client.trainerId !== trainerId) {
-    throw new ERPNextError(403, 'Forbidden', `/api/resource/${DOCTYPE.CLIENT}/${id}`, 'Client does not belong to this trainer.')
-  }
-  return client
+  return normalizeClient(res.data)
 }
 
 /** Create a new client in ERPNext. Returns the saved client. */
@@ -352,73 +307,6 @@ export async function updateClient(id: string, payload: UpdateClientPayload, tra
     { method: 'PUT', body: payload },
   )
   return normalizeClient(res.data)
-}
-
-// ── Sessions ──────────────────────────────────────────────────────────────────
-
-/**
- * Fetch sessions.
- * trainerId is required — always scope to the authenticated trainer.
- * Optionally narrow further by clientId or status.
- */
-export async function getSessions(opts: {
-  trainerId: string
-  clientId?: string
-  status?: string
-}): Promise<Session[]> {
-  const filters: [string, string, string][] = [['trainer', '=', opts.trainerId]]
-  if (opts.clientId) filters.push(['client', '=', opts.clientId])
-  if (opts.status)   filters.push(['status', '=', opts.status])
-
-  const params: Record<string, string> = {
-    fields:  sessionFields(),
-    orderby: 'session_date desc',
-  }
-  if (filters.length > 0) {
-    params.filters = JSON.stringify(filters)
-  }
-
-  const res = await erpFetch<ERPListResponse<ERPSession>>(
-    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}`,
-    { params },
-  )
-  return res.data.map(normalizeSession)
-}
-
-/** Create a new scheduled session. */
-export async function createSession(payload: CreateSessionPayload): Promise<Session> {
-  const res = await erpFetch<ERPDocResponse<ERPSession>>(
-    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}`,
-    { method: 'POST', body: { ...payload, status: 'Scheduled' } },
-  )
-  return normalizeSession(res.data)
-}
-
-/**
- * Mark a session as completed.
- * This is the trigger point for session count increment hooks in ERPNext.
- */
-export async function markSessionComplete(
-  sessionId: string,
-  notes?: string,
-): Promise<Session> {
-  const body: Record<string, unknown> = { status: 'Completed' }
-  if (notes) body.notes = notes
-
-  const res = await erpFetch<ERPDocResponse<ERPSession>>(
-    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}/${encodeURIComponent(sessionId)}`,
-    { method: 'PUT', body },
-  )
-  return normalizeSession(res.data)
-}
-
-/** Cancel a scheduled or missed session. */
-export async function cancelSession(sessionId: string): Promise<Session> {
-  const res = await erpFetch<ERPDocResponse<ERPSession>>(
-    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}/${encodeURIComponent(sessionId)}`,
-    { method: 'PUT', body: { status: 'Cancelled' } },
-  )
-  return normalizeSession(res.data)
 }
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
@@ -531,12 +419,12 @@ export async function createInvoice(payload: CreateInvoicePayload): Promise<Invo
  * ERPNext will automatically reconcile the invoice outstanding_amount
  * and update the invoice status to "Paid" when fully allocated.
  *
- * @param invoiceId   - Sales Invoice docname (e.g. "SINV-00001")
- * @param clientId    - Customer/Client docname
- * @param amount      - Amount being paid (may be partial)
- * @param modeOfPayment - ERPNext Mode of Payment name (e.g. "Cash")
- * @param date        - Payment date as YYYY-MM-DD
- * @param reference   - External transaction ID (Whish ref, bank ref, etc.)
+ * @param invoiceId     - Sales Invoice docname (e.g. "SINV-00001")
+ * @param clientId      - Customer/Client docname
+ * @param amount        - Amount being paid (may be partial)
+ * @param modeOfPayment - ERPNext Mode of Payment name (e.g. "Cash", "Whish Money")
+ * @param date          - Payment date as YYYY-MM-DD
+ * @param reference     - External transaction ID (Whish ref, bank ref, etc.)
  */
 export async function markInvoicePaid(opts: {
   invoiceId: string
@@ -547,15 +435,43 @@ export async function markInvoicePaid(opts: {
   reference?: string
   note?: string
 }): Promise<Payment> {
-  const payload: CreatePaymentEntryPayload = {
-    payment_type: 'Receive',
-    party_type:   'Customer',
-    party:         opts.clientId,
-    paid_amount:   opts.amount,
-    payment_date:  opts.date,
-    mode_of_payment: opts.modeOfPayment,
-    reference_no:  opts.reference,
-    remarks:       opts.note,
+  // Step 1: fetch invoice to get company + currency (both required by Frappe PE)
+  const invRes = await erpFetch<ERPDocResponse<{ company?: string; currency?: string }>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(opts.invoiceId)}`,
+    { params: { fields: JSON.stringify(['company', 'currency']) } },
+  )
+  const company = invRes.data.company ?? ''
+  const currency = invRes.data.currency ?? 'USD'
+
+  // Step 2: resolve paid_to account from the Mode of Payment's accounts table.
+  // Frappe requires paid_to explicitly via REST — it does not auto-populate it.
+  let paidTo: string | undefined
+  try {
+    const mopRes = await erpFetch<ERPDocResponse<{
+      accounts?: Array<{ company?: string; default_account?: string }>
+    }>>(
+      `/api/resource/Mode%20of%20Payment/${encodeURIComponent(opts.modeOfPayment)}`,
+    )
+    const accounts = mopRes.data.accounts ?? []
+    const match = accounts.find(a => a.company === company) ?? accounts[0]
+    paidTo = match?.default_account
+  } catch {
+    // MoP may not have a default account configured — Frappe will surface the
+    // MandatoryError to the caller if paid_to is truly required.
+  }
+
+  const payload: CreatePaymentEntryPayload & { company: string; received_amount: number; paid_to?: string } = {
+    payment_type:    'Receive',
+    party_type:      'Customer',
+    party:            opts.clientId,
+    company,
+    paid_amount:      opts.amount,
+    received_amount:  opts.amount,
+    payment_date:     opts.date,
+    mode_of_payment:  opts.modeOfPayment,
+    ...(paidTo ? { paid_to: paidTo } : {}),
+    reference_no:     opts.reference,
+    remarks:          opts.note,
     references: [
       {
         reference_doctype: 'Sales Invoice',

@@ -22,56 +22,20 @@ export interface ERPDocResponse<T> {
 // ─── Raw document types (read / GET) ─────────────────────────────────────────
 
 /**
- * Custom Trainer DocType.
- * Confirm the doctype name ("Trainer") matches your ERPNext instance.
- * The `user` field links to the ERPNext User who owns this trainer record.
- */
-export interface ERPTrainer {
-  name: string           // docname — e.g. "TRAIN-0001"
-  trainer_name: string
-  email: string
-  phone?: string
-  user: string           // linked ERPNext User docname
-  creation: string
-  modified: string
-}
-
-/**
- * Custom Client DocType (or Customer, depending on your ERPNext setup).
- * Fields marked (custom) are specific to FitDesk and must be created
- * in your ERPNext instance.
+ * Standard ERPNext Customer DocType with FitDesk custom fields.
+ * Custom fields are provisioned by provisioning_api/api/fitdesk_setup.py.
  */
 export interface ERPClient {
-  name: string           // docname — e.g. "C-0001"
-  first_name: string
-  last_name?: string
-  full_name?: string     // computed/stored full name field (custom)
-  email_id?: string
+  name: string           // docname — e.g. "CUST-00001"
+  customer_name: string
   mobile_no?: string
-  status: 'Active' | 'Inactive' | 'Paused'  // (custom) field
-  trainer: string        // linked Trainer docname (custom)
-  total_sessions?: number // (custom) maintained by session hooks in ERP
-  goal?: string          // (custom) client's fitness goal
-  notes?: string
-  creation: string
-  modified: string
-}
-
-/**
- * Custom PT Session DocType.
- * DocType name defaults to "PT Session" — confirm in client.ts DOCTYPE map.
- */
-export interface ERPSession {
-  name: string           // docname — e.g. "SES-0001"
-  client: string         // linked Client docname
-  client_name?: string   // fetched link label (read-only from ERP)
-  trainer: string        // linked Trainer docname
-  session_date: string   // YYYY-MM-DD
-  session_time?: string  // HH:mm:ss (optional)
-  duration?: number      // in minutes (custom)
-  session_fee?: number   // (custom) per-session fee for display — optional field
-  status: 'Scheduled' | 'Completed' | 'Missed' | 'Cancelled'
-  notes?: string
+  custom_fitness_goals?: string           // (custom) Long Text
+  custom_trainer_notes?: string           // (custom) Long Text
+  custom_package_type?: 'Per Session' | 'Monthly' | 'Package'  // (custom) Select
+  custom_blood_type?: string              // (custom) Data — e.g. "A+"
+  custom_emergency_contact_name?: string  // (custom) Data
+  custom_emergency_contact_phone?: string // (custom) Data
+  custom_remaining_sessions?: number      // (custom) Int — sessions left in package
   creation: string
   modified: string
 }
@@ -119,34 +83,30 @@ export interface ERPPaymentEntry {
 // These define what we send TO ERPNext when creating or updating records.
 
 export interface CreateClientPayload {
-  first_name: string
-  last_name?: string
-  email_id?: string
+  customer_name: string
+  customer_type: 'Individual' | 'Company'
+  customer_group: string          // e.g. 'Individual' (provisioned by setup)
+  territory: string               // e.g. 'All Territories' (provisioned by setup)
   mobile_no?: string
-  status?: 'Active'
-  trainer?: string        // linked Trainer docname
-  goal?: string
-  notes?: string
+  custom_fitness_goals?: string
+  custom_trainer_notes?: string
+  custom_package_type?: 'Per Session' | 'Monthly' | 'Package'
+  custom_blood_type?: string
+  custom_emergency_contact_name?: string
+  custom_emergency_contact_phone?: string
 }
 
 export interface UpdateClientPayload {
-  first_name?: string
-  last_name?: string
-  email_id?: string
+  customer_name?: string
   mobile_no?: string
-  status?: 'Active' | 'Inactive' | 'Paused'
-  goal?: string
-  notes?: string
-}
-
-export interface CreateSessionPayload {
-  client: string          // Client docname
-  trainer: string         // Trainer docname
-  session_date: string    // YYYY-MM-DD
-  session_time?: string   // HH:mm:ss
-  duration?: number
-  status?: 'Scheduled'
-  notes?: string
+  custom_fitness_goals?: string
+  custom_trainer_notes?: string
+  custom_package_type?: 'Per Session' | 'Monthly' | 'Package'
+  custom_blood_type?: string
+  custom_emergency_contact_name?: string
+  custom_emergency_contact_phone?: string
+  /** 1 = deactivate/hide from active lists; 0 = re-enable. */
+  disabled?: 0 | 1
 }
 
 export interface CreateInvoicePayload {
@@ -164,12 +124,6 @@ export interface CreateInvoiceItem {
   qty: number
   rate: number
   description?: string
-}
-
-export interface CreateTrainerPayload {
-  trainer_name: string
-  email: string
-  phone?: string
 }
 
 export interface CreatePaymentEntryPayload {
@@ -190,4 +144,49 @@ export interface PaymentReference {
   reference_doctype: 'Sales Invoice'
   reference_name: string  // Sales Invoice docname
   allocated_amount: number
+}
+
+// ─── FD Session (new scheduling model) ───────────────────────────────────────
+// Raw shapes returned by GET /api/resource/FD Session and
+// POST /api/erp/method/provisioning_api.api.scheduling.bulk_create_sessions.
+// All Datetime values are stored and returned by Frappe as UTC
+// in 'YYYY-MM-DD HH:MM:SS' format (no timezone suffix).
+
+export interface ERPFDSession {
+  name: string                        // docname (hash)
+  trainer_id: string
+  client_id: string                   // Customer docname
+  client_name?: string                // fetched from client_id.customer_name
+  series_id?: string | null
+  start_at: string                    // 'YYYY-MM-DD HH:MM:SS' UTC
+  end_at: string                      // 'YYYY-MM-DD HH:MM:SS' UTC
+  duration_minutes: number
+  timezone: string                    // IANA identifier
+  status: string                      // 'scheduled'|'confirmed'|'completed'|'cancelled'|'no_show'|'skipped'
+  occurrence_key?: string | null
+  occurrence_index?: number | null
+  is_override: 0 | 1
+  rate: number
+  session_type?: string | null
+  notes?: string | null
+  invoice_id?: string | null
+  version: number
+  creation: string
+  modified: string
+}
+
+export interface ERPFDSessionSeries {
+  name: string                        // docname (hash)
+  trainer_id: string
+  client_id: string                   // Customer docname
+  pattern: string                     // JSON-encoded SeriesPattern
+  start_date: string                  // 'YYYY-MM-DD'
+  end_date?: string | null            // 'YYYY-MM-DD'
+  duration_minutes: number
+  timezone: string
+  default_rate: number
+  status: string                      // 'active'|'ended'|'cancelled'
+  version: number
+  creation: string
+  modified: string
 }
