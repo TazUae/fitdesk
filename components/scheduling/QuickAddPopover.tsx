@@ -13,9 +13,8 @@ import { toast } from 'sonner'
 import { buildPlanAction, bookPlanAction } from '@/actions/schedulingActions'
 import { SmartClientPicker } from '@/components/clients/SmartClientPicker'
 import { scheduleTokens } from '@/lib/ui/scheduleDesignTokens'
-import type { QuickAddRange } from '@/components/scheduling/CalendarView'
 import type { Client } from '@/types'
-import type { TrainerConfig } from '@/types/scheduling'
+import type { QuickAddRange, TrainerConfig } from '@/types/scheduling'
 
 const SESSION_TYPES = ['Strength', 'Cardio', 'Rehab', 'Mobility', 'Flexibility'] as const
 

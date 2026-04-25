@@ -1,0 +1,101 @@
+/*
+ * FitDesk overrides for Schedule-X default dark theme.
+ * Loaded after `@schedule-x/theme-default/dist/index.css`.
+ */
+
+.fd-sx-wrap .sx__calendar.is-dark {
+  /* Surface — match the planner glass card */
+  --sx-color-background:               rgba(13,17,28,0.0);
+  --sx-color-surface:                  rgba(15,19,30,0.55);
+  --sx-color-surface-dim:              rgba(13,17,28,0.55);
+  --sx-color-surface-bright:           rgba(28,33,48,0.65);
+  --sx-color-surface-container:        rgba(20,25,38,0.55);
+  --sx-color-surface-container-low:    rgba(16,21,34,0.55);
+  --sx-color-surface-container-high:   rgba(28,33,48,0.65);
+
+  /* Foreground */
+  --sx-color-on-background:            #E6E9F2;
+  --sx-color-on-surface:               #E6E9F2;
+
+  /* Primary — FitDesk blue */
+  --sx-color-primary:                  #4B91FF;
+  --sx-color-on-primary:               #0A1224;
+  --sx-color-primary-container:        rgba(75,145,255,0.22);
+  --sx-color-on-primary-container:     #C9DBFF;
+  --sx-color-surface-tint:             #4B91FF;
+
+  /* Outlines */
+  --sx-color-outline:                  rgba(255,255,255,0.16);
+  --sx-color-outline-variant:          rgba(255,255,255,0.08);
+
+  --sx-internal-color-text:            #E6E9F2;
+}
+
+/* Calendar root: kill the default opaque background, let the parent card show through */
+.fd-sx-wrap .sx__calendar.is-dark,
+.fd-sx-wrap .sx-react-calendar-wrapper {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+/* Header bar */
+.fd-sx-wrap .sx__calendar-header {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: 8px;
+}
+.fd-sx-wrap .sx__date-input,
+.fd-sx-wrap .sx__view-selection-selected-item {
+  background-color: rgba(255,255,255,0.04);
+  color: #E6E9F2;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.fd-sx-wrap .sx__chevron-wrapper {
+  color: #B6C0DA;
+}
+.fd-sx-wrap .sx__today-button {
+  background-color: rgba(75,145,255,0.18);
+  color: #C9DBFF;
+  border: 1px solid rgba(75,145,255,0.30);
+}
+
+/* Time-grid: subtle gridlines */
+.fd-sx-wrap .sx__time-grid-day,
+.fd-sx-wrap .sx__time-grid-hour,
+.fd-sx-wrap .sx__week-grid__date-number,
+.fd-sx-wrap .sx__week-grid__week-day {
+  border-color: rgba(255,255,255,0.06) !important;
+}
+.fd-sx-wrap .sx__time-grid-hour-text,
+.fd-sx-wrap .sx__week-grid__week-day {
+  color: rgba(182,192,218,0.65);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.fd-sx-wrap .sx__week-grid__date-number {
+  color: #E6E9F2;
+  font-weight: 500;
+}
+
+/* "Today" highlight on the day header */
+.fd-sx-wrap .sx__week-grid__date-number--today,
+.fd-sx-wrap .sx__week-grid__date-number.is-today {
+  color: #4B91FF;
+}
+
+/* Current-time marker (red line) */
+.fd-sx-wrap .sx__time-grid-now-line,
+.fd-sx-wrap .sx__current-time-indicator {
+  background-color: #4B91FF !important;
+  border-color: #4B91FF !important;
+}
+
+/* Drag-while-dropping ghost */
+.fd-sx-wrap .sx__event--draggable-copy {
+  opacity: 0.55;
+}
+
+/* Soften focus rings */
+.fd-sx-wrap *:focus-visible {
+  outline: 2px solid rgba(75,145,255,0.55);
+  outline-offset: 1px;
+}

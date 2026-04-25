@@ -157,3 +157,35 @@ export interface BookingPlan {
     outOfHours: number
   }
 }
+
+// ─── Calendar UI types ────────────────────────────────────────────────────────
+//
+// Shape of data the calendar component (Schedule-X adapter) consumes and emits.
+// UI-layer types kept here so the adapter and its parent view share a single
+// source of truth.
+
+export interface CalendarSession {
+  id?:        string
+  /** ERP Customer docname — for session detail sheet */
+  clientId?:  string
+  start:      Date
+  end:        Date
+  clientName: string
+  status?:    FDSessionStatus
+}
+
+/**
+ * Emitted when the trainer drags across more than one 30-min slot in a column.
+ *
+ * `anchorRect` is the bounding rect of the drag selection in viewport pixels,
+ * for popover positioning.
+ */
+export interface QuickAddRange {
+  /** YYYY-MM-DD, local day the drag happened on. */
+  date:       string
+  /** HH:mm, inclusive start of the drag window (local). */
+  startTime:  string
+  /** HH:mm, exclusive end of the drag window (local). */
+  endTime:    string
+  anchorRect: DOMRect
+}
