@@ -13,8 +13,8 @@ interface State {
 
 /**
  * Catches runtime errors from the Schedule-X adapter (or anything inside) and
- * renders a fallback (typically the legacy CalendarView). Logs to console with
- * a [scheduler-x] tag for staging telemetry.
+ * renders the supplied fallback. Logs to console with a [scheduler-x] tag so
+ * mount-time crashes surface in browser dev tools and staging telemetry.
  */
 export class SchedulerErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false }
@@ -25,7 +25,7 @@ export class SchedulerErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // eslint-disable-next-line no-console
-    console.error('[scheduler-x] adapter crashed — falling back to legacy view', error, info)
+    console.error('[scheduler-x] adapter crashed — rendering fallback', error, info)
   }
 
   render() {
