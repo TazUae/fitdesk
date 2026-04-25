@@ -20,8 +20,8 @@ integration plan. It must be kept in sync with that plan.
 - **Migration branch:** `scheduler/schedulex-integration` — the feature
   branch where all Schedule-X work lives until production rollout
   completes. Pushed to `origin`.
-- **Feature flag:** `SCHEDULER_UI` with values `custom` (default) |
-  `schedulex`.
+- **Feature flag:** `SCHEDULER_UI` with values `schedulex` (default,
+  Phase 11+) | `custom` (emergency rollback only, removed in Phase 12).
 
 ## Rollback methods, from least to most invasive
 

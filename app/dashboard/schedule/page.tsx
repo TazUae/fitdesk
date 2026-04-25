@@ -27,7 +27,7 @@ export default async function SchedulePage({
   const clients         = clientsResult.success ? clientsResult.data : []
   const initialClientId = searchParams.client ?? searchParams.clientId
   const uiEngine: 'custom' | 'schedulex' =
-    process.env.SCHEDULER_UI === 'schedulex' ? 'schedulex' : 'custom'
+    process.env.SCHEDULER_UI === 'custom' ? 'custom' : 'schedulex'
 
   if (!configResult.success) {
     return (
