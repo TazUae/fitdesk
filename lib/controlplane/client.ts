@@ -66,7 +66,7 @@ export async function getJob(jobId: string): Promise<JobStatusResponse> {
 }
 
 export async function retryJob(jobId: string): Promise<JobStatusResponse> {
-  return cpFetch(`/jobs/${encodeURIComponent(jobId)}/retry`, {
+  return cpFetch(`/jobs/${encodeURIComponent(jobId)}/retry-enqueue`, {
     method: "POST",
     body: JSON.stringify({}),
   });

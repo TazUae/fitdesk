@@ -1,35 +1,33 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
+import { ArrowLeft, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
-import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
 import type { BadgeVariant } from '@/components/modules/Badge'
-import type { ClientStatus, Invoice, InvoiceStatus, Session, SessionStatus } from '@/types'
+import type { Invoice, InvoiceStatus } from '@/types'
+import type { FDSession, FDSessionStatus } from '@/types/scheduling'
 
 // ─── Status → badge variant maps ──────────────────────────────────────────────
 
-function clientVariant(s: ClientStatus): BadgeVariant {
-  return s === 'active' ? 'active' : 'inactive'
-}
-
-function sessionVariant(s: SessionStatus): BadgeVariant {
-  const map: Record<SessionStatus, BadgeVariant> = {
+function sessionVariant(s: FDSessionStatus): BadgeVariant {
+  const map: Record<FDSessionStatus, BadgeVariant> = {
     scheduled: 'upcoming',
+    confirmed: 'upcoming',
     completed: 'completed',
-    missed: 'missed',
     cancelled: 'cancelled',
+    skipped:   'cancelled',
+    no_show:   'missed',
   }
   return map[s]
 }
 
 function invoiceVariant(s: InvoiceStatus): BadgeVariant {
   const map: Record<InvoiceStatus, BadgeVariant> = {
-    draft: 'draft',
-    sent: 'pending',
-    paid: 'paid',
-    overdue: 'overdue',
+    draft:     'draft',
+    sent:      'pending',
+    paid:      'paid',
+    overdue:   'overdue',
     cancelled: 'cancelled',
   }
   return map[s]
@@ -50,7 +48,7 @@ type Props = { params: { id: string } }
 export default async function ClientDetailPage({ params }: Props) {
   const [clientResult, sessionsResult, invoicesResult] = await Promise.all([
     getClientById(params.id),
-    getSessions({ clientId: params.id }),
+    getSessions({ customer: params.id }),
     getInvoices({ clientId: params.id }),
   ])
 
@@ -85,45 +83,38 @@ export default async function ClientDetailPage({ params }: Props) {
         className="space-y-4 rounded-2xl border p-5"
         style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
       >
-        {/* Avatar + name + status */}
+        {/* Avatar + name */}
         <div className="flex items-center gap-4">
           <Avatar name={client.name} size="lg" />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-bold" style={{ color: 'var(--fd-text)' }}>
               {client.name}
             </h2>
-            <div className="mt-1 flex items-center gap-2">
-              <Badge variant={clientVariant(client.status)} />
-              <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                {client.sessionCount} sessions
-              </span>
-            </div>
+            {client.packageType && (
+              <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+                {client.packageType}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Contact info */}
+        {/* Contact + custom info */}
         <div className="space-y-2">
-          {client.phone && (
+          {client.mobile && (
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Phone className="h-3.5 w-3.5 shrink-0" />
-              {client.phone}
+              {client.mobile}
             </div>
           )}
-          {client.email && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Mail className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{client.email}</span>
-            </div>
-          )}
-          {client.goal && (
+          {client.fitnessGoals && (
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Target className="h-3.5 w-3.5 shrink-0" />
-              {client.goal}
+              {client.fitnessGoals}
             </div>
           )}
         </div>
 
-        {/* Outstanding balance — only shown when there is money owed */}
+        {/* Outstanding balance */}
         {balance > 0 && (
           <div
             className="rounded-xl border px-4 py-3"
@@ -141,25 +132,25 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
         )}
 
-        {/* Notes placeholder */}
-        {client.notes ? (
+        {/* Trainer notes */}
+        {client.trainerNotes ? (
           <p
             className="rounded-xl border p-3 text-xs"
             style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
           >
-            {client.notes}
+            {client.trainerNotes}
           </p>
         ) : (
           <p
             className="rounded-xl border border-dashed p-3 text-center text-xs"
             style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
           >
-            No notes — add them via Edit
+            No trainer notes — add them via Edit
           </p>
         )}
 
         {/* WhatsApp button */}
-        {client.phone && (
+        {client.mobile && (
           <Link
             href={`/dashboard/messages/${params.id}`}
             className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
@@ -183,7 +174,7 @@ export default async function ClientDetailPage({ params }: Props) {
             )}
           </h3>
           <Link
-            href={`/dashboard/schedule/new?client=${params.id}`}
+            href={`/dashboard/schedule?client=${encodeURIComponent(params.id)}`}
             className="text-xs font-medium"
             style={{ color: 'var(--fd-accent)' }}
           >
@@ -241,24 +232,15 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
         )}
       </section>
-
-      {/* ── Danger zone ───────────────────────────────────────────────────── */}
-      {client.status === 'active' && (
-        <section className="space-y-2 pt-2">
-          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
-            Danger zone
-          </p>
-          <DeactivateClientButton clientId={client.id} clientName={client.name} />
-        </section>
-      )}
     </div>
   )
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-// These are Server Components — no 'use client' needed.
 
-function SessionRow({ session }: { session: Session }) {
+function SessionRow({ session }: { session: FDSession }) {
+  const dateStr = session.startAt.toISOString().slice(0, 10)
+  const timeStr = session.startAt.toISOString().slice(11, 16)
   return (
     <div
       className="flex items-center justify-between rounded-xl border px-4 py-3"
@@ -266,16 +248,17 @@ function SessionRow({ session }: { session: Session }) {
     >
       <div>
         <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-          {session.date}
-          {session.time ? ` · ${session.time}` : ''}
+          {dateStr} · {timeStr}
         </p>
-        {session.durationMinutes && (
+        {session.rate > 0 && (
           <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {session.durationMinutes} min
+            {session.rate}
           </p>
         )}
       </div>
-      <Badge variant={sessionVariant(session.status)} />
+      <div className="flex items-center gap-2">
+        <Badge variant={sessionVariant(session.status)} />
+      </div>
     </div>
   )
 }

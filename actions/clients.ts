@@ -55,19 +55,14 @@ export async function fetchClientById(id: string): Promise<ActionResult<Client>>
   }
 }
 
-/**
- * Add a new client.
- * The trainer field is injected server-side from the auth session —
- * callers must NOT include it in the payload.
- */
 export async function addClient(
-  payload: Omit<CreateClientPayload, 'trainer'>,
+  payload: CreateClientPayload,
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
-    const data = await createClient({ ...payload, trainer: resolved.trainerId })
+    const data = await createClient(payload)
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to create client' }
@@ -90,7 +85,7 @@ export async function editClient(
 }
 
 /**
- * Soft-delete: marks the client Inactive in ERPNext.
+ * Soft-delete: disables the customer in ERPNext.
  * ERPNext data is never deleted — this preserves the audit trail for sessions
  * and invoices while hiding the client from active lists.
  */
@@ -99,7 +94,7 @@ export async function deleteClient(id: string): Promise<ActionResult<Client>> {
   if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
-    const data = await updateClient(id, { status: 'Inactive' }, resolved.trainerId)
+    const data = await updateClient(id, { disabled: 1 }, resolved.trainerId)
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to deactivate client' }

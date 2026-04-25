@@ -1,12 +1,8 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { nextCookies } from 'better-auth/next-js'
-import { and, desc, eq, inArray } from 'drizzle-orm'
 import { userAdditionalFields } from './auth-user-fields'
 import { db } from './db'
-import { workspaceProvisioning } from './db/schema'
-import { createTenant } from './controlplane/client'
-import type { CreateTenantResponse } from '@/types/controlplane'
 
 /**
  * Better Auth — server instance.
@@ -35,22 +31,6 @@ function resolveAuthSecret(): string {
 
 const secret = resolveAuthSecret()
 
-function slugifyWorkspaceName(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return slug || 'workspace'
-}
-
-function resolveWorkspaceName(name: string | null | undefined, email: string): string {
-  const fromName = name?.trim()
-  if (fromName) return fromName
-  const emailLocalPart = email.split('@')[0]?.trim()
-  return emailLocalPart || 'workspace'
-}
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -75,49 +55,6 @@ export const auth = betterAuth({
     additionalFields: {
       // Trainer phone — collected at registration, synced to ERPNext on first login
       ...userAdditionalFields,
-    },
-  },
-
-  databaseHooks: {
-    user: {
-      create: {
-        after: async (user, _context) => {
-          try {
-            const activeProvisioning = await db.query.workspaceProvisioning.findFirst({
-              where: and(
-                eq(workspaceProvisioning.userId, user.id),
-                inArray(workspaceProvisioning.status, ['queued', 'running']),
-              ),
-              orderBy: [desc(workspaceProvisioning.createdAt)],
-            })
-
-            if (activeProvisioning) return
-
-            const workspaceName = resolveWorkspaceName(user.name, user.email)
-            const slug = slugifyWorkspaceName(workspaceName)
-            const tenant = (await createTenant({
-              workspaceName,
-              ownerEmail: user.email,
-            })) as CreateTenantResponse
-
-            const now = new Date().toISOString()
-            await db.insert(workspaceProvisioning).values({
-              id: crypto.randomUUID(),
-              userId: user.id,
-              slug,
-              tenantId: tenant.tenantId,
-              jobId: tenant.jobId,
-              status: tenant.status,
-              createdAt: now,
-              updatedAt: now,
-              failureReason: null,
-              lastSyncedAt: now,
-            })
-          } catch (err) {
-            console.error('[control-plane-provision] failed for user', user.id, err)
-          }
-        },
-      },
     },
   },
 

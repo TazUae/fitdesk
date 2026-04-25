@@ -233,10 +233,12 @@ export async function fetchWhatsAppQr(trainerId: string): Promise<WhatsAppConnec
     })
   }
 
+  // Evolution API v2 returns either flat { base64, pairingCode } or nested { qrcode: { base64, pairingCode } }
   const data = JSON.parse(text) as {
     base64?: string
-    code?: string
     pairingCode?: string
+    code?: string
+    qrcode?: { base64?: string; pairingCode?: string; code?: string }
   }
 
   return upsertConnection({
@@ -246,8 +248,8 @@ export async function fetchWhatsAppQr(trainerId: string): Promise<WhatsAppConnec
     status: 'pairing',
     phoneNumber: current.phoneNumber,
     displayName: current.displayName,
-    qrCode: data.base64 ?? current.qrCode,
-    pairingCode: data.pairingCode,
+    qrCode: data.qrcode?.base64 ?? data.base64 ?? current.qrCode,
+    pairingCode: data.qrcode?.pairingCode ?? data.pairingCode,
     lastError: undefined,
   })
 }
@@ -404,6 +406,82 @@ export async function disconnectWhatsAppInstance(trainerId: string): Promise<Wha
 export async function replaceWhatsAppInstance(trainerId: string): Promise<WhatsAppConnection> {
   await disconnectWhatsAppInstance(trainerId)
   return createTrainerWhatsAppInstance(trainerId)
+}
+
+/**
+ * Request an 8-digit pairing code for the trainer's WhatsApp instance.
+ * Creates the instance first if it doesn't exist yet.
+ * The user enters this code in WhatsApp → Settings → Linked Devices → Link with phone number.
+ */
+export async function requestWhatsAppPairingCode(trainerId: string, phoneNumber: string): Promise<WhatsAppConnection> {
+  const configError = requireEvolutionConfig()
+  if (configError) throw new Error(configError)
+
+  const phone = normalizePhone(phoneNumber)
+  if (!phone || phone.length < 7) throw new Error('Invalid phone number')
+
+  // Ensure instance exists
+  let current = await getTrainerWhatsAppConnection(trainerId)
+  if (!current) {
+    const instanceName = instanceNameForTrainer(trainerId)
+    const createRes = await fetch(`${EVOLUTION_URL}/instance/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_KEY! },
+      body: JSON.stringify({ instanceName, integration: 'WHATSAPP-BAILEYS' }),
+      cache: 'no-store',
+    })
+    const createText = await createRes.text()
+    if (!createRes.ok) throw new Error(`Failed to create instance: ${createRes.status} ${createText.slice(0, 200)}`)
+    const createData = JSON.parse(createText) as {
+      instance?: { instanceName?: string; instanceId?: string; status?: string }
+    }
+    current = await upsertConnection({
+      trainerId,
+      instanceName: createData.instance?.instanceName ?? instanceName,
+      instanceId: createData.instance?.instanceId,
+      status: 'pairing',
+    })
+  }
+
+  // Request pairing code by passing the phone number to the connect endpoint
+  const res = await fetch(
+    `${EVOLUTION_URL}/instance/connect/${encodeURIComponent(current.instanceName)}?number=${encodeURIComponent(phone)}`,
+    {
+      method: 'GET',
+      headers: { apikey: EVOLUTION_KEY! },
+      cache: 'no-store',
+    },
+  )
+
+  const text = await res.text()
+  if (!res.ok) {
+    return upsertConnection({
+      trainerId,
+      instanceName: current.instanceName,
+      instanceId: current.instanceId,
+      status: 'error',
+      lastError: `Failed to get pairing code: ${res.status} ${text.slice(0, 200)}`,
+    })
+  }
+
+  const data = JSON.parse(text) as {
+    pairingCode?: string
+    code?: string
+    base64?: string
+    qrcode?: { base64?: string; pairingCode?: string }
+  }
+
+  // Pairing code is at top level; QR base64 is absent or null when a phone number was supplied
+  const pairingCode = data.pairingCode ?? data.qrcode?.pairingCode
+
+  return upsertConnection({
+    trainerId,
+    instanceName: current.instanceName,
+    instanceId: current.instanceId,
+    status: 'pairing',
+    pairingCode,
+    lastError: undefined,
+  })
 }
 
 async function attemptSend(

@@ -8,5 +8,4 @@ export { LoadingSkeleton, CardSkeleton, StatSkeleton, Skeleton } from './Loading
 export { InvoicesView }  from './InvoicesView'
 export { MessagesView }  from './MessagesView'
 export { ScheduleView } from './ScheduleView'
-export { SessionActions } from './SessionActions'
 export { StatCard } from './StatCard'

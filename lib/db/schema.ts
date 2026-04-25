@@ -13,8 +13,10 @@ export const user = sqliteTable('user', {
   image:         text('image'),
   createdAt:     integer('createdAt', { mode: 'timestamp' }).notNull(),
   updatedAt:     integer('updatedAt', { mode: 'timestamp' }).notNull(),
-  // Additional field — collected at registration, synced to ERPNext trainer profile
+  // Additional fields
   phone:         text('phone'),
+  currency:      text('currency'),
+  businessName:  text('businessName'),
 })
 
 export const session = sqliteTable('session', {

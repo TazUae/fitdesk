@@ -9,16 +9,22 @@
     "lint": "next lint",
     "migrate:auth": "node scripts/migrate.mjs",
     "migrate:app": "node scripts/migrate-app.mjs",
-    "migrate": "npm run migrate:auth && npm run migrate:app"
+    "migrate": "npm run migrate:auth && npm run migrate:app",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@libsql/client": "^0.17.2",
     "@prisma/client": "^6.17.1",
+    "@types/luxon": "^3.7.1",
     "better-auth": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.1",
+    "jose": "^6.0.0",
+    "libphonenumber-js": "^1.12.41",
     "lucide-react": "^0.454.0",
+    "luxon": "^3.7.2",
     "next": "14.2.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -38,6 +44,7 @@
     "postcss": "^8",
     "prisma": "^6.17.1",
     "tailwindcss": "^3.4.14",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

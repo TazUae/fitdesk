@@ -2,24 +2,36 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Calendar, LayoutDashboard, MessageCircle, Receipt, Users, type LucideIcon } from 'lucide-react'
+import { useState } from 'react'
+import {
+  Calendar,
+  LayoutDashboard,
+  MessageCircle,
+  MoreHorizontal,
+  Receipt,
+  Users,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useSession } from '@/lib/auth-client'
+import { Avatar } from '@/components/modules/Avatar'
+import { UserMenuSheet } from '@/components/modules/UserMenuSheet'
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 type NavItem = {
-  href: string
-  label: string
-  Icon: LucideIcon
+  href:   string
+  label:  string
+  Icon:   LucideIcon
   exact?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard',            label: 'Home',      Icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/clients',    label: 'Clients',   Icon: Users },
-  { href: '/dashboard/schedule',   label: 'Schedule',  Icon: Calendar },
-  { href: '/dashboard/invoices',   label: 'Invoices',  Icon: Receipt },
-  { href: '/dashboard/whatsapp',   label: 'WhatsApp',  Icon: MessageCircle },
+  { href: '/dashboard',          label: 'Home',     Icon: LayoutDashboard, exact: true },
+  { href: '/dashboard/clients',  label: 'Clients',  Icon: Users },
+  { href: '/dashboard/schedule', label: 'Schedule', Icon: Calendar },
+  { href: '/dashboard/invoices', label: 'Invoices', Icon: Receipt },
+  { href: '/dashboard/whatsapp', label: 'WhatsApp', Icon: MessageCircle },
 ]
 
 /** Map route prefixes → display titles shown in the top bar. */
@@ -29,12 +41,15 @@ const ROUTE_TITLES: [string, string][] = [
   ['/dashboard/invoices', 'Invoices'],
   ['/dashboard/messages', 'Messages'],
   ['/dashboard/whatsapp', 'WhatsApp'],
+  ['/dashboard/account',  'Account Settings'],
+  ['/dashboard/help',     'Help & Support'],
   ['/dashboard',          'Home'],      // must be last (shortest prefix)
 ]
 
 function getTitle(pathname: string): string {
-  // Walk longest-prefix-first; the array is already ordered that way above
-  const match = ROUTE_TITLES.find(([prefix]) => pathname === prefix || pathname.startsWith(prefix + '/'))
+  const match = ROUTE_TITLES.find(
+    ([prefix]) => pathname === prefix || pathname.startsWith(prefix + '/'),
+  )
   return match ? match[1] : 'FitDesk'
 }
 
@@ -46,13 +61,14 @@ function isActive(pathname: string, href: string, exact?: boolean): boolean {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const { data: session } = useSession()
+  const userName  = session?.user?.name  ?? ''
+  const userEmail = session?.user?.email ?? ''
 
   return (
     <div className="min-h-dvh" style={{ backgroundColor: 'var(--fd-bg)' }}>
-      {/*
-        Single centered column — phones fill the screen naturally.
-        On tablet / desktop the content stays at 480 px.
-      */}
       <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col">
 
         {/* ── Top bar ───────────────────────────────────────────────────── */}
@@ -76,40 +92,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {getTitle(pathname)}
           </span>
 
-          {/* Trainer avatar placeholder — swap with <Avatar /> once session is wired */}
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold"
-            style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-accent)' }}
+          {/* Avatar — opens the account sheet */}
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="transition-opacity active:opacity-60"
+            aria-label="Open account menu"
           >
-            PT
-          </div>
+            {userName ? (
+              <Avatar name={userName} size="sm" />
+            ) : (
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold"
+                style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-accent)' }}
+              >
+                PT
+              </div>
+            )}
+          </button>
         </header>
 
         {/* ── Page content ──────────────────────────────────────────────── */}
-        {/*
-          pb-24 clears the fixed bottom nav (h-16) + safe-area-inset-bottom.
-          Pages control their own horizontal padding and internal spacing.
-        */}
         <main className="flex-1 pb-24">
           {children}
         </main>
 
       </div>
 
-      {/* ── Bottom navigation ─────────────────────────────────────────────
-          Fixed and centred at max-w 480px to match the column above.
-          Uses env(safe-area-inset-bottom) so the tap targets sit above
-          the iPhone home indicator.
-      ─────────────────────────────────────────────────────────────────── */}
+      {/* ── Bottom navigation ─────────────────────────────────────────────── */}
       <nav
         className="fixed bottom-0 left-1/2 z-20 w-full max-w-[480px] -translate-x-1/2 border-t"
         style={{
           backgroundColor: 'var(--fd-bg)',
-          borderColor: 'var(--fd-border)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
+          borderColor:     'var(--fd-border)',
+          paddingBottom:   'env(safe-area-inset-bottom)',
         }}
       >
         <div className="flex h-16 items-center">
+
+          {/* Regular nav links */}
           {NAV_ITEMS.map(({ href, label, Icon, exact }) => {
             const active = isActive(pathname, href, exact)
             return (
@@ -135,8 +155,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Link>
             )
           })}
+
+          {/* More — opens account sheet */}
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-opacity active:opacity-60"
+          >
+            <MoreHorizontal
+              className="h-[22px] w-[22px]"
+              style={{ color: menuOpen ? 'var(--fd-accent)' : 'var(--fd-muted)' }}
+              strokeWidth={menuOpen ? 2.5 : 1.75}
+            />
+            <span
+              className="text-[10px] font-medium leading-none"
+              style={{ color: menuOpen ? 'var(--fd-accent)' : 'var(--fd-muted)' }}
+            >
+              More
+            </span>
+          </button>
+
         </div>
       </nav>
+
+      {/* ── Account menu sheet ────────────────────────────────────────────── */}
+      <UserMenuSheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        userName={userName}
+        userEmail={userEmail}
+      />
     </div>
   )
 }

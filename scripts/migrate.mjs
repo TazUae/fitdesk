@@ -127,6 +127,29 @@ for (const sql of statements) {
   }
 }
 
+// ─── Additive column migrations (safe to re-run) ─────────────────────────────
+// SQLite does not support ALTER TABLE ADD COLUMN IF NOT EXISTS, so we attempt
+// each and silently swallow "duplicate column name" errors.
+
+const columnMigrations = [
+  { table: 'user', column: 'currency',     sql: `ALTER TABLE user ADD COLUMN currency TEXT` },
+  { table: 'user', column: 'businessName', sql: `ALTER TABLE user ADD COLUMN businessName TEXT` },
+]
+
+for (const { table, column, sql } of columnMigrations) {
+  try {
+    await client.execute(sql)
+    console.log(`  ✓  ${table}.${column} added`)
+  } catch (err) {
+    if (err.message?.includes('duplicate column name')) {
+      console.log(`  –  ${table}.${column} already exists, skipped`)
+    } else {
+      console.error(`  ✗  ${table}.${column}: ${err.message}`)
+      process.exit(1)
+    }
+  }
+}
+
 // ─── Verify ───────────────────────────────────────────────────────────────────
 
 console.log('\nVerifying tables...')

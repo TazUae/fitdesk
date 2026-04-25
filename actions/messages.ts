@@ -62,8 +62,7 @@ export async function generateDraftMessage(
     const client = await getClientById(clientId, draftTrainerId)
 
     const context: MessageContext = {
-      clientName:   client.name,
-      sessionCount: client.sessionCount,
+      clientName: client.name,
       ...extraContext,
     }
 

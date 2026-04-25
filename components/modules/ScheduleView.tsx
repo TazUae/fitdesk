@@ -1,527 +1,284 @@
 'use client'
 
-import { useOptimistic, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
-import { CalendarPlus, CheckCircle2, Clock, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CalendarPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
-import { bookSession, cancelSession, completeSession } from '@/actions/sessions'
+import { listFDSessionsAction } from '@/actions/schedulingActions'
 import { Avatar } from '@/components/modules/Avatar'
-import { Badge } from '@/components/modules/Badge'
-import type { BadgeVariant } from '@/components/modules/Badge'
-import type { Client, Session, SessionStatus } from '@/types'
+import { BookingPanel } from '@/components/scheduling/BookingPanel'
+import { CalendarView, type CalendarSession, type QuickAddRange } from '@/components/scheduling/CalendarView'
+import { QuickAddPopover } from '@/components/scheduling/QuickAddPopover'
+import { SessionDetailsSheet } from '@/components/scheduling/SessionDetailsSheet'
+import { MobileShell } from '@/components/ui/MobileShell'
+import type { Client } from '@/types'
+import type { FDSession, TrainerConfig } from '@/types/scheduling'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Converters ───────────────────────────────────────────────────────────────
 
-type FilterTab = 'upcoming' | 'completed' | 'all'
+function toCalendarSessions(sessions: FDSession[]): CalendarSession[] {
+  return sessions.map(s => ({
+    id:         s.id,
+    clientId:   s.clientId,
+    start:      s.startAt,
+    end:        s.endAt,
+    clientName: s.clientName,
+    status:     s.status,
+  }))
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function statusVariant(s: SessionStatus): BadgeVariant {
-  const map: Record<SessionStatus, BadgeVariant> = {
-    scheduled: 'upcoming',
-    completed: 'completed',
-    missed:    'missed',
-    cancelled: 'cancelled',
+/** Next 30-min slot from now within 09:00–20:30 today, or tomorrow 09:00. */
+function nextBookableSlot(): Date {
+  const d = new Date()
+  const mins = d.getHours() * 60 + d.getMinutes()
+  const windowStart = 9 * 60
+  const windowEnd = 21 * 60 - 30
+  if (mins < windowStart) {
+    d.setHours(9, 0, 0, 0)
+    return d
   }
-  return map[s]
-}
-
-function filterAndSort(sessions: Session[], tab: FilterTab): Session[] {
-  let list: Session[]
-
-  if (tab === 'upcoming') {
-    list = sessions.filter(s => s.status === 'scheduled')
-    // Nearest session first
-    return [...list].sort((a, b) => {
-      const ka = a.date + (a.time ?? '00:00')
-      const kb = b.date + (b.time ?? '00:00')
-      return ka < kb ? -1 : ka > kb ? 1 : 0
-    })
+  if (mins > windowEnd) {
+    d.setDate(d.getDate() + 1)
+    d.setHours(9, 0, 0, 0)
+    return d
   }
-
-  if (tab === 'completed') {
-    list = sessions.filter(s => s.status === 'completed')
-    // Most recent first (ERP returns desc by default — preserve it)
-    return list
-  }
-
-  return sessions // 'all' — ERP order (desc)
+  const slot = Math.ceil((mins + 1) / 30) * 30
+  const h = Math.floor(slot / 60)
+  const m = slot % 60
+  d.setHours(h, m, 0, 0)
+  return d
 }
 
-function tabCount(sessions: Session[], tab: FilterTab): number {
-  if (tab === 'upcoming')  return sessions.filter(s => s.status === 'scheduled').length
-  if (tab === 'completed') return sessions.filter(s => s.status === 'completed').length
-  return sessions.length
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface ScheduleViewProps {
+  sessions:         FDSession[]
+  clients:          Client[]
+  trainerConfig:    TrainerConfig
+  error?:           string
+  /** From `/dashboard/schedule?client=` — opens planner with client pre-selected */
+  initialClientId?: string
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00`)
-  const today = new Date()
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
+// ─── Component ────────────────────────────────────────────────────────────────
 
-  if (dateStr === today.toISOString().slice(0, 10)) return 'Today'
-  if (dateStr === tomorrow.toISOString().slice(0, 10)) return 'Tomorrow'
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-// ─── Book session sheet ───────────────────────────────────────────────────────
-
-interface BookSheetProps {
-  isOpen: boolean
-  clients: Client[]
-  preselectedClientId?: string
-  onClose: () => void
-  onBooked: () => void
-}
-
-function BookSessionSheet({
-  isOpen,
+export function ScheduleView({
+  sessions,
   clients,
-  preselectedClientId,
-  onClose,
-  onBooked,
-}: BookSheetProps) {
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
+  trainerConfig,
+  error,
+  initialClientId,
+}: ScheduleViewProps) {
+  const [sessionState,       setSessionState]       = useState<FDSession[]>(sessions)
+  const [selectedSlots,      setSelectedSlots]      = useState<Date[]>([])
+  const [detailSessionId,    setDetailSessionId]    = useState<string | null>(null)
+  const [quickAddRange,      setQuickAddRange]      = useState<QuickAddRange | null>(null)
+  const [panelDurationHint,  setPanelDurationHint]  = useState<number | undefined>(undefined)
 
-  const today = new Date().toISOString().slice(0, 10)
+  const detailSession = useMemo(
+    () => (detailSessionId ? sessionState.find(s => s.id === detailSessionId) ?? null : null),
+    [detailSessionId, sessionState],
+  )
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setError(null)
-    const fd = new FormData(e.currentTarget)
+  useEffect(() => { setSessionState(sessions) }, [sessions])
 
-    const clientId = fd.get('client_id') as string
-    const date     = fd.get('session_date') as string
-    const rawTime  = fd.get('session_time') as string
-    const rawDur   = fd.get('duration') as string
+  useEffect(() => {
+    if (detailSessionId && !detailSession) setDetailSessionId(null)
+  }, [detailSessionId, detailSession])
 
-    if (!clientId) { setError('Select a client'); return }
-    if (!date)     { setError('Select a date');   return }
+  const calendarSessions = useMemo(
+    () => toCalendarSessions(sessionState),
+    [sessionState],
+  )
 
-    startTransition(async () => {
-      const result = await bookSession({
-        client:       clientId,
-        session_date: date,
-        session_time: rawTime ? `${rawTime}:00` : undefined,
-        duration:     rawDur ? Number(rawDur) : undefined,
-        notes:        (fd.get('notes') as string) || undefined,
-      })
+  // ─── Reconcile ──────────────────────────────────────────────────────────────
 
-      if (result.success) {
-        toast.success('Session booked')
-        ;(e.target as HTMLFormElement).reset()
-        onBooked()
-      } else {
-        setError(result.error)
-      }
+  const reconcile = useCallback(async () => {
+    const r = await listFDSessionsAction()
+    if (r.success) setSessionState(r.data)
+    else toast.error(r.message)
+  }, [])
+
+  // ─── Event handlers ─────────────────────────────────────────────────────────
+
+  function handleBooked() {
+    void reconcile()
+  }
+
+  function handleDismissPanel() {
+    setSelectedSlots([])
+    setPanelDurationHint(undefined)
+  }
+
+  function handleRangeSelect(range: QuickAddRange) {
+    setSelectedSlots([])
+    setQuickAddRange(range)
+  }
+
+  function handleQuickAddBooked() {
+    void reconcile()
+  }
+
+  function handleCloseQuickAdd() {
+    setQuickAddRange(null)
+  }
+
+  /** QuickAdd → "More options": promote range into BookingPanel (one slot + hint duration). */
+  function handleQuickAddMoreOptions(range: QuickAddRange) {
+    const [y, mo, d] = range.date.split('-').map(Number)
+    const [h, m]     = range.startTime.split(':').map(Number)
+    const startDate  = new Date(y, mo - 1, d, h, m, 0, 0)
+
+    const endMin   = parseInt(range.endTime.slice(0, 2), 10) * 60 + parseInt(range.endTime.slice(3), 10)
+    const startMin = h * 60 + m
+
+    setQuickAddRange(null)
+    setSelectedSlots([startDate])
+    setPanelDurationHint(endMin - startMin)
+  }
+
+  function handleSessionClick(cal: CalendarSession) {
+    if (!cal.id) return
+    if (sessionState.some(s => s.id === cal.id)) {
+      setDetailSessionId(cal.id)
+    }
+  }
+
+  function handleClose() {
+    setDetailSessionId(null)
+  }
+
+  function handleOptimisticReplace(next: FDSession) {
+    setSessionState(prev => {
+      const i = prev.findIndex(s => s.id === next.id)
+      if (i === -1) return [...prev, next]
+      const copy = [...prev]
+      copy[i] = next
+      return copy
     })
   }
 
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        aria-hidden="true"
-        className={cn(
-          'fixed inset-0 z-40 bg-black/60 transition-opacity duration-300',
-          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-        onClick={onClose}
-      />
+  function handleOptimisticRemove(id: string) {
+    setSessionState(prev => prev.filter(s => s.id !== id))
+  }
 
-      {/* Sheet */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Book a session"
-        className={cn(
-          'fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-300',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        )}
-        style={{
-          backgroundColor: 'var(--fd-surface)',
-          borderColor: 'var(--fd-border)',
-          paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)',
-        }}
-      >
-        {/* Handle */}
-        <div className="flex justify-center pb-2 pt-3">
-          <div className="h-1 w-10 rounded-full" style={{ backgroundColor: 'var(--fd-border)' }} />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pb-4">
-          <h2 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Book Session
-          </h2>
-          <button type="button" onClick={onClose} style={{ color: 'var(--fd-muted)' }}>
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Scrollable form */}
-        <div className="max-h-[72vh] overflow-y-auto px-5">
-          <form onSubmit={handleSubmit} className="space-y-4 pb-2">
-
-            {/* Client */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Client *
-              </label>
-              <select
-                name="client_id"
-                defaultValue={preselectedClientId ?? ''}
-                required
-                className="input-base"
-              >
-                <option value="">Select client…</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Date + Time */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                  Date *
-                </label>
-                <input
-                  name="session_date"
-                  type="date"
-                  min={today}
-                  defaultValue={today}
-                  required
-                  className="input-base"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                  Time
-                </label>
-                <input name="session_time" type="time" className="input-base" />
-              </div>
-            </div>
-
-            {/* Duration */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Duration
-              </label>
-              <select name="duration" defaultValue="60" className="input-base">
-                <option value="">No duration</option>
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">60 min</option>
-                <option value="75">75 min</option>
-                <option value="90">90 min</option>
-              </select>
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Notes
-              </label>
-              <textarea
-                name="notes"
-                rows={2}
-                className="input-base resize-none"
-                placeholder="Optional session notes"
-              />
-            </div>
-
-            {error && (
-              <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isPending}
-              className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
-              style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-            >
-              {isPending ? 'Booking…' : 'Book Session'}
-            </button>
-          </form>
-        </div>
-      </div>
-    </>
-  )
-}
-
-// ─── Session card ─────────────────────────────────────────────────────────────
-
-interface SessionCardProps {
-  session: Session
-  onComplete: (id: string) => void
-  onCancel:   (id: string) => void
-  isPending:  boolean
-}
-
-function SessionCard({ session, onComplete, onCancel, isPending }: SessionCardProps) {
-  const isScheduled = session.status === 'scheduled'
+  const isDetailOpen = detailSession !== null
 
   return (
     <div
-      className="space-y-3 rounded-2xl border p-4"
-      style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      className="min-h-full pb-24 pt-5"
+      style={{
+        background:
+          'radial-gradient(140% 100% at 50% -8%, rgba(94,127,255,0.22) 0%, rgba(12,15,24,0) 45%), linear-gradient(180deg, rgba(10,13,21,0.98) 0%, rgba(7,10,17,0.98) 100%)',
+      }}
     >
-      {/* Header: avatar + client name + status badge */}
-      <div className="flex items-center gap-3">
-        <Avatar name={session.clientName} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            {session.clientName}
-          </p>
-
-          {/* Date · time · duration · price */}
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {formatDate(session.date)}
-            {session.time           && ` · ${session.time}`}
-            {session.durationMinutes && ` · ${session.durationMinutes} min`}
-            {session.sessionFee      && ` · $${session.sessionFee}`}
-          </p>
-        </div>
-        <Badge variant={statusVariant(session.status)} />
-      </div>
-
-      {/* Action buttons — only for scheduled sessions */}
-      {isScheduled && (
-        <div className="flex gap-2">
-          {/* Done / Complete */}
-          <button
-            onClick={() => onComplete(session.id)}
-            disabled={isPending}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-opacity disabled:opacity-50"
-            style={{ backgroundColor: 'rgba(78,203,160,0.15)', color: 'var(--fd-green)' }}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Done
-          </button>
-
-          {/* Cancel */}
-          <button
-            onClick={() => onCancel(session.id)}
-            disabled={isPending}
-            className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-opacity disabled:opacity-50"
-            style={{ backgroundColor: 'rgba(138,143,168,0.10)', color: 'var(--fd-muted)' }}
-          >
-            <X className="h-3.5 w-3.5" />
-            Cancel
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Filter tabs ──────────────────────────────────────────────────────────────
-
-const TABS: { id: FilterTab; label: string }[] = [
-  { id: 'upcoming',  label: 'Upcoming'  },
-  { id: 'completed', label: 'Completed' },
-  { id: 'all',       label: 'All'       },
-]
-
-// ─── Main component ───────────────────────────────────────────────────────────
-
-interface ScheduleViewProps {
-  sessions: Session[]
-  clients:  Client[]
-  error?:   string
-}
-
-export function ScheduleView({ sessions, clients, error }: ScheduleViewProps) {
-  const router = useRouter()
-  const [activeTab, setActiveTab] = useState<FilterTab>('upcoming')
-  const [isBooking, setIsBooking]  = useState(false)
-  const [pending, startTransition] = useTransition()
-
-  /**
-   * Optimistic sessions — safe for complete and cancel because those are
-   * simple status updates with no side effects the UI needs to observe.
-   * Booking is NOT optimistic because we need the ERP-assigned docname.
-   */
-  const [optimisticSessions, applyOptimistic] = useOptimistic(
-    sessions,
-    (state: Session[], update: { id: string; status: SessionStatus }) =>
-      state.map(s => (s.id === update.id ? { ...s, status: update.status } : s)),
-  )
-
-  const displayed = filterAndSort(optimisticSessions, activeTab)
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
-
-  function handleComplete(sessionId: string) {
-    startTransition(async () => {
-      applyOptimistic({ id: sessionId, status: 'completed' })
-      const result = await completeSession(sessionId)
-      if (result.success) {
-        toast.success('Session marked complete')
-        router.refresh() // re-sync server state; optimistic state merges cleanly
-      } else {
-        toast.error(result.error)
-        // useOptimistic reverts automatically when the transition ends
-      }
-    })
-  }
-
-  function handleCancel(sessionId: string) {
-    startTransition(async () => {
-      applyOptimistic({ id: sessionId, status: 'cancelled' })
-      const result = await cancelSession(sessionId)
-      if (result.success) {
-        toast.success('Session cancelled')
-        router.refresh()
-      } else {
-        toast.error(result.error)
-      }
-    })
-  }
-
-  function handleBooked() {
-    setIsBooking(false)
-    router.refresh()
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
-  return (
-    <div className="p-4 space-y-4">
-
-      {/* Header: count + book button */}
-      <div className="flex items-center justify-between">
-        <p className="text-base font-semibold" style={{ color: 'var(--fd-muted)' }}>
-          {sessions.length} session{sessions.length !== 1 ? 's' : ''}
-        </p>
-        <button
-          onClick={() => setIsBooking(true)}
-          className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold"
-          style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-0 lg:flex-row lg:items-start lg:justify-center lg:px-4">
+        <MobileShell
+          stickyHeader={(
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: 'rgba(182,192,218,0.75)' }}>
+                  FitDesk
+                </p>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight" style={{ color: 'var(--fd-text)' }}>
+                  Planner
+                </h1>
+              </div>
+              <div className="rounded-full border p-1" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
+                <Avatar name="Trainer" size="sm" />
+              </div>
+            </div>
+          )}
         >
-          <CalendarPlus className="h-4 w-4" />
-          Book
-        </button>
+          <div
+            className="rounded-[28px] border px-3 pb-4 pt-2 backdrop-blur-2xl lg:px-4"
+            style={{
+              borderColor: 'rgba(255,255,255,0.12)',
+              background: 'linear-gradient(180deg, rgba(19,24,38,0.72) 0%, rgba(13,17,28,0.78) 100%)',
+              boxShadow: '0 28px 70px rgba(6,9,18,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
+            }}
+          >
+            <CalendarView
+              sessions={calendarSessions}
+              weekOnly
+              selectedSlots={selectedSlots}
+              onSlotsChange={setSelectedSlots}
+              onSessionClick={handleSessionClick}
+              onRangeSelect={handleRangeSelect}
+            />
+          </div>
+
+          <p className="mt-3 text-xs" style={{ color: 'var(--fd-muted)' }}>
+            Tap empty cells to book. Tap a session to edit or cancel.
+          </p>
+        </MobileShell>
+
+        {selectedSlots.length > 0 && (
+          <BookingPanel
+            selectedSlots={selectedSlots}
+            clients={clients}
+            existingSessions={sessionState}
+            initialClientId={initialClientId}
+            initialDurationMinutes={panelDurationHint}
+            trainerConfig={trainerConfig}
+            onDismiss={handleDismissPanel}
+            onBooked={handleBooked}
+          />
+        )}
       </div>
 
-      {/* Fetch error */}
+      {quickAddRange && (
+        <QuickAddPopover
+          range={quickAddRange}
+          clients={clients}
+          trainerConfig={trainerConfig}
+          initialClientId={initialClientId}
+          onClose={handleCloseQuickAdd}
+          onBooked={handleQuickAddBooked}
+          onMoreOptions={handleQuickAddMoreOptions}
+        />
+      )}
+
       {error && (
         <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
+          className="mx-auto mt-4 max-w-[420px] rounded-xl border p-3 text-sm px-4"
+          style={{ borderColor: 'rgba(232,92,106,0.45)', color: 'var(--fd-red)', background: 'rgba(232,92,106,0.08)' }}
         >
           {error}
         </p>
       )}
 
-      {/* Filter tabs */}
-      <div className="flex gap-2">
-        {TABS.map(tab => {
-          const count   = tabCount(optimisticSessions, tab.id)
-          const isActive = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
-              style={{
-                backgroundColor: isActive ? 'var(--fd-accent)' : 'var(--fd-card)',
-                color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
-              }}
-            >
-              {tab.label}
-              {count > 0 && (
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
-                  style={{
-                    backgroundColor: isActive ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.07)',
-                    color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
-                  }}
-                >
-                  {count}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Session list */}
-      {displayed.length === 0 ? (
-        <EmptyState tab={activeTab} onBook={() => setIsBooking(true)} />
-      ) : (
-        <div className="space-y-3">
-          {displayed.map(session => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              onComplete={handleComplete}
-              onCancel={handleCancel}
-              isPending={pending}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Book session bottom sheet */}
-      <BookSessionSheet
-        isOpen={isBooking}
-        clients={clients}
-        onClose={() => setIsBooking(false)}
-        onBooked={handleBooked}
+      <SessionDetailsSheet
+        session={detailSession}
+        isOpen={isDetailOpen}
+        onClose={handleClose}
+        onOptimisticReplace={handleOptimisticReplace}
+        onOptimisticRemove={handleOptimisticRemove}
+        onReconcile={reconcile}
       />
-    </div>
-  )
-}
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
-
-function EmptyState({ tab, onBook }: { tab: FilterTab; onBook: () => void }) {
-  const messages: Record<FilterTab, { icon: React.ReactNode; text: string; cta: boolean }> = {
-    upcoming: {
-      icon: <CalendarPlus className="mx-auto mb-3 h-8 w-8" style={{ color: 'var(--fd-muted)' }} />,
-      text: 'No upcoming sessions.',
-      cta:  true,
-    },
-    completed: {
-      icon: <CheckCircle2 className="mx-auto mb-3 h-8 w-8" style={{ color: 'var(--fd-muted)' }} />,
-      text: 'No completed sessions yet.',
-      cta:  false,
-    },
-    all: {
-      icon: <Clock className="mx-auto mb-3 h-8 w-8" style={{ color: 'var(--fd-muted)' }} />,
-      text: 'No sessions yet.',
-      cta:  true,
-    },
-  }
-
-  const { icon, text, cta } = messages[tab]
-
-  return (
-    <div className="py-10 text-center">
-      {icon}
-      <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-        {text}
-      </p>
-      {cta && (
-        <button
-          onClick={onBook}
-          className="mt-3 text-sm font-semibold"
-          style={{ color: 'var(--fd-accent)' }}
-        >
-          Book a session →
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => {
+          const slot = nextBookableSlot()
+          setSelectedSlots(prev => {
+            const exists = prev.some(s => s.getTime() === slot.getTime())
+            if (exists) return prev
+            return [...prev, slot]
+          })
+        }}
+        aria-label="Add suggested slot"
+        className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full border shadow-2xl transition-transform hover:scale-105 active:scale-95"
+        style={{
+          borderColor: 'rgba(255,255,255,0.20)',
+          background: 'linear-gradient(180deg, rgba(76,145,255,0.98) 0%, rgba(50,114,245,0.96) 100%)',
+          color: 'white',
+          boxShadow: '0 18px 38px rgba(42,98,232,0.5), 0 0 0 6px rgba(70,131,255,0.16), inset 0 1px 0 rgba(255,255,255,0.35)',
+        }}
+      >
+        <CalendarPlus className="h-7 w-7" />
+      </button>
     </div>
   )
 }

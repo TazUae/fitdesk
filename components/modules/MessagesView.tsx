@@ -180,7 +180,7 @@ export function MessagesView({
     startSend(async () => {
       const result = await sendMessage({
         clientId:    client.id,
-        phone:       client.phone,
+        phone:       client.mobile ?? '',
         body:        draftBody,
         messageType: selectedType,
         invoiceId,
@@ -224,7 +224,7 @@ export function MessagesView({
             {client.name}
           </p>
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            {client.phone || 'No phone number'}
+            {client.mobile || 'No phone number'}
           </p>
         </div>
       </div>
@@ -306,7 +306,7 @@ export function MessagesView({
 
           <button
             onClick={handleSend}
-            disabled={busy || !draftBody.trim() || !client.phone}
+            disabled={busy || !draftBody.trim() || !client.mobile}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity disabled:opacity-40"
             style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
           >
@@ -315,7 +315,7 @@ export function MessagesView({
           </button>
         </div>
 
-        {!client.phone && (
+        {!client.mobile && (
           <p className="text-xs text-center" style={{ color: 'var(--fd-red)' }}>
             No phone number on file — add one to the client profile before sending.
           </p>

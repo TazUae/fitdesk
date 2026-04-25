@@ -11,10 +11,9 @@
  * databaseHooks.user.create.after hook in lib/auth.ts.
  */
 
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { db } from './db'
-import { trainerMapping } from './db/schema'
-import { createTrainer, ERPNextError } from './erpnext/client'
+import { trainerMapping, user, workspaceProvisioning } from './db/schema'
 
 // ─── Error ────────────────────────────────────────────────────────────────────
 
@@ -80,12 +79,6 @@ export async function ensureTrainerIdForUser(opts: {
       opts.phone ?? undefined,
     )
   } catch (err) {
-    // If ERPNext is not configured, bubble that up as-is (it's actionable and
-    // shouldn't be disguised as a missing mapping).
-    if (err instanceof ERPNextError && err.status === 503 && err.statusText === 'Not Configured') {
-      throw err
-    }
-
     console.error('[trainer-provision] failed for user', opts.userId, err)
     throw new TrainerNotFoundError(opts.userId)
   }
@@ -105,9 +98,9 @@ export async function ensureTrainerIdForUser(opts: {
  */
 export async function createTrainerForUser(
   userId: string,
-  name: string,
-  email: string,
-  phone?: string | null,
+  _name: string,
+  _email: string,
+  _phone?: string | null,
 ): Promise<string> {
   // Idempotency check — return early if mapping already exists
   const existing = await db.query.trainerMapping.findFirst({
@@ -115,28 +108,12 @@ export async function createTrainerForUser(
   })
   if (existing) return existing.erpTrainerId
 
-  let erpTrainerId: string
+  // Trainer provisioning in ERPNext is handled by the Control Plane workspace
+  // provisioning workflow. FitDesk stores the userId as a placeholder mapping
+  // so the rest of the app (WhatsApp, auth) can function during provisioning.
+  // ERP-dependent features will surface a clear error until provisioning is complete.
+  const erpTrainerId = userId
 
-  try {
-    // Create the Trainer record in ERPNext
-    erpTrainerId = await createTrainer({
-      trainer_name: name || email,
-      email,
-      phone: phone ?? undefined,
-    })
-  } catch (err) {
-    // If ERPNext is not configured, fall back to using the userId.
-    // This allows registration and non-ERP features to work while ERPNext
-    // is being set up. ERP-dependent actions will surface a clear error.
-    if (err instanceof ERPNextError && err.status === 503) {
-      console.warn('[trainer-provision] ERPNext not configured — using userId as fallback trainer ID for', userId)
-      erpTrainerId = userId
-    } else {
-      throw err
-    }
-  }
-
-  // Persist the mapping in auth.db
   await db.insert(trainerMapping).values({
     userId,
     erpTrainerId,
@@ -144,4 +121,39 @@ export async function createTrainerForUser(
   })
 
   return erpTrainerId
+}
+
+/**
+ * Read the trainer's profile from the local SQLite database.
+ * Returns user info combined with their latest workspace provisioning record.
+ * Does NOT call ERPNext — safe to call before provisioning is complete.
+ */
+export async function getTrainerProfile(userId: string): Promise<{
+  userId: string
+  name: string
+  email: string
+  phone?: string
+  slug: string | null
+  tenantId: string | null
+  provisioningStatus: string | null
+} | null> {
+  const [userRow, provisioning] = await Promise.all([
+    db.query.user.findFirst({ where: eq(user.id, userId) }),
+    db.query.workspaceProvisioning.findFirst({
+      where: eq(workspaceProvisioning.userId, userId),
+      orderBy: [desc(workspaceProvisioning.createdAt)],
+    }),
+  ])
+
+  if (!userRow) return null
+
+  return {
+    userId,
+    name:               userRow.name,
+    email:              userRow.email,
+    phone:              userRow.phone ?? undefined,
+    slug:               provisioning?.slug ?? null,
+    tenantId:           provisioning?.tenantId ?? null,
+    provisioningStatus: provisioning?.status ?? null,
+  }
 }

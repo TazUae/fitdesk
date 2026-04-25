@@ -2,7 +2,8 @@ import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
-import type { Client, Session, Invoice } from '@/types'
+import type { Client, Invoice } from '@/types'
+import type { FDSession } from '@/types/scheduling'
 
 // ─── Greeting ────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ export default async function DashboardPage() {
       ? clientsResult.value.data
       : null
 
-  const sessions: Session[] | null =
+  const sessions: FDSession[] | null =
     sessionsResult.status === 'fulfilled' && sessionsResult.value.success
       ? sessionsResult.value.data
       : null
@@ -51,28 +52,30 @@ export default async function DashboardPage() {
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
-  const activeClients = clients?.filter(c => c.status === 'active').length ?? null
+  // TODO: re-add active vs total split once trainer-scoped Customer query is resolved
+  const activeClients = clients?.length ?? null
   const totalClients  = clients?.length ?? null
 
-  const todaySessions: Session[] =
+  const sessionYmd = (s: FDSession) => s.startAt.toISOString().slice(0, 10)
+  const isActive   = (s: FDSession) => s.status === 'scheduled' || s.status === 'confirmed'
+
+  const todaySessions: FDSession[] =
     sessions
-      ?.filter(s => s.date === today && s.status === 'scheduled')
-      .sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
+      ?.filter(s => sessionYmd(s) === today && isActive(s))
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
     ?? []
 
-  const upcomingSessions: Session[] =
+  const upcomingSessions: FDSession[] =
     sessions
-      ?.filter(s => s.date > today && s.status === 'scheduled')
-      .sort((a, b) =>
-        a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''),
-      )
+      ?.filter(s => sessionYmd(s) > today && isActive(s))
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
       .slice(0, 3)
     ?? []
 
   const sessionsThisMonth: number | null =
     sessions === null
       ? null
-      : sessions.filter(s => s.status === 'completed' && s.date >= monthStart).length
+      : sessions.filter(s => s.status === 'completed' && sessionYmd(s) >= monthStart).length
 
   const overdueInvoices: Invoice[] =
     invoices?.filter(i => i.status === 'overdue') ?? []

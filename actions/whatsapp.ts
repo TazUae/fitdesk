@@ -10,6 +10,7 @@ import {
   fetchWhatsAppConnectionStatus,
   disconnectWhatsAppInstance,
   replaceWhatsAppInstance,
+  requestWhatsAppPairingCode,
 } from '@/lib/evolution'
 import type { ActionResult, WhatsAppConnection } from '@/types'
 
@@ -99,6 +100,22 @@ export async function disconnectWhatsApp(): Promise<ActionResult<WhatsAppConnect
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to disconnect WhatsApp.' }
+  }
+}
+
+/**
+ * Create/reuse the trainer's Evolution instance and request an 8-digit pairing code
+ * for the given phone number. The code is entered in WhatsApp → Linked Devices.
+ */
+export async function connectWithPairingCode(phone: string): Promise<ActionResult<WhatsAppConnection>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const data = await requestWhatsAppPairingCode(resolved.trainerId, phone)
+    return { success: true, data }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to request pairing code.' }
   }
 }
 

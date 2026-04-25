@@ -567,7 +567,7 @@ function CreateInvoiceSheet({
         posting_date: today,
         due_date:     fd.get('due_date') as string,
         items: items.map(i => ({
-          item_code:   'PT-SESSION',
+          item_code:   'TRAINING-SESSION',
           description: i.description,
           qty:         i.qty,
           rate:        i.rate,

@@ -13,6 +13,7 @@ type InitialRecord = {
 
 type ProvisioningStatusProps = {
   initialRecord: InitialRecord | null;
+  onComplete?: () => void;
 };
 
 const STEP_MESSAGE: Record<string, string> = {
@@ -25,7 +26,7 @@ const STEP_MESSAGE: Record<string, string> = {
   warmup_completed: "Finalizing setup",
 };
 
-export function ProvisioningStatus({ initialRecord }: ProvisioningStatusProps) {
+export function ProvisioningStatus({ initialRecord, onComplete }: ProvisioningStatusProps) {
   const router = useRouter();
   const [job, setJob] = useState<JobStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +35,9 @@ export function ProvisioningStatus({ initialRecord }: ProvisioningStatusProps) {
   const [pollingRunId, setPollingRunId] = useState(0);
   const pollingDelayRef = useRef(2000);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep onComplete stable — updating a ref doesn't retrigger the polling effect
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   const jobId = initialRecord?.jobId ?? null;
   const status = job?.status ?? initialRecord?.status ?? "queued";
@@ -73,7 +77,11 @@ export function ProvisioningStatus({ initialRecord }: ProvisioningStatusProps) {
         setError(null);
 
         if (data.status === "completed") {
-          router.replace("/dashboard");
+          if (onCompleteRef.current) {
+            onCompleteRef.current();
+          } else {
+            router.replace("/dashboard");
+          }
           return;
         }
 

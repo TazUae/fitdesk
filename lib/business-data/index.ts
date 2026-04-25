@@ -2,24 +2,31 @@
 
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
-import { bookSession as createSessionBooking, fetchSessions } from '@/actions/sessions'
-import type { ActionResult, Client, Invoice, Payment, Session } from '@/types'
+import { listFDSessionsAction } from '@/actions/schedulingActions'
+import type { ActionResult, Client, Invoice, Payment } from '@/types'
+import type { FDSession } from '@/types/scheduling'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
-import type { BookSessionInput } from '@/actions/sessions'
 import { editClient, fetchClientById } from '@/actions/clients'
 import { fetchInvoiceById } from '@/actions/invoices'
 import type { UpdateClientPayload } from '@/lib/erpnext/types'
-import type { SessionFilter } from '@/actions/sessions'
 
 export async function getClients(): Promise<ActionResult<Client[]>> {
   return fetchClients()
 }
 
-export async function getSessions(opts: {
-  clientId?: string
-  filter?: SessionFilter
-} = {}): Promise<ActionResult<Session[]>> {
-  return fetchSessions(opts)
+/**
+ * Fetch FD Sessions for the authenticated trainer.
+ * Optional `customer` narrows to one client; filtering is applied server-side
+ * on the returned list (the underlying list action doesn't expose a per-call
+ * client filter).
+ */
+export async function getSessions(opts: { customer?: string } = {}): Promise<ActionResult<FDSession[]>> {
+  const result = await listFDSessionsAction()
+  if (!result.success) return { success: false, error: result.message }
+  const data = opts.customer
+    ? result.data.filter(s => s.clientId === opts.customer)
+    : result.data
+  return { success: true, data }
 }
 
 export async function getInvoices(opts: {
@@ -47,10 +54,6 @@ export async function createClient(
   return addClient(input)
 }
 
-export async function bookSession(input: BookSessionInput): Promise<ActionResult<Session>> {
-  return createSessionBooking(input)
-}
-
 export async function createInvoice(input: CreateInvoicePayload): Promise<ActionResult<Invoice>> {
   return addInvoice(input)
 }
@@ -65,34 +68,4 @@ export async function recordPayment(input: {
   note?: string
 }): Promise<ActionResult<Payment>> {
   return recordInvoicePayment(input)
-}
-
-export async function getDashboardMetrics() {
-  const [clientsResult, sessionsResult, invoicesResult] = await Promise.all([
-    getClients(),
-    getSessions(),
-    getInvoices(),
-  ])
-
-  const clients = clientsResult.success ? clientsResult.data : []
-  const sessions = sessionsResult.success ? sessionsResult.data : []
-  const invoices = invoicesResult.success ? invoicesResult.data : []
-
-  const now = new Date()
-  const today = now.toISOString().slice(0, 10)
-  const monthStart = today.slice(0, 8) + '01'
-
-  return {
-    activeClients: clients.filter((c) => c.status === 'active').length,
-    totalClients: clients.length,
-    sessionsThisMonth: sessions.filter((s) => s.status === 'completed' && s.date >= monthStart).length,
-    overdueInvoices: invoices.filter((i) => i.status === 'overdue').length,
-    outstandingBalance: invoices
-      .filter((i) => i.status === 'overdue' || i.status === 'sent')
-      .reduce((sum, i) => sum + i.outstandingAmount, 0),
-    monthlyRevenue: invoices
-      .filter((i) => i.status === 'paid' && i.issuedAt >= monthStart)
-      .reduce((sum, i) => sum + i.amount, 0),
-    currency: invoices.find((i) => i.currency)?.currency ?? 'USD',
-  }
 }

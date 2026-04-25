@@ -13,8 +13,6 @@
 
 export type ClientStatus = 'active' | 'inactive' | 'paused'
 
-export type SessionStatus = 'scheduled' | 'completed' | 'missed' | 'cancelled'
-
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 
 export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
@@ -47,46 +45,29 @@ export interface Trainer {
 
 /**
  * A client managed by a trainer.
- * id = ERPNext Client/Customer docname (e.g. "C-0001").
+ * id = ERPNext Customer docname (e.g. "CUST-00001").
+ * Maps from the standard Customer DocType plus FitDesk custom fields.
  */
 export interface Client {
   id: string
-  firstName: string
-  lastName?: string
-  /** Computed full name — use this for display. */
+  /** customer_name — the Customer's display name. */
   name: string
-  email?: string
-  phone: string
-  status: ClientStatus
-  /** ERPNext Trainer docname this client belongs to. */
-  trainerId: string
-  /** Total sessions completed to date (updated by ERP). */
-  sessionCount: number
-  /** Client's stated fitness goal — custom ERP field, optional. */
-  goal?: string
-  notes?: string
-  createdAt: string
-}
-
-/**
- * A PT training session.
- * id = ERPNext custom Session DocType name.
- */
-export interface Session {
-  id: string
-  clientId: string
-  /** Denormalized — avoids extra fetch when rendering lists. */
-  clientName: string
-  trainerId: string
-  /** ISO date string — YYYY-MM-DD. */
-  date: string
-  /** 24-hour time string — HH:mm. Optional. */
-  time?: string
-  durationMinutes?: number
-  /** Per-session fee — custom ERP field; undefined when not configured. */
-  sessionFee?: number
-  status: SessionStatus
-  notes?: string
+  /** mobile_no */
+  mobile?: string
+  /** custom_fitness_goals */
+  fitnessGoals?: string
+  /** custom_trainer_notes */
+  trainerNotes?: string
+  /** custom_package_type */
+  packageType?: 'Per Session' | 'Monthly' | 'Package'
+  /** custom_blood_type */
+  bloodType?: string
+  /** custom_emergency_contact_name */
+  emergencyContactName?: string
+  /** custom_emergency_contact_phone */
+  emergencyContactPhone?: string
+  /** custom_remaining_sessions — sessions left in the client's package */
+  remainingSessions?: number
   createdAt: string
 }
 

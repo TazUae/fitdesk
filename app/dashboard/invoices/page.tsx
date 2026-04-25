@@ -7,9 +7,7 @@ export default async function InvoicesPage() {
     getClients(),
   ])
 
-  const activeClients = clientsResult.success
-    ? clientsResult.data.filter(c => c.status === 'active')
-    : []
+  const activeClients = clientsResult.success ? clientsResult.data : []
 
   return (
     <InvoicesView

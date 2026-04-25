@@ -15,8 +15,15 @@ export type ProvisioningStep =
   | "completed";
 
 export type CreateTenantInput = {
-  workspaceName: string;
+  slug: string;
+  country: string;
+  companyName: string;
+  companyAbbr: string;
   ownerEmail: string;
+  /** Optional overrides — derived from country defaults if omitted */
+  currency?: string;
+  timezone?: string;
+  language?: string;
 };
 
 export type CreateTenantResponse = {

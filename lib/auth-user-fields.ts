@@ -9,4 +9,14 @@ export const userAdditionalFields = {
     required: false,
     defaultValue: '',
   },
+  currency: {
+    type: 'string',
+    required: false,
+    defaultValue: 'USD',
+  },
+  businessName: {
+    type: 'string',
+    required: false,
+    defaultValue: '',
+  },
 } as const
