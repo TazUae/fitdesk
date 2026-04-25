@@ -8,6 +8,7 @@ import { Avatar } from '@/components/modules/Avatar'
 import { BookingPanel } from '@/components/scheduling/BookingPanel'
 import { CalendarView, type CalendarSession, type QuickAddRange } from '@/components/scheduling/CalendarView'
 import { SchedulerXAdapter } from '@/components/scheduling/SchedulerXAdapter'
+import { SchedulerErrorBoundary } from '@/components/scheduling/SchedulerErrorBoundary'
 import { QuickAddPopover } from '@/components/scheduling/QuickAddPopover'
 import { SessionDetailsSheet } from '@/components/scheduling/SessionDetailsSheet'
 import { MobileShell } from '@/components/ui/MobileShell'
@@ -203,21 +204,8 @@ export function ScheduleView({
               boxShadow: '0 28px 70px rgba(6,9,18,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
             }}
           >
-            {uiEngine === 'schedulex'
-              ? (
-                <SchedulerXAdapter
-                  sessions={calendarSessions}
-                  rawSessions={sessionState}
-                  selectedSlots={selectedSlots}
-                  onSlotsChange={setSelectedSlots}
-                  onSessionClick={handleSessionClick}
-                  onRangeSelect={handleRangeSelect}
-                  onOptimisticReplace={handleOptimisticReplace}
-                  onReconcile={reconcile}
-                  timezone={trainerConfig.timezone}
-                />
-              )
-              : (
+            {(() => {
+              const legacyCalendar = (
                 <CalendarView
                   sessions={calendarSessions}
                   weekOnly
@@ -226,7 +214,24 @@ export function ScheduleView({
                   onSessionClick={handleSessionClick}
                   onRangeSelect={handleRangeSelect}
                 />
-              )}
+              )
+              if (uiEngine !== 'schedulex') return legacyCalendar
+              return (
+                <SchedulerErrorBoundary fallback={legacyCalendar}>
+                  <SchedulerXAdapter
+                    sessions={calendarSessions}
+                    rawSessions={sessionState}
+                    selectedSlots={selectedSlots}
+                    onSlotsChange={setSelectedSlots}
+                    onSessionClick={handleSessionClick}
+                    onRangeSelect={handleRangeSelect}
+                    onOptimisticReplace={handleOptimisticReplace}
+                    onReconcile={reconcile}
+                    timezone={trainerConfig.timezone}
+                  />
+                </SchedulerErrorBoundary>
+              )
+            })()}
           </div>
 
           <p className="mt-3 text-xs" style={{ color: 'var(--fd-muted)' }}>

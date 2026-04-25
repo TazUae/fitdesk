@@ -9,6 +9,7 @@ import type { BackgroundEvent, CalendarEvent, CalendarType } from '@schedule-x/c
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop'
 import '@schedule-x/theme-default/dist/index.css'
+import './scheduler-x-overrides.css'
 import { rescheduleSessionAction } from '@/actions/schedulingActions'
 import type { CalendarSession, QuickAddRange } from '@/components/scheduling/CalendarView'
 import type { FDSession } from '@/types/scheduling'
@@ -173,6 +174,7 @@ export function SchedulerXAdapter({
 }: SchedulerXAdapterProps) {
   const sessionsRef            = useRef(sessions)
   const rawSessionsRef         = useRef(rawSessions)
+  const selectedSlotsRef       = useRef(selectedSlots)
   const onSessionClickRef      = useRef(onSessionClick)
   const onSlotsChangeRef       = useRef(onSlotsChange)
   const onRangeSelectRef       = useRef(onRangeSelect)
@@ -184,6 +186,7 @@ export function SchedulerXAdapter({
 
   useEffect(() => { sessionsRef.current            = sessions            }, [sessions])
   useEffect(() => { rawSessionsRef.current         = rawSessions         }, [rawSessions])
+  useEffect(() => { selectedSlotsRef.current       = selectedSlots       }, [selectedSlots])
   useEffect(() => { onSessionClickRef.current      = onSessionClick      }, [onSessionClick])
   useEffect(() => { onSlotsChangeRef.current       = onSlotsChange       }, [onSlotsChange])
   useEffect(() => { onRangeSelectRef.current       = onRangeSelect       }, [onRangeSelect])
@@ -246,8 +249,14 @@ export function SchedulerXAdapter({
             wasDragRef.current = false
             return
           }
-          const slot = new Date(dateTime.toInstant().epochMilliseconds)
-          onSlotsChangeRef.current([slot])
+          // Tap-to-toggle: matches CalendarView behaviour and works on both
+          // mouse-click and touch-tap, so mobile users get multi-slot selection.
+          const slot   = new Date(dateTime.toInstant().epochMilliseconds)
+          const slotMs = slot.getTime()
+          const next   = selectedSlotsRef.current.some(s => s.getTime() === slotMs)
+            ? selectedSlotsRef.current.filter(s => s.getTime() !== slotMs)
+            : [...selectedSlotsRef.current, slot]
+          onSlotsChangeRef.current(next)
         },
         onEventUpdate: (event) => {
           const raw = rawSessionsRef.current.find(s => s.id === String(event.id))
@@ -298,7 +307,7 @@ export function SchedulerXAdapter({
   }, [selectedSlots, timezone, eventsService])
 
   return (
-    <div className="[&_.sx-react-calendar-wrapper]:h-[700px] [&_.sx-react-calendar-wrapper]:w-full">
+    <div className="fd-sx-wrap [&_.sx-react-calendar-wrapper]:h-[700px] [&_.sx-react-calendar-wrapper]:w-full">
       <ScheduleXCalendar
         calendarApp={calendar}
         customComponents={{ timeGridEvent: TimeGridEventComponent }}
