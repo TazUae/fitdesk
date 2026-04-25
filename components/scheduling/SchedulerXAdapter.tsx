@@ -11,8 +11,7 @@ import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop'
 import '@schedule-x/theme-default/dist/index.css'
 import './scheduler-x-overrides.css'
 import { rescheduleSessionAction } from '@/actions/schedulingActions'
-import type { CalendarSession, QuickAddRange } from '@/components/scheduling/CalendarView'
-import type { FDSession } from '@/types/scheduling'
+import type { CalendarSession, FDSession, QuickAddRange } from '@/types/scheduling'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +63,7 @@ const STATUS_CALENDARS: Record<string, CalendarType> = {
   },
 }
 
-// ─── Status → block colors (matching CalendarView style) ─────────────────────
+// ─── Status → block colors ───────────────────────────────────────────────────
 
 const STATUS_BLOCK: Record<string, { bg: string; border: string; text: string }> = {
   scheduled: { bg: 'rgba(75,145,255,0.15)',  border: 'rgba(75,145,255,0.45)',  text: '#A8C8FF' },
@@ -249,8 +248,8 @@ export function SchedulerXAdapter({
             wasDragRef.current = false
             return
           }
-          // Tap-to-toggle: matches CalendarView behaviour and works on both
-          // mouse-click and touch-tap, so mobile users get multi-slot selection.
+          // Tap-to-toggle works on both mouse-click and touch-tap, so mobile
+          // users get multi-slot selection without needing drag.
           const slot   = new Date(dateTime.toInstant().epochMilliseconds)
           const slotMs = slot.getTime()
           const next   = selectedSlotsRef.current.some(s => s.getTime() === slotMs)
