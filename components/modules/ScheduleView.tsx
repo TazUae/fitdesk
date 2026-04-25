@@ -207,10 +207,13 @@ export function ScheduleView({
               ? (
                 <SchedulerXAdapter
                   sessions={calendarSessions}
+                  rawSessions={sessionState}
                   selectedSlots={selectedSlots}
                   onSlotsChange={setSelectedSlots}
                   onSessionClick={handleSessionClick}
                   onRangeSelect={handleRangeSelect}
+                  onOptimisticReplace={handleOptimisticReplace}
+                  onReconcile={reconcile}
                   timezone={trainerConfig.timezone}
                 />
               )
