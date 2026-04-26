@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import 'temporal-polyfill/global'
 import { ScheduleXCalendar, useNextCalendarApp } from '@schedule-x/react'
-import { createViewWeek, createViewDay } from '@schedule-x/calendar'
+import { createViewWeek, createViewDay, createViewMonthGrid } from '@schedule-x/calendar'
 import type { BackgroundEvent, CalendarEvent, CalendarType } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop'
@@ -198,7 +198,8 @@ export function SchedulerXAdapter({
 
   const calendar = useNextCalendarApp(
     {
-      views:     [createViewWeek(), createViewDay()],
+      views:     [createViewWeek(), createViewDay(), createViewMonthGrid()],
+      defaultView: 'week',
       timezone,
       isDark:    true,
       calendars: STATUS_CALENDARS,
