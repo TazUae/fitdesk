@@ -145,7 +145,7 @@ export interface BillingSettings {
 
 // ─── Section 5 — Payments ────────────────────────────────────────────────────
 
-export type PaymentProvider = 'whish' | 'cash' | 'bank-transfer'
+export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 
 export interface PaymentsSettings {
   paymentProvider:             PaymentProvider
@@ -160,7 +160,7 @@ export interface PaymentsSettings {
 
 // ─── Section 6 — WhatsApp Assistant ──────────────────────────────────────────
 
-export type MessageTone     = 'friendly-professional' | 'professional' | 'casual'
+export type MessageTone     = 'friendly_professional' | 'professional' | 'casual'
 export type ReminderChannel = 'whatsapp'
 export type ReminderType    = 'before-session' | 'after-session' | 'invoice-overdue'
 

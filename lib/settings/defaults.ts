@@ -161,7 +161,7 @@ const DEFAULT_WHATSAPP: WhatsAppSettings = {
   instanceId:                       null,
   apiKey:                           '',
   messageLanguage:                  'en',
-  messageTone:                      'friendly-professional',
+  messageTone:                      'friendly_professional',
   defaultSignature:                 'Sent via FitDesk Assistant',
   defaultClientGreeting:
     "Hi {client_name}, I've booked our {session_type} session for " +
