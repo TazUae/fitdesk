@@ -159,7 +159,7 @@ export async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promis
 // ─── Status mappers ───────────────────────────────────────────────────────────
 // ERPNext uses PascalCase status values; app types use lowercase.
 
-function mapInvoiceStatus(s: string): InvoiceStatus {
+export function mapInvoiceStatus(s: string): InvoiceStatus {
   const map: Record<string, InvoiceStatus> = {
     Draft:     'draft',
     Submitted: 'sent',
@@ -170,7 +170,7 @@ function mapInvoiceStatus(s: string): InvoiceStatus {
   return map[s] ?? 'draft'
 }
 
-function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
+export function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
   const lower = modeOfPayment.toLowerCase()
   if (lower.includes('whish'))                       return 'whish'
   if (lower.includes('bank') || lower.includes('wire')) return 'bank_transfer'
@@ -181,7 +181,7 @@ function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
 // Convert raw ERP shapes → typed app domain objects.
 // Private to this module — callers receive app types only.
 
-function normalizeClient(raw: ERPClient): Client {
+export function normalizeClient(raw: ERPClient): Client {
   return {
     id:                    raw.name,
     name:                  raw.customer_name,
@@ -229,7 +229,7 @@ function normalizePayment(raw: ERPPaymentEntry, invoiceId: string): Payment {
 
 // ─── Shared field list helpers ────────────────────────────────────────────────
 
-function clientFields(): string {
+export function clientFields(): string {
   return JSON.stringify([
     'name', 'customer_name', 'mobile_no',
     'custom_fitness_goals', 'custom_trainer_notes', 'custom_package_type',
@@ -264,14 +264,15 @@ export async function getClients(_trainerId: string): Promise<Client[]> {
   const params: Record<string, string> = {
     fields:  clientFields(),
     filters: JSON.stringify([['disabled', '=', 0]]),
-    orderby: 'creation desc',
   }
 
   const res = await erpFetch<ERPListResponse<ERPClient>>(
     `/api/resource/${encodeURIComponent(DOCTYPE.CLIENT)}`,
     { params },
   )
-  return res.data.map(normalizeClient)
+  const clients = res.data.map(normalizeClient)
+  clients.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  return clients
 }
 
 /**
