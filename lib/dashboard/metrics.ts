@@ -5,7 +5,28 @@
  * sessions array. Tested in metrics.test.ts.
  */
 
+import type { Client } from '@/types'
 import type { FDSession } from '@/types/scheduling'
+
+/** Clients have a "low balance" when remainingSessions is set and ≤ this. */
+export const LOW_BALANCE_THRESHOLD = 3
+
+/**
+ * Returns clients with a tracked, low (but non-zero) package balance.
+ * Hidden when remainingSessions is undefined or 0 — those don't have a
+ * package to renew.
+ */
+export function findLowBalanceClients(
+  clients: Client[],
+  threshold = LOW_BALANCE_THRESHOLD,
+): Client[] {
+  return clients.filter(c =>
+    c.remainingSessions !== undefined &&
+    c.remainingSessions > 0 &&
+    c.remainingSessions <= threshold,
+  )
+}
+
 
 const ACTIVE_CLIENT_LOOKBACK_DAYS = 30
 

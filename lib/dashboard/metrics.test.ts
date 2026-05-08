@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   countActiveClients,
   countSessionsCompletedThisWeek,
+  findLowBalanceClients,
   startOfWeekUTC,
 } from './metrics'
+import type { Client } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
 // Friday, 2026-05-08 12:00 UTC — week of Mon 2026-05-04 → Sun 2026-05-10
@@ -106,6 +108,38 @@ describe('startOfWeekUTC', () => {
     expect(
       startOfWeekUTC(new Date('2026-05-10T01:00:00.000Z')).toISOString(),
     ).toBe('2026-05-04T00:00:00.000Z')
+  })
+})
+
+describe('findLowBalanceClients', () => {
+  function client(id: string, remainingSessions: number | undefined): Client {
+    return { id, name: id, createdAt: '2026-01-01' as never, remainingSessions } as Client
+  }
+
+  it('selects clients with 1-3 sessions remaining (default threshold)', () => {
+    const result = findLowBalanceClients([
+      client('a', 1),
+      client('b', 3),
+      client('c', 4),
+      client('d', undefined),
+    ])
+    expect(result.map(c => c.id)).toEqual(['a', 'b'])
+  })
+
+  it('excludes clients with 0 sessions remaining (no package to renew)', () => {
+    expect(findLowBalanceClients([client('a', 0)])).toHaveLength(0)
+  })
+
+  it('excludes clients without a tracked balance', () => {
+    expect(findLowBalanceClients([client('a', undefined)])).toHaveLength(0)
+  })
+
+  it('respects custom threshold', () => {
+    const result = findLowBalanceClients([
+      client('a', 5),
+      client('b', 6),
+    ], 5)
+    expect(result.map(c => c.id)).toEqual(['a'])
   })
 })
 

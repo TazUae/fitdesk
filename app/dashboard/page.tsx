@@ -2,7 +2,11 @@ import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
-import { countActiveClients, countSessionsCompletedThisWeek } from '@/lib/dashboard/metrics'
+import {
+  countActiveClients,
+  countSessionsCompletedThisWeek,
+  findLowBalanceClients,
+} from '@/lib/dashboard/metrics'
 import type { Client, Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
@@ -88,6 +92,8 @@ export default async function DashboardPage() {
   const overdueInvoices: Invoice[] =
     invoices?.filter(i => i.status === 'overdue') ?? []
 
+  const lowBalanceClients: Client[] = clients ? findLowBalanceClients(clients) : []
+
   const outstandingBalance: number | null =
     invoices === null
       ? null
@@ -124,6 +130,7 @@ export default async function DashboardPage() {
       todaySessions={todaySessions}
       upcomingSessions={upcomingSessions}
       overdueInvoices={overdueInvoices}
+      lowBalanceClients={lowBalanceClients}
     />
   )
 }

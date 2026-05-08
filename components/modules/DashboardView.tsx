@@ -23,7 +23,7 @@ import { StatCard } from './StatCard'
 import { Avatar }   from './Avatar'
 import { Badge }    from './Badge'
 import { WEEKLY_SESSION_GOAL } from '@/lib/dashboard/constants'
-import type { Invoice } from '@/types'
+import type { Client, Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -43,9 +43,10 @@ interface DashboardViewProps {
     sessionsThisWeek:   number | null
   }
 
-  todaySessions:    FDSession[]
-  upcomingSessions: FDSession[]
-  overdueInvoices:  Invoice[]
+  todaySessions:     FDSession[]
+  upcomingSessions:  FDSession[]
+  overdueInvoices:   Invoice[]
+  lowBalanceClients: Client[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -293,6 +294,7 @@ export function DashboardView({
   todaySessions,
   upcomingSessions,
   overdueInvoices,
+  lowBalanceClients,
 }: DashboardViewProps) {
   const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisWeek } = stats
   const firstName = trainerName.split(' ')[0] ?? trainerName
@@ -415,6 +417,29 @@ export function DashboardView({
               Follow Up
             </Link>
           </div>
+
+          {lowBalanceClients.length > 0 && (
+            <div
+              className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5"
+              style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 24%, transparent)' }}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+                  Packages running low
+                </p>
+                <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                  {lowBalanceClients.length} client{lowBalanceClients.length === 1 ? '' : 's'} ≤ 3 sessions left
+                </p>
+              </div>
+              <Link
+                href="/dashboard/clients"
+                className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+              >
+                Review
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
