@@ -41,6 +41,17 @@ vi.mock('@/lib/trainer', () => ({ getTrainerId: vi.fn() }))
 
 vi.mock('@/lib/scheduling/engine', () => ({ buildBookingPlan: vi.fn() }))
 
+vi.mock('@/lib/scheduling/trainerConfig', () => ({
+  getTrainerConfig: vi.fn().mockResolvedValue({
+    trainerId:     'trainer-abc',
+    timezone:      'UTC',
+    workingDays:   ['mon', 'tue', 'wed', 'thu', 'fri'],
+    startTime:     '09:00',
+    endTime:       '20:00',
+    bufferMinutes: 15,
+  }),
+}))
+
 vi.mock('@/lib/scheduling/sessionRepository', () => ({
   findSessionsInRange: vi.fn(),
 }))
@@ -66,6 +77,7 @@ import * as engine        from '@/lib/scheduling/engine'
 import * as repo          from '@/lib/scheduling/sessionRepository'
 import * as bookingSvc    from '@/lib/scheduling/bookingService'
 import * as sessionSvc    from '@/lib/scheduling/sessionService'
+import * as trainerCfg   from '@/lib/scheduling/trainerConfig'
 
 import {
   getSchedulerConfig,
@@ -117,11 +129,20 @@ const mockRescheduleOne   = vi.mocked(sessionSvc.rescheduleOne)
 const mockCancelSession   = vi.mocked(sessionSvc.cancelSession)
 const mockCompleteSession = vi.mocked(sessionSvc.completeSession)
 const mockMarkNoShow      = vi.mocked(sessionSvc.markNoShow)
+const mockGetTrainerCfg   = vi.mocked(trainerCfg.getTrainerConfig)
 
 function setupAuth(authenticated = true) {
   if (authenticated) {
     mockGetSession.mockResolvedValue({ user: { id: 'user-1' } } as never)
     mockGetTrainerId.mockResolvedValue(TRAINER_ID)
+    mockGetTrainerCfg.mockResolvedValue({
+      trainerId:     TRAINER_ID,
+      timezone:      'UTC',
+      workingDays:   ['mon', 'tue', 'wed', 'thu', 'fri'],
+      startTime:     '09:00',
+      endTime:       '20:00',
+      bufferMinutes: 15,
+    })
   } else {
     mockGetSession.mockResolvedValue(null)
   }

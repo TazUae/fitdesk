@@ -79,6 +79,25 @@ export interface ERPPaymentEntry {
   creation: string
 }
 
+/**
+ * Raw FitDesk Trainer Settings (singleton DocType).
+ * Provisioned by fitdesk-app; only the fields the scheduler reads are typed.
+ */
+export interface ERPTrainerSettings {
+  timezone?: string
+  buffer_minutes?: number
+  default_session_duration?: number
+  working_days?: ERPFitDeskWorkingDay[]
+}
+
+/** Child table row of FitDesk Trainer Settings.working_days. */
+export interface ERPFitDeskWorkingDay {
+  weekday?: 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
+  enabled?: 0 | 1
+  start_time?: string  // 'HH:MM:SS'
+  end_time?: string    // 'HH:MM:SS'
+}
+
 // ─── Payload types (write / POST / PUT) ──────────────────────────────────────
 // These define what we send TO ERPNext when creating or updating records.
 

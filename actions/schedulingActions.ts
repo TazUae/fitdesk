@@ -19,6 +19,7 @@ import { auth } from '@/lib/auth'
 import { getTrainerId } from '@/lib/trainer'
 import { buildBookingPlan } from '@/lib/scheduling/engine'
 import { findSessionsInRange } from '@/lib/scheduling/sessionRepository'
+import { getTrainerConfig } from '@/lib/scheduling/trainerConfig'
 import {
   bookFromPlan,
   ConflictError,
@@ -54,32 +55,12 @@ export type SchedulingResult<T> =
   | { success: true;  data: T }
   | { success: false; code: SchedulingErrorCode; message: string }
 
-// ─── Phase 1 TrainerConfig derivation ────────────────────────────────────────
-//
-// Phase 1 has no stored per-trainer configuration.  Config is assembled from:
-//   - trainerId: resolved from auth → ERP mapping
-//   - timezone:  TRAINER_DEFAULT_TIMEZONE env var, fallback 'UTC'
-//   - hours/buffer: constants matching the existing DEFAULT_AVAILABILITY
-
-const PHASE1_WORKING_DAYS: TrainerConfig['workingDays'] = [
-  'mon', 'tue', 'wed', 'thu', 'fri',
-]
-const PHASE1_START_TIME    = '09:00'
-const PHASE1_END_TIME      = '20:00'
-const PHASE1_BUFFER_MINUTES = 15
-
-function deriveConfig(trainerId: string): TrainerConfig {
-  return {
-    trainerId,
-    timezone:      process.env.TRAINER_DEFAULT_TIMEZONE ?? 'UTC',
-    workingDays:   PHASE1_WORKING_DAYS,
-    startTime:     PHASE1_START_TIME,
-    endTime:       PHASE1_END_TIME,
-    bufferMinutes: PHASE1_BUFFER_MINUTES,
-  }
-}
-
 // ─── Auth helper ──────────────────────────────────────────────────────────────
+//
+// TrainerConfig is fetched from FitDesk Trainer Settings (singleton DocType)
+// via lib/scheduling/trainerConfig.ts. The fetch is per-request memoized so
+// multiple actions in one render share a single ERP round-trip. On ERP error
+// the helper falls back to PHASE1_* defaults so the page still renders.
 
 async function resolveTrainer(): Promise<
   { ok: true; trainerId: string; config: TrainerConfig } |
@@ -92,7 +73,8 @@ async function resolveTrainer(): Promise<
 
   try {
     const trainerId = await getTrainerId(session.user.id)
-    return { ok: true, trainerId, config: deriveConfig(trainerId) }
+    const config    = await getTrainerConfig(trainerId)
+    return { ok: true, trainerId, config }
   } catch (err) {
     return {
       ok: false,

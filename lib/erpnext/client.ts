@@ -30,6 +30,7 @@ import type {
   ERPInvoice,
   ERPListResponse,
   ERPPaymentEntry,
+  ERPTrainerSettings,
   UpdateClientPayload,
 } from './types'
 
@@ -51,6 +52,8 @@ const DOCTYPE = {
   INVOICE: 'Sales Invoice',
   /** Standard Frappe — do not change. */
   PAYMENT: 'Payment Entry',
+  /** FitDesk singleton from fitdesk-app. Doctype name = singleton record name. */
+  TRAINER_SETTINGS: 'FitDesk Trainer Settings',
 } as const
 
 // ─── Error class ─────────────────────────────────────────────────────────────
@@ -492,4 +495,19 @@ export async function markInvoicePaid(opts: {
     { method: 'POST', body: payload },
   )
   return normalizePayment(res.data, opts.invoiceId)
+}
+
+// ── Trainer Settings (singleton) ──────────────────────────────────────────────
+
+/**
+ * Fetch the FitDesk Trainer Settings singleton document.
+ *
+ * The doctype name and the singleton record name are identical for
+ * Frappe singletons. Returns the raw shape — callers normalize.
+ */
+export async function getTrainerSettingsDoc(): Promise<ERPTrainerSettings> {
+  const res = await erpFetch<ERPDocResponse<ERPTrainerSettings>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}`,
+  )
+  return res.data
 }
