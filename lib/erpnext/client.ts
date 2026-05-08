@@ -522,3 +522,17 @@ export async function getTrainerSettingsDoc(): Promise<ERPTrainerSettings> {
   )
   return res.data
 }
+
+/**
+ * Update the FitDesk Trainer Settings singleton with a partial payload.
+ * Only fields supplied will be changed. Returns the saved doc.
+ */
+export async function updateTrainerSettingsDoc(
+  payload: Partial<ERPTrainerSettings>,
+): Promise<ERPTrainerSettings> {
+  const res = await erpFetch<ERPDocResponse<ERPTrainerSettings>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}`,
+    { method: 'PUT', body: payload },
+  )
+  return res.data
+}

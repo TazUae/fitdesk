@@ -25,7 +25,21 @@ describe("live setup summary helpers", () => {
     expect(normalized.status).toBe("missing");
     expect(normalized.workingDaysCount).toBe(0);
     expect(normalized.workingDayNames).toEqual([]);
+    expect(normalized.enabledDayCodes).toEqual([]);
     expect(normalized.standardBillingItem).toBeNull();
+  });
+
+  it("extracts 3-letter codes for enabled working days only", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      working_days: [
+        { weekday: "mon", enabled: 1 },
+        { weekday: "tue", enabled: 0 },
+        { weekday: "wed", enabled: "1" },
+        { weekday: "Sunday", enabled: 1 },
+      ],
+    });
+    expect(normalized.enabledDayCodes).toEqual(["mon", "wed", "sun"]);
   });
 
   it("handles empty session types list", () => {

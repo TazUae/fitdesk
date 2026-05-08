@@ -16,6 +16,8 @@ export type TrainerSettingsSummary = {
   status: SetupStatus;
   workingDaysCount: number;
   workingDayNames: string[];
+  /** 3-letter codes ('mon'..'sun') of currently enabled working days. */
+  enabledDayCodes: string[];
   standardBillingItem: string | null;
 };
 
@@ -72,12 +74,29 @@ export function toSafeSetupError(error: unknown): string {
   return detail.replace(SECRET_PATTERN, "HIDDEN").slice(0, 220);
 }
 
+const DAY_CODE_MAP: Record<string, string> = {
+  monday: "mon", tuesday: "tue", wednesday: "wed", thursday: "thu",
+  friday: "fri", saturday: "sat", sunday: "sun",
+  mon: "mon", tue: "tue", wed: "wed", thu: "thu",
+  fri: "fri", sat: "sat", sun: "sun",
+};
+
+function toDayCode(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  return DAY_CODE_MAP[raw.trim().toLowerCase()] ?? null;
+}
+
+function isEnabledRow(v: unknown): boolean {
+  return v === 1 || v === true || v === "1";
+}
+
 export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSettingsSummary {
   if (!doc) {
     return {
       status: "missing",
       workingDaysCount: 0,
       workingDayNames: [],
+      enabledDayCodes: [],
       standardBillingItem: null,
     };
   }
@@ -90,10 +109,19 @@ export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSetting
     })
     .filter((v): v is string => Boolean(v));
 
+  const enabledDayCodes = workingDays
+    .map((row) => {
+      const rec = (row ?? {}) as Record<string, unknown>;
+      if (!isEnabledRow(rec.enabled)) return null;
+      return toDayCode(rec.weekday ?? rec.day ?? rec.week_day);
+    })
+    .filter((v): v is string => Boolean(v));
+
   return {
     status: toStringOrNull(doc.name) ? "ok" : "missing",
     workingDaysCount: workingDays.length,
     workingDayNames,
+    enabledDayCodes,
     standardBillingItem:
       toStringOrNull(doc.standard_billing_item) ??
       toStringOrNull(doc.default_billing_item) ??

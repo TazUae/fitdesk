@@ -1,5 +1,11 @@
 import { getLiveSetupSummary } from "@/lib/settings/live-setup";
 import { getWhishReadiness } from "@/lib/whish";
+import { WorkingDaysEditor } from "@/components/modules/WorkingDaysEditor";
+
+type Weekday = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+const DAY_SET: ReadonlySet<Weekday> = new Set([
+  "sun", "mon", "tue", "wed", "thu", "fri", "sat",
+]);
 
 function statusBadge(status: "ok" | "missing" | "error"): { label: string; bg: string; color: string } {
   if (status === "ok") {
@@ -78,6 +84,25 @@ export default async function SettingsPage() {
             </span>
           </p>
         </div>
+
+        {setup.trainerSettings.status === "ok" && (
+          <>
+            <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--fd-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--fd-muted)" }}>
+                Edit working days
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--fd-muted)" }}>
+                Toggle which weekdays are bookable. Per-day hours, buffer, and billing item
+                are still edited in the ERPNext desk.
+              </p>
+            </div>
+            <WorkingDaysEditor
+              initialEnabled={setup.trainerSettings.enabledDayCodes.filter(
+                (d): d is Weekday => DAY_SET.has(d as Weekday),
+              )}
+            />
+          </>
+        )}
       </section>
 
       <section
