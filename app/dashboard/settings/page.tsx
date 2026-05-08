@@ -1,4 +1,5 @@
 import { getLiveSetupSummary } from "@/lib/settings/live-setup";
+import { getWhishReadiness } from "@/lib/whish";
 
 function statusBadge(status: "ok" | "missing" | "error"): { label: string; bg: string; color: string } {
   if (status === "ok") {
@@ -15,6 +16,8 @@ export default async function SettingsPage() {
   const trainerState = statusBadge(setup.trainerSettings.status);
   const sessionTypeState = statusBadge(setup.sessionTypes.status);
   const trainingItemState = statusBadge(setup.trainingItemStatus);
+  const whish = getWhishReadiness();
+  const whishState = statusBadge(whish.configured ? "ok" : "missing");
 
   return (
     <div className="space-y-4 p-4 pb-20">
@@ -136,6 +139,28 @@ export default async function SettingsPage() {
             {trainingItemState.label}
           </span>
         </div>
+      </section>
+
+      <section
+        className="rounded-2xl border p-4"
+        style={{ backgroundColor: "var(--fd-surface)", borderColor: "var(--fd-border)" }}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold" style={{ color: "var(--fd-text)" }}>
+            Whish Payments
+          </p>
+          <span
+            className="rounded-full px-2.5 py-1 text-xs font-semibold"
+            style={{ backgroundColor: whishState.bg, color: whishState.color }}
+          >
+            {whishState.label}
+          </span>
+        </div>
+        <p className="mt-2 text-xs" style={{ color: "var(--fd-muted)" }}>
+          {whish.configured
+            ? "Whish payment links are available. Cash and bank transfer remain as manual options."
+            : "Cash and bank transfer only — Whish env vars are not all set. Add WHISH_API_URL, WHISH_API_KEY, and WHISH_MERCHANT_ID to enable payment links."}
+        </p>
       </section>
 
       {setup.error ? (

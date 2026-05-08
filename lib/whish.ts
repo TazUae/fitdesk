@@ -149,6 +149,30 @@ export function getPaymentAdapter(provider: PaymentProvider): PaymentProviderAda
   return adapter
 }
 
+/**
+ * Server-side env readiness check. Returns presence flags only — never the
+ * values themselves — so it's safe to render in the settings page.
+ *
+ * "configured" means all three Whish env vars are set; the link generator
+ * will short-circuit with a user-facing error otherwise.
+ */
+export function getWhishReadiness(): {
+  configured: boolean
+  hasApiUrl: boolean
+  hasApiKey: boolean
+  hasMerchantId: boolean
+} {
+  const hasApiUrl     = Boolean(process.env.WHISH_API_URL)
+  const hasApiKey     = Boolean(process.env.WHISH_API_KEY)
+  const hasMerchantId = Boolean(process.env.WHISH_MERCHANT_ID)
+  return {
+    configured: hasApiUrl && hasApiKey && hasMerchantId,
+    hasApiUrl,
+    hasApiKey,
+    hasMerchantId,
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
