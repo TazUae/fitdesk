@@ -23,6 +23,25 @@ describe('clientFields', () => {
     expect(fields).toContain('creation')
   })
 
+  it('includes provisioned FitDesk custom fields', () => {
+    const fields: string[] = JSON.parse(clientFields())
+    // These four are provisioned by provisioning_api/api/fitdesk_setup.py.
+    // Anything not in fitdesk_setup.py must NOT be requested — Frappe 417s.
+    expect(fields).toContain('custom_fitness_goals')
+    expect(fields).toContain('custom_trainer_notes')
+    expect(fields).toContain('custom_package_type')
+    expect(fields).toContain('custom_remaining_sessions')
+  })
+
+  it('does not request fields not provisioned in the target tenant', () => {
+    const fields: string[] = JSON.parse(clientFields())
+    // These are mapped by normalizeClient (forward-compat) but not provisioned;
+    // requesting them would 417.
+    expect(fields).not.toContain('custom_blood_type')
+    expect(fields).not.toContain('custom_emergency_contact_name')
+    expect(fields).not.toContain('custom_emergency_contact_phone')
+  })
+
   it('does not contain server-rejected fields', () => {
     const fields: string[] = JSON.parse(clientFields())
     // Frappe permission_query_conditions rejects unknown or restricted fields with 417

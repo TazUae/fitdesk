@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
+import { ArrowLeft, Dumbbell, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
@@ -110,6 +110,12 @@ export default async function ClientDetailPage({ params }: Props) {
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Target className="h-3.5 w-3.5 shrink-0" />
               {client.fitnessGoals}
+            </div>
+          )}
+          {client.remainingSessions !== undefined && client.remainingSessions > 0 && (
+            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+              <Dumbbell className="h-3.5 w-3.5 shrink-0" />
+              {client.remainingSessions} session{client.remainingSessions === 1 ? '' : 's'} remaining
             </div>
           )}
         </div>

@@ -32,14 +32,24 @@ function ClientCard({ client }: { client: Client }) {
         )}
       </div>
 
-      {client.packageType && (
-        <span
-          className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-          style={{ backgroundColor: 'rgba(138,143,168,0.12)', color: 'var(--fd-muted)' }}
-        >
-          {client.packageType}
-        </span>
-      )}
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {client.packageType && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+            style={{ backgroundColor: 'rgba(138,143,168,0.12)', color: 'var(--fd-muted)' }}
+          >
+            {client.packageType}
+          </span>
+        )}
+        {client.remainingSessions !== undefined && client.remainingSessions > 0 && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            style={{ backgroundColor: 'rgba(232,197,71,0.15)', color: 'var(--fd-accent)' }}
+          >
+            {client.remainingSessions} left
+          </span>
+        )}
+      </div>
     </Link>
   )
 }

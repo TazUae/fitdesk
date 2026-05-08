@@ -230,9 +230,14 @@ function normalizePayment(raw: ERPPaymentEntry, invoiceId: string): Payment {
 // ─── Shared field list helpers ────────────────────────────────────────────────
 
 export function clientFields(): string {
+  // Only fields provisioned by provisioning_api/api/fitdesk_setup.py are safe
+  // to request — Frappe returns 417 for unknown field names. Blood type and
+  // emergency contact fields are mapped in normalizeClient but not requested
+  // here because the target tenant does not provision them.
   return JSON.stringify([
     'name', 'customer_name', 'mobile_no',
     'custom_fitness_goals', 'custom_trainer_notes', 'custom_package_type',
+    'custom_remaining_sessions',
     'creation',
   ])
 }
