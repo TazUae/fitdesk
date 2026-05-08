@@ -1,7 +1,11 @@
 'use server'
 
+import { randomUUID } from 'crypto'
+import { and, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { messageLog } from '@/lib/db/schema'
 import { getClientById, getInvoiceById } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { sendWhatsAppMessage } from '@/lib/evolution'
@@ -13,15 +17,57 @@ import type { MessageContext } from '@/lib/claude'
 
 /**
  * Fetch message history for a client.
- *
- * TODO: query a `message_log` table in auth.db once DB persistence is wired up.
- * For now returns an empty array — messages are logged to the server console only
- * (see logMessageEvent in lib/evolution.ts).
+ * Reads from the local message_log table (run scripts/migrate-app.mjs first).
+ * Returns the most-recent 50 entries for this trainer + client. Degrades to
+ * an empty list if the table is missing — callers don't surface DB errors.
  */
 export async function getMessages(
-  _clientId: string,
+  clientId: string,
 ): Promise<ActionResult<MessageLog[]>> {
-  return { success: true, data: [] }
+  const session = await auth.api.getSession({ headers: headers() })
+  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const sessionPhone =
+    typeof (session.user as { phone?: string | null }).phone === 'string'
+      ? (session.user as { phone?: string | null }).phone
+      : undefined
+
+  let trainerId: string
+  try {
+    trainerId = await ensureTrainerIdForUser({
+      userId: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+      phone: sessionPhone,
+    })
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(messageLog)
+      .where(and(eq(messageLog.trainerId, trainerId), eq(messageLog.clientId, clientId)))
+      .orderBy(desc(messageLog.sentAt))
+      .limit(50)
+
+    const data: MessageLog[] = rows.map(r => ({
+      id:                 r.id,
+      trainerId:          r.trainerId,
+      clientId:           r.clientId,
+      messageType:        r.messageType,
+      body:               r.body,
+      status:             r.status === 'sent' ? 'sent' : 'failed',
+      errorDetail:        r.errorDetail ?? undefined,
+      sentAt:             r.sentAt,
+      evolutionMessageId: r.evolutionMessageId ?? undefined,
+    }))
+    return { success: true, data }
+  } catch {
+    // Table missing or DB error — UI should still render. Audit-log absence
+    // is not a fatal condition for the trainer's draft flow.
+    return { success: true, data: [] }
+  }
 }
 
 /**
@@ -137,7 +183,9 @@ export async function sendMessage(opts: {
     invoiceId:   opts.invoiceId,
   })
 
+  const id = randomUUID()
   const log: MessageLog = {
+    id,
     trainerId,
     clientId:           opts.clientId,
     messageType:        opts.messageType,
@@ -148,7 +196,23 @@ export async function sendMessage(opts: {
     evolutionMessageId: result.success ? result.messageId : undefined,
   }
 
-  console.log('[messages] audit', JSON.stringify(log))
+  // Persist audit row. Swallow DB errors — the trainer's flow shouldn't
+  // fail because the audit table is missing or temporarily unwritable.
+  try {
+    await db.insert(messageLog).values({
+      id,
+      trainerId,
+      clientId:           opts.clientId,
+      messageType:        opts.messageType,
+      body:               opts.body,
+      status:             log.status,
+      errorDetail:        log.errorDetail ?? null,
+      sentAt,
+      evolutionMessageId: log.evolutionMessageId ?? null,
+    })
+  } catch (err) {
+    console.error('[messages] audit insert failed', err)
+  }
 
   if (!result.success) {
     return { success: false, error: result.error ?? 'Failed to send message.' }

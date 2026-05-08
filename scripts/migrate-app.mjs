@@ -36,6 +36,19 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "WorkspaceProvisioning_userId_idx" ON "WorkspaceProvisioning"("userId")`,
   `CREATE INDEX IF NOT EXISTS "WorkspaceProvisioning_jobId_idx" ON "WorkspaceProvisioning"("jobId")`,
+
+  `CREATE TABLE IF NOT EXISTS "message_log" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "trainer_id" TEXT NOT NULL,
+    "client_id" TEXT NOT NULL,
+    "message_type" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "error_detail" TEXT,
+    "sent_at" TEXT NOT NULL,
+    "evolution_message_id" TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS "message_log_trainer_client_idx" ON "message_log"("trainer_id", "client_id", "sent_at")`,
 ]
 
 for (const sql of statements) {
@@ -57,7 +70,12 @@ if (!tables.includes('WorkspaceProvisioning')) {
   console.error('\n[app-migration] missing required table: WorkspaceProvisioning')
   process.exit(1)
 }
+if (!tables.includes('message_log')) {
+  console.error('\n[app-migration] missing required table: message_log')
+  process.exit(1)
+}
 
 console.log('✓ WorkspaceProvisioning table is present')
+console.log('✓ message_log table is present')
 console.log('✓ App migration complete.\n')
 client.close()

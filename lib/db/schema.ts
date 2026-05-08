@@ -89,6 +89,23 @@ export const trainerWhatsAppConnection = sqliteTable('trainer_whatsapp_connectio
 })
 
 /**
+ * Audit log of outgoing WhatsApp messages.
+ * One row per send attempt (whether succeeded or failed).
+ * Created by scripts/migrate-app.mjs — run that after pulling 4.0.6.
+ */
+export const messageLog = sqliteTable('message_log', {
+  id:                 text('id').primaryKey().notNull(),
+  trainerId:          text('trainer_id').notNull(),
+  clientId:           text('client_id').notNull(),
+  messageType:        text('message_type').notNull(),
+  body:               text('body').notNull(),
+  status:             text('status').notNull(),         // 'sent' | 'failed'
+  errorDetail:        text('error_detail'),
+  sentAt:             text('sent_at').notNull(),        // ISO-8601
+  evolutionMessageId: text('evolution_message_id'),
+})
+
+/**
  * Tracks Control Plane workspace provisioning jobs per user.
  */
 export const workspaceProvisioning = sqliteTable('WorkspaceProvisioning', {

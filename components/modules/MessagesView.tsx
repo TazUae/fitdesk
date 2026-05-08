@@ -268,6 +268,22 @@ export function MessagesView({
           {DRAFT_TYPES.find(d => d.type === selectedType)?.description}
         </p>
 
+        {/* Preview banner — nothing is sent until the trainer clicks Send */}
+        <div
+          className="flex items-start gap-2 rounded-xl border px-3 py-2"
+          style={{
+            borderColor:     'rgba(232,197,71,0.35)',
+            backgroundColor: 'rgba(232,197,71,0.08)',
+          }}
+        >
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-accent)' }} />
+          <p className="text-[11px] leading-snug" style={{ color: 'var(--fd-muted)' }}>
+            <span className="font-semibold" style={{ color: 'var(--fd-accent)' }}>Preview only.</span>{' '}
+            Nothing is sent until you click <span className="font-semibold">Send</span>. Invoice and
+            reminder messages will ask for an extra confirmation.
+          </p>
+        </div>
+
         {/* Draft textarea */}
         <textarea
           rows={5}
