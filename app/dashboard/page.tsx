@@ -2,6 +2,7 @@ import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
+import { countActiveClients, countSessionsCompletedThisWeek } from '@/lib/dashboard/metrics'
 import type { Client, Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
@@ -52,9 +53,13 @@ export default async function DashboardPage() {
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
-  // TODO: re-add active vs total split once trainer-scoped Customer query is resolved
-  const activeClients = clients?.length ?? null
+  // Customer DocType has no trainer-link field today, so we can't filter active
+  // clients at the ERP query. Derive "active" from the trainer's session list:
+  // any client with an upcoming session or a completion in the last 30 days.
   const totalClients  = clients?.length ?? null
+  const activeClients = sessions === null
+    ? null
+    : countActiveClients(sessions, now.getTime())
 
   const sessionYmd = (s: FDSession) => s.startAt.toISOString().slice(0, 10)
   const isActive   = (s: FDSession) => s.status === 'scheduled' || s.status === 'confirmed'
@@ -76,6 +81,9 @@ export default async function DashboardPage() {
     sessions === null
       ? null
       : sessions.filter(s => s.status === 'completed' && sessionYmd(s) >= monthStart).length
+
+  const sessionsThisWeek: number | null =
+    sessions === null ? null : countSessionsCompletedThisWeek(sessions, now.getTime())
 
   const overdueInvoices: Invoice[] =
     invoices?.filter(i => i.status === 'overdue') ?? []
@@ -111,6 +119,7 @@ export default async function DashboardPage() {
         currency,
         monthlyRevenue,
         sessionsThisMonth,
+        sessionsThisWeek,
       }}
       todaySessions={todaySessions}
       upcomingSessions={upcomingSessions}

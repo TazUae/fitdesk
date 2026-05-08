@@ -22,6 +22,7 @@ import {
 import { StatCard } from './StatCard'
 import { Avatar }   from './Avatar'
 import { Badge }    from './Badge'
+import { WEEKLY_SESSION_GOAL } from '@/lib/dashboard/constants'
 import type { Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
@@ -39,6 +40,7 @@ interface DashboardViewProps {
     currency:           string
     monthlyRevenue:     number | null
     sessionsThisMonth:  number | null
+    sessionsThisWeek:   number | null
   }
 
   todaySessions:    FDSession[]
@@ -292,7 +294,7 @@ export function DashboardView({
   upcomingSessions,
   overdueInvoices,
 }: DashboardViewProps) {
-  const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisMonth } = stats
+  const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisWeek } = stats
   const firstName = trainerName.split(' ')[0] ?? trainerName
 
   const hasUpcoming = upcomingSessions.length > 0
@@ -305,9 +307,8 @@ export function DashboardView({
   const followUpLabel = followUpCount > 0
     ? `${followUpCount} session${followUpCount === 1 ? '' : 's'} to review`
     : 'All caught up'
-  const weeklyGoal = 5
-  const completedThisWeek = sessionsThisMonth === null ? 0 : Math.min(sessionsThisMonth, weeklyGoal)
-  const quickActionsProgress = `${completedThisWeek} of ${weeklyGoal} sessions completed this week`
+  const completedThisWeek = sessionsThisWeek ?? 0
+  const quickActionsProgress = `${completedThisWeek} of ${WEEKLY_SESSION_GOAL} sessions completed this week`
   const nextSessionYmd = nextSession ? nextSession.startAt.toISOString().slice(0, 10) : ''
   const nextSessionDateLabel = nextSession ? fmtSessionDate(nextSessionYmd, today) : ''
   const nextSessionTimeLabel = nextSession ? nextSession.startAt.toISOString().slice(11, 16) : 'Time TBD'
