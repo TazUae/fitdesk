@@ -1,5 +1,6 @@
 import { getClients } from '@/lib/business-data'
 import { ScheduleView } from '@/components/modules/ScheduleView'
+import { ErrorState } from '@/components/modules/ErrorState'
 import { getSchedulerConfig, listFDSessionsAction } from '@/actions/schedulingActions'
 
 /**
@@ -29,8 +30,8 @@ export default async function SchedulePage({
 
   if (!configResult.success) {
     return (
-      <div className="p-4 text-sm" style={{ color: 'var(--fd-red)' }}>
-        Could not load scheduler: {configResult.message}
+      <div className="p-4">
+        <ErrorState title="Could not load scheduler" message={configResult.message} />
       </div>
     )
   }

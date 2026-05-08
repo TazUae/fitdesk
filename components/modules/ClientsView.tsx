@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Target } from 'lucide-react'
+import { Plus, Search, Target, Users } from 'lucide-react'
 import { Avatar } from '@/components/modules/Avatar'
+import { EmptyState } from '@/components/modules/EmptyState'
+import { ErrorState } from '@/components/modules/ErrorState'
 import type { Client } from '@/types'
 
 // ─── Client card ──────────────────────────────────────────────────────────────
@@ -93,14 +95,7 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
       </div>
 
       {/* Server-side fetch error */}
-      {error && (
-        <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
-        >
-          {error}
-        </p>
-      )}
+      {error && <ErrorState title="Could not load clients" message={error} inline />}
 
       {/* Search — only shown when there are clients to search through */}
       {clients.length > 2 && (
@@ -121,9 +116,13 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
 
       {/* Empty states */}
       {clients.length === 0 && !error && (
-        <p className="py-8 text-center text-sm" style={{ color: 'var(--fd-muted)' }}>
-          No clients yet. Tap <strong>Add</strong> to create your first one.
-        </p>
+        <EmptyState
+          Icon={Users}
+          title="No clients yet"
+          body="Add your first client to start booking sessions and sending invoices."
+          ctaHref="/dashboard/clients/new"
+          ctaLabel="Add a client"
+        />
       )}
       {clients.length > 0 && filtered.length === 0 && (
         <p className="py-4 text-center text-sm" style={{ color: 'var(--fd-muted)' }}>

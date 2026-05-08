@@ -19,6 +19,7 @@ import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
+import { ErrorState } from '@/components/modules/ErrorState'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import type { Client, Invoice, InvoiceStatus } from '@/types'
 import type { PaymentProvider } from '@/lib/whish'
@@ -806,14 +807,7 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
       </div>
 
       {/* Fetch error */}
-      {error && (
-        <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
-        >
-          {error}
-        </p>
-      )}
+      {error && <ErrorState title="Could not load invoices" message={error} inline />}
 
       {/* Summary */}
       <SummaryCards invoices={invoices} />
