@@ -178,8 +178,29 @@ describe('normalizeInvoice', () => {
     expect(normalizeInvoice({ ...raw, status: 'Cancelled' }).status).toBe('cancelled')
   })
 
-  it('does not set paidAt', () => {
-    expect(normalizeInvoice(raw).paidAt).toBeUndefined()
+  it('sets paidAt to modified date (YYYY-MM-DD) when status is Paid', () => {
+    const inv = normalizeInvoice({
+      ...raw,
+      status: 'Paid',
+      outstanding_amount: 0,
+      modified: '2026-02-14 09:30:15.000000',
+    })
+    expect(inv.paidAt).toBe('2026-02-14')
+  })
+
+  it('sets paidAt when outstanding is 0 even if status mapping is unusual', () => {
+    const inv = normalizeInvoice({
+      ...raw,
+      status: 'Submitted',
+      outstanding_amount: 0,
+      modified: '2026-02-14 09:30:15.000000',
+    })
+    expect(inv.paidAt).toBe('2026-02-14')
+  })
+
+  it('leaves paidAt undefined when invoice is not fully paid', () => {
+    expect(normalizeInvoice({ ...raw, status: 'Submitted', outstanding_amount: 500 }).paidAt).toBeUndefined()
+    expect(normalizeInvoice({ ...raw, status: 'Overdue',   outstanding_amount: 250 }).paidAt).toBeUndefined()
   })
 })
 

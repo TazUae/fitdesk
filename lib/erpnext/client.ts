@@ -201,6 +201,16 @@ export function normalizeClient(raw: ERPClient): Client {
 }
 
 export function normalizeInvoice(raw: ERPInvoice): Invoice {
+  const status = mapInvoiceStatus(raw.status)
+  // Sales Invoice has no dedicated paid-at field. When the invoice is fully
+  // paid (status flipped or outstanding == 0), the most recent change is the
+  // payment reconciliation, so `modified` is a reliable-enough proxy.
+  // For per-payment timestamps, query Payment Entries explicitly (future).
+  const fullyPaid = status === 'paid' || raw.outstanding_amount === 0
+  const paidAt = fullyPaid && typeof raw.modified === 'string'
+    ? raw.modified.slice(0, 10)
+    : undefined
+
   return {
     id: raw.name,
     clientId: raw.customer,
@@ -209,9 +219,10 @@ export function normalizeInvoice(raw: ERPInvoice): Invoice {
     amount: raw.grand_total,
     outstandingAmount: raw.outstanding_amount,
     currency: raw.currency ?? 'USD',
-    status: mapInvoiceStatus(raw.status),
+    status,
     dueDate: raw.due_date,
     issuedAt: raw.posting_date,
+    paidAt,
   }
 }
 
@@ -249,7 +260,7 @@ function invoiceFields(): string {
   return JSON.stringify([
     'name', 'customer', 'customer_name', 'posting_date', 'due_date',
     'grand_total', 'outstanding_amount', 'paid_amount', 'currency',
-    'status', 'remarks', 'creation',
+    'status', 'remarks', 'creation', 'modified',
   ])
 }
 
