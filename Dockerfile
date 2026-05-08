@@ -7,7 +7,7 @@ WORKDIR /app
 # ─── Stage 1: Install dependencies ───────────────────────────────────────────
 FROM base AS deps
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --frozen-lockfile
 
 # ─── Stage 2: Build ───────────────────────────────────────────────────────────
