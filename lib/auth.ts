@@ -22,7 +22,9 @@ import { db } from './db'
  */
 function resolveAuthSecret(): string {
   const s = process.env.BETTER_AUTH_SECRET
-  if (s && s.length >= 32) return s
+  if (s && s.length >= 32) {
+    return s
+  }
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     return 'build-only-placeholder-not-for-production-min-32-chars'
   }
