@@ -7,8 +7,8 @@ vi.mock('@/lib/tenant/context', () => ({
   getTenantContext: vi.fn(),
 }))
 
-import { clientFields, mapInvoiceStatus, mapPaymentProvider, normalizeClient } from './client'
-import type { ERPClient } from './types'
+import { clientFields, mapInvoiceStatus, mapPaymentProvider, normalizeClient, normalizeInvoice } from './client'
+import type { ERPClient, ERPInvoice } from './types'
 
 describe('clientFields', () => {
   it('returns valid JSON array', () => {
@@ -107,6 +107,60 @@ describe('mapInvoiceStatus', () => {
     expect(mapInvoiceStatus('Return')).toBe('draft')
     expect(mapInvoiceStatus('')).toBe('draft')
     expect(mapInvoiceStatus('UNKNOWN_STATUS')).toBe('draft')
+  })
+})
+
+describe('normalizeInvoice', () => {
+  const raw: ERPInvoice = {
+    name: 'SINV-00001',
+    customer: 'CUST-00001',
+    customer_name: 'John Doe',
+    posting_date: '2026-01-01',
+    due_date: '2026-01-15',
+    grand_total: 500,
+    outstanding_amount: 500,
+    currency: 'USD',
+    status: 'Submitted',
+    creation: '2026-01-01 10:00:00.000000',
+    modified: '2026-01-01 10:00:00.000000',
+  }
+
+  it('maps required fields correctly', () => {
+    const inv = normalizeInvoice(raw)
+    expect(inv.id).toBe('SINV-00001')
+    expect(inv.clientId).toBe('CUST-00001')
+    expect(inv.clientName).toBe('John Doe')
+    expect(inv.amount).toBe(500)
+    expect(inv.outstandingAmount).toBe(500)
+    expect(inv.currency).toBe('USD')
+    expect(inv.dueDate).toBe('2026-01-15')
+    expect(inv.issuedAt).toBe('2026-01-01')
+  })
+
+  it('trainerId is always empty string', () => {
+    expect(normalizeInvoice(raw).trainerId).toBe('')
+  })
+
+  it('falls back clientName to docname when customer_name is absent', () => {
+    const inv = normalizeInvoice({ ...raw, customer_name: undefined })
+    expect(inv.clientName).toBe('CUST-00001')
+  })
+
+  it('defaults currency to USD when absent', () => {
+    const inv = normalizeInvoice({ ...raw, currency: undefined as never })
+    expect(inv.currency).toBe('USD')
+  })
+
+  it('maps status via mapInvoiceStatus', () => {
+    expect(normalizeInvoice({ ...raw, status: 'Draft' }).status).toBe('draft')
+    expect(normalizeInvoice({ ...raw, status: 'Submitted' }).status).toBe('sent')
+    expect(normalizeInvoice({ ...raw, status: 'Paid' }).status).toBe('paid')
+    expect(normalizeInvoice({ ...raw, status: 'Overdue' }).status).toBe('overdue')
+    expect(normalizeInvoice({ ...raw, status: 'Cancelled' }).status).toBe('cancelled')
+  })
+
+  it('does not set paidAt', () => {
+    expect(normalizeInvoice(raw).paidAt).toBeUndefined()
   })
 })
 

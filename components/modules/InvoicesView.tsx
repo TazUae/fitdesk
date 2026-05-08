@@ -134,9 +134,13 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
           <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
             {invoice.clientName}
           </p>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+          <Link
+            href={`/dashboard/invoices/${invoice.id}`}
+            className="mt-0.5 text-xs"
+            style={{ color: 'var(--fd-accent)' }}
+          >
             {invoice.id}
-          </p>
+          </Link>
           {/* Due / paid date */}
           {invoice.status === 'paid' && invoice.paidAt ? (
             <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-green)' }}>

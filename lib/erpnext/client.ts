@@ -197,7 +197,7 @@ export function normalizeClient(raw: ERPClient): Client {
   }
 }
 
-function normalizeInvoice(raw: ERPInvoice): Invoice {
+export function normalizeInvoice(raw: ERPInvoice): Invoice {
   return {
     id: raw.name,
     clientId: raw.customer,
