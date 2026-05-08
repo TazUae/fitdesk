@@ -15,15 +15,23 @@ vi.mock('@/lib/scheduling/sessionRepository', () => ({
   cancelSession:       vi.fn(),
 }))
 
+vi.mock('@/lib/erpnext/client', () => ({
+  createInvoice: vi.fn(),
+}))
+
 import {
   rescheduleOne,
   cancelSession,
+  completeSession,
+  markNoShow,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionService'
 import { ConflictError, OutOfHoursError } from '@/lib/scheduling/bookingService'
 import * as repo from '@/lib/scheduling/sessionRepository'
+import * as erpClient from '@/lib/erpnext/client'
 import type { FDSession, TrainerConfig } from '@/types/scheduling'
+import type { Invoice } from '@/types'
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -61,16 +69,31 @@ const BASE_SESSION: FDSession = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const mockFindById   = vi.mocked(repo.findSessionById)
-const mockFindRange  = vi.mocked(repo.findSessionsInRange)
-const mockUpdate     = vi.mocked(repo.updateSession)
-const mockRepoCancel = vi.mocked(repo.cancelSession)
+const mockFindById      = vi.mocked(repo.findSessionById)
+const mockFindRange     = vi.mocked(repo.findSessionsInRange)
+const mockUpdate        = vi.mocked(repo.updateSession)
+const mockRepoCancel    = vi.mocked(repo.cancelSession)
+const mockCreateInvoice = vi.mocked(erpClient.createInvoice)
+
+const MOCK_INVOICE: Invoice = {
+  id:                'SINV-00001',
+  clientId:          'client-1',
+  clientName:        'John Doe',
+  trainerId:         '',
+  amount:            100,
+  outstandingAmount: 100,
+  currency:          'USD',
+  status:            'draft',
+  dueDate:           '2026-01-05',
+  issuedAt:          '2026-01-05',
+}
 
 function clearMocks() {
   mockFindById.mockReset()
   mockFindRange.mockReset()
   mockUpdate.mockReset()
   mockRepoCancel.mockReset()
+  mockCreateInvoice.mockReset()
 }
 
 beforeEach(clearMocks)
@@ -305,5 +328,128 @@ describe('cancelSession', () => {
 
     await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
     expect(mockRepoCancel).not.toHaveBeenCalled()
+  })
+})
+
+// ─── completeSession ──────────────────────────────────────────────────────────
+
+describe('completeSession', () => {
+  it('happy path: creates invoice then updates status to completed', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
+
+    const result = await completeSession('fd-1', 1)
+
+    expect(mockCreateInvoice).toHaveBeenCalledOnce()
+    expect(mockUpdate).toHaveBeenCalledWith('fd-1', {
+      status:    'completed',
+      invoiceId: MOCK_INVOICE.id,
+    })
+    expect(result.status).toBe('completed')
+    expect(result.invoiceId).toBe(MOCK_INVOICE.id)
+  })
+
+  it('reuses existing invoiceId without creating a new invoice', async () => {
+    const sessionWithInvoice = { ...BASE_SESSION, invoiceId: 'SINV-00001' }
+    mockFindById.mockResolvedValue(sessionWithInvoice)
+    mockUpdate.mockResolvedValue({ ...sessionWithInvoice, status: 'completed' as const })
+
+    await completeSession('fd-1', 1)
+
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith('fd-1', {
+      status:    'completed',
+      invoiceId: 'SINV-00001',
+    })
+  })
+
+  it('throws VersionConflictError when version does not match', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 2 })
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('throws ImmutableSessionError for status = completed', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'completed' })
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('throws ImmutableSessionError for status = cancelled', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'cancelled' })
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('calls createInvoice with correct item code, rate, and client', async () => {
+    const session = { ...BASE_SESSION, rate: 150, sessionType: 'Strength' }
+    mockFindById.mockResolvedValue(session)
+    mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockUpdate.mockResolvedValue({ ...session, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
+
+    await completeSession('fd-1', 1)
+
+    const payload = mockCreateInvoice.mock.calls[0][0]
+    expect(payload.customer).toBe('client-1')
+    expect(payload.items[0].item_code).toBe('TRAINING-SESSION')
+    expect(payload.items[0].rate).toBe(150)
+    expect(payload.items[0].description).toBe('Strength')
+  })
+
+  it('uses "Training session" as description when sessionType is null', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, sessionType: null })
+    mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
+
+    await completeSession('fd-1', 1)
+
+    const payload = mockCreateInvoice.mock.calls[0][0]
+    expect(payload.items[0].description).toBe('Training session')
+  })
+})
+
+// ─── markNoShow ───────────────────────────────────────────────────────────────
+
+describe('markNoShow', () => {
+  it('happy path: flips status to no_show', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' as const })
+
+    const result = await markNoShow('fd-1', 1)
+
+    expect(mockUpdate).toHaveBeenCalledWith('fd-1', { status: 'no_show' })
+    expect(result.status).toBe('no_show')
+  })
+
+  it('throws VersionConflictError when version does not match', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 5 })
+
+    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('throws ImmutableSessionError for status = no_show', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' })
+
+    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('throws ImmutableSessionError for status = completed', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'completed' })
+
+    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('allows marking as no_show when status = confirmed', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'confirmed' })
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' as const })
+
+    const result = await markNoShow('fd-1', 1)
+    expect(result.status).toBe('no_show')
   })
 })
