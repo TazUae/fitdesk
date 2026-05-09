@@ -11,6 +11,16 @@
  *   - Every payment action produces a PaymentAuditEvent for traceability.
  *
  * ─── NEVER import this file in a client component. ──────────────────────────
+ *
+ * Pilot mode contract (Phase 5.0.6):
+ * - Generating a payment LINK is read-only against Whish (no money moves).
+ *   Pilot mode does not gate link generation.
+ * - Recording a payment writes to ERPNext (Sales Invoice + Payment Entry).
+ *   That's an internal write, not an external one — also not gated.
+ * - Any FUTURE path that POSTs to Whish (refund, capture, status callback
+ *   handler) MUST be gated behind isExternalPaymentsAllowed() from
+ *   lib/pilot.ts (PILOT_ALLOW_EXTERNAL_PAYMENTS env). Today: no such path
+ *   exists. The flag is reserved.
  */
 
 // ─── Core types ───────────────────────────────────────────────────────────────

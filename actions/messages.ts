@@ -8,8 +8,9 @@ import { db } from '@/lib/db'
 import { messageLog } from '@/lib/db/schema'
 import { getClientById, getInvoiceById } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
-import { sendWhatsAppMessage } from '@/lib/evolution'
+import { sendWhatsAppMessage, normalizePhone } from '@/lib/evolution'
 import { generateMessage } from '@/lib/claude'
+import { isPilotMode, matchAllowlist } from '@/lib/pilot'
 import type { DraftType, MessageLog, ActionResult } from '@/types'
 import type { MessageContext } from '@/lib/claude'
 
@@ -174,14 +175,39 @@ export async function sendMessage(opts: {
 
   const sentAt = new Date().toISOString()
 
-  const result = await sendWhatsAppMessage({
-    phone:       opts.phone,
-    body:        opts.body,
-    messageType: opts.messageType,
-    trainerId,
-    clientId:    opts.clientId,
-    invoiceId:   opts.invoiceId,
-  })
+  // Pilot mode allowlist: block sends to non-allowlisted destinations
+  // BEFORE hitting Evolution. Block events are still recorded in
+  // message_log so they're visible in the in-app history.
+  let result: { success: boolean; messageId?: string; error?: string }
+  if (isPilotMode()) {
+    const dest = normalizePhone(opts.phone)
+    const match = matchAllowlist(
+      dest,
+      process.env.FITDESK_ALLOWED_TEST_PHONE,
+      process.env.FITDESK_ALLOWED_TEST_PHONE_PREFIXES,
+    )
+    if (!match.allowed) {
+      result = { success: false, error: match.reason }
+    } else {
+      result = await sendWhatsAppMessage({
+        phone:       opts.phone,
+        body:        opts.body,
+        messageType: opts.messageType,
+        trainerId,
+        clientId:    opts.clientId,
+        invoiceId:   opts.invoiceId,
+      })
+    }
+  } else {
+    result = await sendWhatsAppMessage({
+      phone:       opts.phone,
+      body:        opts.body,
+      messageType: opts.messageType,
+      trainerId,
+      clientId:    opts.clientId,
+      invoiceId:   opts.invoiceId,
+    })
+  }
 
   const id = randomUUID()
   const log: MessageLog = {

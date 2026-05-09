@@ -25,6 +25,8 @@ interface MessagesViewProps {
   initialType?: string
   /** Pre-associated invoice ID from URL query param (e.g. ?invoiceId=SINV-001). */
   invoiceId?:   string
+  /** Pilot mode — confirms ALL message types and surfaces an extra warning. */
+  pilotMode?:   boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,6 +135,7 @@ export function MessagesView({
   messages:  initialMessages,
   initialType,
   invoiceId,
+  pilotMode = false,
 }: MessagesViewProps) {
   const router = useRouter()
 
@@ -166,15 +169,17 @@ export function MessagesView({
   function handleSend() {
     if (!draftBody.trim()) return
 
-    // Financial messages need explicit confirmation before sending
+    // Confirmation rules:
+    // - Pilot mode: confirm ALL types (5.0.6)
+    // - Otherwise: confirm only financial types (invoice, reminder)
     const isFinancial = selectedType === 'invoice' || selectedType === 'reminder'
-    if (
-      isFinancial &&
-      !window.confirm(
-        `Send this ${selectedType} message to ${client.name} via WhatsApp?\n\n"${draftBody.slice(0, 120)}${draftBody.length > 120 ? '…' : ''}"`,
+    const requireConfirm = pilotMode || isFinancial
+    if (requireConfirm) {
+      const prefix = pilotMode ? 'PILOT MODE — ' : ''
+      const ok = window.confirm(
+        `${prefix}Send this ${selectedType} message to ${client.name} via WhatsApp?\n\n"${draftBody.slice(0, 120)}${draftBody.length > 120 ? '…' : ''}"`,
       )
-    ) {
-      return
+      if (!ok) return
     }
 
     startSend(async () => {

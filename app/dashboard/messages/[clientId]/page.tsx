@@ -1,6 +1,7 @@
 import { notFound }       from 'next/navigation'
 import { getClientById } from '@/lib/business-data'
 import { getMessages }     from '@/actions/messages'
+import { isPilotMode }     from '@/lib/pilot'
 import { MessagesView }    from '@/components/modules/MessagesView'
 
 interface Props {
@@ -22,6 +23,7 @@ export default async function MessagesPage({ params, searchParams }: Props) {
       messages={messagesResult.success ? messagesResult.data : []}
       initialType={searchParams.type}
       invoiceId={searchParams.invoiceId}
+      pilotMode={isPilotMode()}
     />
   )
 }
