@@ -18,7 +18,16 @@ function runNodeScript(args, label) {
   })
 }
 
+async function validateEnv() {
+  const strict = process.env.NODE_ENV === 'production'
+  console.log(`[startup] validating env (strict=${strict})`)
+  const { validateEnvAtStartup } = await import('./env-validate.mjs')
+  validateEnvAtStartup({ strict, log: line => console.log(line) })
+}
+
 async function main() {
+  await validateEnv()
+
   console.log('[startup] running auth schema migration')
   await runNodeScript(['scripts/migrate.mjs'], 'auth migration')
 
