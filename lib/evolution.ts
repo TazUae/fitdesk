@@ -29,11 +29,38 @@ function cuidLike(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function normalizePhone(phone: string): string {
-  let digits = phone.replace(/\D/g, '')
-  if (digits.startsWith('0')) digits = `961${digits.slice(1)}`
-  if (digits.length < 10) digits = `961${digits}`
-  return digits.replace(/\D/g, '')
+/**
+ * Normalize a phone number to E.164 digits-only (no leading +).
+ *
+ * Inputs accepted:
+ *   "+961 70 123 456"  → "96170123456"
+ *   "+971501234567"    → "971501234567"
+ *   "971501234567"     → "971501234567" (already digits)
+ *
+ * Inputs REJECTED (returns empty string — caller must error):
+ *   "0701234567"       — local format with leading 0; ambiguous country
+ *   "70123456"         — local format without country code
+ *   any string < 8 digits after stripping
+ *
+ * No country is assumed. Callers must pass the full international number;
+ * the UI's PhoneInput component is responsible for collecting it that way.
+ *
+ * Why this matters: Evolution API generates pairing codes bound to the
+ * phone number. If the number is mangled (e.g. wrong country prepended),
+ * WhatsApp rejects the code as "incorrect" because the device entering
+ * it isn't the device the code was generated for.
+ */
+export function normalizePhone(phone: string): string {
+  if (typeof phone !== 'string') return ''
+  const trimmed = phone.trim()
+  if (!trimmed) return ''
+  // Accept E.164 with optional leading + and arbitrary spacing/punctuation
+  const digits = trimmed.replace(/\D/g, '')
+  // Reject local formats. E.164 numbers are 8-15 digits including country code.
+  if (digits.length < 8 || digits.length > 15) return ''
+  // Reject explicit local-format prefix
+  if (trimmed.startsWith('0') || (trimmed[0] !== '+' && digits.length < 10)) return ''
+  return digits
 }
 
 function toStatus(raw?: string): WhatsAppConnectionStatus {
@@ -418,7 +445,9 @@ export async function requestWhatsAppPairingCode(trainerId: string, phoneNumber:
   if (configError) throw new Error(configError)
 
   const phone = normalizePhone(phoneNumber)
-  if (!phone || phone.length < 7) throw new Error('Invalid phone number')
+  if (!phone) {
+    throw new Error('Phone number must be in international format (e.g. +971501234567 or 971501234567). Local formats with leading 0 are not accepted.')
+  }
 
   // Ensure instance exists
   let current = await getTrainerWhatsAppConnection(trainerId)
