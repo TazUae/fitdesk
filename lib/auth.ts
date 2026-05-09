@@ -15,10 +15,17 @@ import { db } from './db'
  *   npx better-auth migrate    → applies it to DATABASE_URL
  */
 /**
- * During `next build`, Next sets NEXT_PHASE=phase-production-build and evaluates
- * server modules while collecting page data — often without deployment secrets
- * (e.g. Docker build). Use a dummy secret only in that phase; runtime must set
- * BETTER_AUTH_SECRET (e.g. in Dokploy / compose).
+ * Resolves BETTER_AUTH_SECRET for Better Auth.
+ *
+ * Phase 5.0.1 / 5.0.2 contract:
+ *   - All env validation (placeholder detection, dev-only-* rejection,
+ *     min-length enforcement) lives in lib/env.ts and runs at startup
+ *     via scripts/start-with-migrations.mjs.
+ *   - This function is the LAST RESORT — by the time it's called the
+ *     env validator has already failed if the value is unsafe.
+ *   - The build-only placeholder is only returned during `next build`
+ *     where Next.js evaluates server modules to collect page data
+ *     before deployment secrets are present.
  */
 function resolveAuthSecret(): string {
   const s = process.env.BETTER_AUTH_SECRET
@@ -28,7 +35,7 @@ function resolveAuthSecret(): string {
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     return 'build-only-placeholder-not-for-production-min-32-chars'
   }
-  throw new Error('BETTER_AUTH_SECRET must be set and at least 32 chars')
+  throw new Error('BETTER_AUTH_SECRET must be set and at least 32 chars (validated at startup in lib/env.ts)')
 }
 
 const secret = resolveAuthSecret()

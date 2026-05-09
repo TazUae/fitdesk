@@ -24,11 +24,6 @@ type GenericDoc = Record<string, unknown>;
 type ListItem = Record<string, unknown>;
 type MethodEnvelope<T> = { message?: T };
 
-const TARGET_TENANT = {
-  id: "8168e424-ea93-4cf7-9903-a1b5241354d5",
-  slug: "phase-264-fitdesk-repeat-2",
-} as const;
-
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -42,6 +37,14 @@ function containsSmokeMarker(rows: ListItem[]): boolean {
 }
 
 export async function GET(req: Request) {
+  // Production gate: every /api/dev/** route MUST 404 in production.
+  // Phase 5.0.1 contract — these routes carry diagnostic surface area
+  // (tenant override, raw ERP probing) that should never be reachable
+  // in a deployed environment, even with auth.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const session = await auth.api.getSession({ headers: headers() });
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -112,27 +115,9 @@ export async function GET(req: Request) {
     effectiveTenantSlug = tenant.slug ?? linked.slug ?? tenantCtx.slug;
   }
 
-  if (
-    !overrideTenantId &&
-    (tenantCtx.tenantId !== TARGET_TENANT.id || tenantCtx.slug !== TARGET_TENANT.slug)
-  ) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Resolved tenant does not match approved Phase 3.0 target tenant",
-        code: "TENANT_MISMATCH",
-        details: {
-          expected: TARGET_TENANT,
-          resolved: {
-            id: tenantCtx.tenantId,
-            slug: tenantCtx.slug,
-          },
-        },
-        secretsExposed: false,
-      },
-      { status: 409 },
-    );
-  }
+  // Phase 5.0.1: dev route now runs against whatever tenant the
+  // authenticated user resolves to via getTenantContext(). Earlier
+  // hardcoded TARGET_TENANT removed.
 
   try {
     const trainerSettingsDoctype = "FitDesk Trainer Settings";

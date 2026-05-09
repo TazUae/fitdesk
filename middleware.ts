@@ -1,3 +1,14 @@
+/**
+ * Middleware coverage (Phase 5.0.1 doc):
+ *   - Protected: /dashboard/:path* (this file)
+ *   - NOT protected by middleware: any /api/* path. All API routes do
+ *     their own per-route auth checks via auth.api.getSession(). When
+ *     adding a new /api route, the auth check is mandatory unless the
+ *     route is intentionally public (currently: /api/health, /api/geoip).
+ *   - Production-only routes: /api/dev/** returns 404 in production
+ *     regardless of auth (Phase 5.0.1 hardening).
+ */
+
 import { betterFetch } from '@better-fetch/fetch'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'

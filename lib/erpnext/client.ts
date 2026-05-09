@@ -296,14 +296,31 @@ export async function getClients(_trainerId: string): Promise<Client[]> {
 
 /**
  * Fetch a single client by ERPNext docname.
- * Throws ERPNextError(403) if the client's trainer field does not match trainerId.
+ *
+ * Phase 5.0.1: response-integrity + tenant-scope assertion.
+ *   - Tenant scope is enforced by the CP proxy (the JWT carries the
+ *     tenantId; CP routes to the correct ERP site). Cross-tenant access
+ *     is impossible at this layer.
+ *   - Response integrity: the returned `name` MUST equal the requested
+ *     id. Any mismatch (proxy bug, ERP rerouting, response tampering)
+ *     becomes a hard 502 instead of a silently-normalized object.
+ *
+ * The Customer DocType has no trainer-link field today, so per-trainer
+ * ownership is not modeled. Single-trainer-per-tenant pilot makes that
+ * acceptable; revisit if multi-trainer-per-tenant becomes a real shape.
  */
 export async function getClientById(id: string, _trainerId: string): Promise<Client> {
-  // TODO: trainer-ownership check removed — Customer has no trainer link field.
-  // Re-add once trainer-scoping strategy is decided (see getClients TODO).
   const res = await erpFetch<ERPDocResponse<ERPClient>>(
     `/api/resource/${encodeURIComponent(DOCTYPE.CLIENT)}/${encodeURIComponent(id)}`,
   )
+  if (!res.data || res.data.name !== id) {
+    throw new ERPNextError(
+      502,
+      'Bad Gateway',
+      `/api/resource/${DOCTYPE.CLIENT}/${id}`,
+      `Response integrity: returned name=${res.data?.name ?? 'undefined'} does not match requested id=${id}`,
+    )
+  }
   return normalizeClient(res.data)
 }
 

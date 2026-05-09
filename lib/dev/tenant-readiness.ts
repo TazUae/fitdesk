@@ -36,7 +36,6 @@ export type TenantReadinessFailure = {
   code:
     | "UNAUTHORIZED"
     | "TENANT_CONTEXT_MISSING"
-    | "TENANT_MISMATCH"
     | "TENANT_OVERRIDE_FORBIDDEN"
     | "TENANT_NOT_LINKED"
     | "TENANT_INACTIVE"
