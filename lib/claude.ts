@@ -235,7 +235,9 @@ export async function generateMessage(
     const body   = await callGenerativeAPI(prompt, apiKey)
     return { success: true, body }
   } catch (err) {
-    // On API failure, fall back to template so the trainer always gets a draft
+    // On API failure, fall back to template so the trainer always gets a draft.
+    // Uses console.* because this file is reached by client components for
+    // DRAFT_TYPES const; lib/log is server-only and would break the build.
     console.warn(
       '[claude] API error — falling back to template:',
       err instanceof Error ? err.message : err,

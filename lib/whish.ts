@@ -213,6 +213,9 @@ export async function generatePaymentLink(
  * most VPS log collectors (journald, Docker, etc.).
  */
 export function logPaymentEvent(event: PaymentAuditEvent): void {
+  // Note: console.* used (not lib/log) because this file is reached by
+  // client components for PAYMENT_PROVIDERS const; importing server-only
+  // lib/log breaks the build. logPaymentEvent itself is server-only.
   console.log('[payment-audit]', JSON.stringify(event))
 }
 

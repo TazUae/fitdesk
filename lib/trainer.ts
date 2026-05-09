@@ -14,6 +14,7 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from './db'
 import { trainerMapping, user, workspaceProvisioning } from './db/schema'
+import { log } from './log'
 
 // ─── Error ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export async function ensureTrainerIdForUser(opts: {
       opts.phone ?? undefined,
     )
   } catch (err) {
-    console.error('[trainer-provision] failed for user', opts.userId, err)
+    log.error('trainer.provision.failed', { userId: opts.userId, err: err instanceof Error ? err.message : String(err) })
     throw new TrainerNotFoundError(opts.userId)
   }
 }

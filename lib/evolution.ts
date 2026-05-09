@@ -5,6 +5,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { trainerWhatsAppConnection } from '@/lib/db/schema'
+import { log } from '@/lib/log'
 import type { WhatsAppConnection, WhatsAppConnectionStatus } from '@/types'
 
 export interface SendMessageParams {
@@ -527,7 +528,7 @@ async function attemptSend(
   const timeout = setTimeout(() => controller.abort(), 10_000)
 
   try {
-    console.log('[evolution] send attempt', { attempt, phone, instanceName, clientId: params.clientId })
+    log.info('evolution.send.attempt', { attempt, phone, instanceName, clientId: params.clientId })
 
     const res = await fetch(
       `${EVOLUTION_URL}/message/sendText/${encodeURIComponent(instanceName)}`,
@@ -545,7 +546,7 @@ async function attemptSend(
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
-      console.error('[evolution] http error', { attempt, status: res.status, detail })
+      log.error('evolution.send.http_error', { attempt, status: res.status, detail })
       return { success: false, error: `WhatsApp send failed: ${res.status}` }
     }
 

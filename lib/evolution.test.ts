@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 // `lib/evolution.ts` imports lib/db at module scope which transitively pulls in
 // libsql + Drizzle. Keep the test focused on the pure normalizePhone helper.
+vi.mock('server-only', () => ({}))
 vi.mock('@/lib/db', () => ({ db: {} }))
 vi.mock('@/lib/db/schema', () => ({ trainerWhatsAppConnection: {} }))
+vi.mock('@/lib/log', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
 import { normalizePhone } from './evolution'
 

@@ -11,6 +11,7 @@ import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { sendWhatsAppMessage, normalizePhone } from '@/lib/evolution'
 import { generateMessage } from '@/lib/claude'
 import { isPilotMode, matchAllowlist } from '@/lib/pilot'
+import { log } from '@/lib/log'
 import type { DraftType, MessageLog, ActionResult } from '@/types'
 import type { MessageContext } from '@/lib/claude'
 
@@ -210,7 +211,7 @@ export async function sendMessage(opts: {
   }
 
   const id = randomUUID()
-  const log: MessageLog = {
+  const entry: MessageLog = {
     id,
     trainerId,
     clientId:           opts.clientId,
@@ -231,18 +232,18 @@ export async function sendMessage(opts: {
       clientId:           opts.clientId,
       messageType:        opts.messageType,
       body:               opts.body,
-      status:             log.status,
-      errorDetail:        log.errorDetail ?? null,
+      status:             entry.status,
+      errorDetail:        entry.errorDetail ?? null,
       sentAt,
-      evolutionMessageId: log.evolutionMessageId ?? null,
+      evolutionMessageId: entry.evolutionMessageId ?? null,
     })
   } catch (err) {
-    console.error('[messages] audit insert failed', err)
+    log.error('messages.audit.insert.failed', { err: String(err) })
   }
 
   if (!result.success) {
     return { success: false, error: result.error ?? 'Failed to send message.' }
   }
 
-  return { success: true, data: log }
+  return { success: true, data: entry }
 }
