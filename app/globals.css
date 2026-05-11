@@ -3,20 +3,55 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   FITDESK DESIGN TOKENS
-   Raw hex values — use directly in custom CSS or as var(--fd-*)
+   FITDESK DESIGN TOKENS — v3 (light, Google Calendar–inspired)
+   Raw hex values — use directly in custom CSS or as var(--fd-*).
+
+   Color roles (Phase 5.0):
+     primary CTA / FAB / focus / today  → --fd-blue (#1A73E8)
+     brand accent (wordmark only)        → --fd-accent (gold #E8C547)
+     success / confirmed status          → --fd-green (#188038)
+     warning / out-of-hours / package-low→ --fd-warning (#E37400)
+     conflict / current-time / destructive → --fd-red (#D93025)
+
+   Pastel event-card palette below (--fd-pastel-*) is used by lib/ui/clientColor.ts.
    ───────────────────────────────────────────────────────────────────────── */
 :root {
-  --fd-bg:      #0F1117;
-  --fd-surface: #1A1D27;
-  --fd-card:    #21253A;
-  --fd-accent:  #E8C547;
-  --fd-text:    #F0EDE6;
-  --fd-muted:   #8A8FA8;
-  --fd-border:  #2E3248;
-  --fd-green:   #4ECBA0;
-  --fd-red:     #E85C6A;
-  --fd-blue:    #5B9CF6;
+  /* Surfaces */
+  --fd-bg:               #F8F9FA;
+  --fd-surface:          #FFFFFF;
+  --fd-card:             #FFFFFF;
+  --fd-card-hover:       #F1F3F4;
+
+  /* Lines */
+  --fd-border:           #E8EAED;
+  --fd-border-strong:    #DADCE0;
+
+  /* Typography */
+  --fd-text:             #3C4043;
+  --fd-muted:            #70757A;
+  --fd-text-on-primary:  #FFFFFF;
+
+  /* Primary action — Google blue */
+  --fd-blue:             #1A73E8;
+  --fd-blue-hover:       #1765CC;
+  --fd-blue-subtle:      #E8F0FE;
+
+  /* Brand accent — gold, wordmark only */
+  --fd-accent:           #E8C547;
+
+  /* Status semantics */
+  --fd-green:            #188038;  /* success / confirmed */
+  --fd-warning:          #E37400;  /* out-of-hours / package-low */
+  --fd-red:              #D93025;  /* conflict / current-time / destructive */
+
+  /* Pastel event-card palette (fill / text) */
+  --fd-pastel-blue-fill:    #D2E3FC;  --fd-pastel-blue-text:    #174EA6;
+  --fd-pastel-green-fill:   #CEEAD6;  --fd-pastel-green-text:   #0D652D;
+  --fd-pastel-yellow-fill:  #FEEFC3;  --fd-pastel-yellow-text:  #7E6101;
+  --fd-pastel-purple-fill:  #E7D9FF;  --fd-pastel-purple-text:  #4A148C;
+  --fd-pastel-pink-fill:    #FAD2CF;  --fd-pastel-pink-text:    #A50E0E;
+  --fd-pastel-teal-fill:    #CBF0F8;  --fd-pastel-teal-text:    #007B83;
+  --fd-pastel-gray-fill:    #E8EAED;  --fd-pastel-gray-text:    #3C4043;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -26,35 +61,35 @@
    ───────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background:           225 21% 7%;       /* #0F1117 */
-    --foreground:           42  25% 92%;      /* #F0EDE6 */
+    --background:           210 17% 98%;      /* #F8F9FA */
+    --foreground:           220  4% 25%;      /* #3C4043 */
 
-    --card:                 230 27% 18%;      /* #21253A */
-    --card-foreground:      42  25% 92%;
+    --card:                 0   0%  100%;     /* #FFFFFF */
+    --card-foreground:      220  4% 25%;
 
-    --popover:              226 20% 13%;      /* #1A1D27 */
-    --popover-foreground:   42  25% 92%;
+    --popover:              0   0%  100%;     /* #FFFFFF */
+    --popover-foreground:   220  4% 25%;
 
-    --primary:              47  78% 59%;      /* #E8C547 accent gold */
-    --primary-foreground:   225 21% 7%;
+    --primary:              217 89% 51%;      /* #1A73E8 Google blue */
+    --primary-foreground:   0   0%  100%;     /* #FFFFFF */
 
-    --secondary:            226 20% 13%;      /* #1A1D27 surface */
-    --secondary-foreground: 42  25% 92%;
+    --secondary:            210 17% 98%;      /* #F8F9FA appBg */
+    --secondary-foreground: 220  4% 25%;
 
-    --muted:                231 22% 23%;      /* #2E3248 */
-    --muted-foreground:     230 15% 60%;      /* #8A8FA8 */
+    --muted:                220 13% 95%;      /* #F1F3F4 */
+    --muted-foreground:     220  4% 47%;      /* #70757A */
 
-    --accent:               47  78% 59%;      /* #E8C547 */
-    --accent-foreground:    225 21% 7%;
+    --accent:               217 89% 95%;      /* #E8F0FE subtle blue */
+    --accent-foreground:    217 89% 33%;      /* #174EA6 deep blue */
 
-    --destructive:          354 75% 64%;      /* #E85C6A */
-    --destructive-foreground: 42 25% 92%;
+    --destructive:          4   75% 50%;      /* #D93025 */
+    --destructive-foreground: 0 0% 100%;
 
-    --border:               231 22% 23%;      /* #2E3248 */
-    --input:                226 20% 13%;      /* #1A1D27 */
-    --ring:                 47  78% 59%;      /* accent for focus rings */
+    --border:               220 13% 91%;      /* #E8EAED */
+    --input:                220 13% 91%;
+    --ring:                 217 89% 51%;      /* primary blue focus ring */
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
   }
 }
 
@@ -94,22 +129,22 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Text selection — accent gold on dark bg */
+  /* Text selection — subtle blue on light bg */
   ::selection {
-    background-color: var(--fd-accent);
-    color: var(--fd-bg);
+    background-color: var(--fd-blue-subtle);
+    color: var(--fd-text);
   }
 
   /* Thin scrollbar on desktop */
   ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--fd-border);
+    background: var(--fd-border-strong);
     border-radius: 99px;
   }
   ::-webkit-scrollbar-thumb:hover {
@@ -140,7 +175,7 @@
   }
 
   .input-base:focus {
-    border-color: var(--fd-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fd-accent) 20%, transparent);
+    border-color: var(--fd-blue);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fd-blue) 20%, transparent);
   }
 }

@@ -189,3 +189,70 @@ export interface QuickAddRange {
   endTime:    string
   anchorRect: DOMRect
 }
+
+// ─── Phase 5.1A — Booking draft model ─────────────────────────────────────────
+//
+// The BookingDraft is the in-memory state held by ScheduleView while the
+// BookingSheet is open. It maps deterministically to the engine's existing
+// `buildBookingPlan` input via `lib/scheduling/draft.ts`, so no engine change
+// is needed to support the new step-based UI.
+
+export type RepeatMode = 'one_off' | 'weekly'
+
+/**
+ * One weekday/time pair in a derived recurrence pattern.
+ *
+ * `durationMinutes` is an optional per-slot override; the engine currently
+ * uses a single plan-level duration, so this field is forward-looking only.
+ */
+export interface PatternSlot {
+  weekday:           0 | 1 | 2 | 3 | 4 | 5 | 6
+  localTime:         string             // 'HH:mm'
+  durationMinutes?:  number
+}
+
+/**
+ * The frontend draft state that drives the BookingSheet.
+ *
+ * Field meanings:
+ *   - `date` / `startTime` anchor the first occurrence; with no pattern,
+ *     they are the booking itself.
+ *   - `patternSlots` is the canonical recurrence-pattern source. When set,
+ *     `date` is reduced to the earliest anchor date used by the engine's
+ *     `selectedSlots` input.
+ *   - `sessionsPerWeek` is a UI-derivation aid for the chip selector; once
+ *     `patternSlots` is finalized it equals `patternSlots.length`.
+ */
+export interface BookingDraft {
+  clientId:         string | null
+  date:             string             // 'YYYY-MM-DD'
+  startTime:        string             // 'HH:mm'
+  durationMinutes:  number
+  packageOptIn:     boolean
+  repeatMode:       RepeatMode
+  recurrenceWeeks:  number             // 1|2|3|4|8 (12 hard cap from engine)
+  patternSlots:     PatternSlot[] | null
+  sessionsPerWeek:  1 | 2 | 3 | 4 | 5 | null
+  sessionType:      string | null
+  fee:              number | null
+  notes:            string | null
+}
+
+/**
+ * Discriminated union the BookingSheet uses to drive the sticky CTA text
+ * and the per-step error surface.
+ */
+export type BookingValidity =
+  | { kind: 'invalid'; reason: 'NO_CLIENT' | 'NO_TIME' | 'EMPTY_PLAN' | 'NO_PATTERN' }
+  | { kind: 'blocked'; reason: 'CONFLICT' | 'OUT_OF_HOURS' | 'PACKAGE_OVERDRAW'; details: string }
+  | { kind: 'ready';   plan: BookingPlan; total: number }
+
+/**
+ * Snapshot of a client's remaining-sessions state for the BookingClientStep
+ * and PackageBalanceGate.
+ */
+export interface PackageBalanceState {
+  remainingSessions: number | null
+  willConsume:       number
+  status:            'ok' | 'low' | 'overdraw' | 'no_package'
+}

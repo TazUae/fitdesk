@@ -32,15 +32,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
         />
-        {/* Status bar matches app background on iOS PWA */}
-        <meta name="theme-color" content="#0F1117" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* Status bar matches app background on iOS PWA (Phase 5.0 — light) */}
+        <meta name="theme-color" content="#FFFFFF" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
       <body>
         {children}
         <Toaster
           richColors
-          theme="dark"
+          theme="light"
           position="top-center"
           closeButton
           toastOptions={{

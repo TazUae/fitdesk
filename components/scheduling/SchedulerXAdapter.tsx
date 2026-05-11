@@ -11,6 +11,8 @@ import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop'
 import '@schedule-x/theme-default/dist/index.css'
 import './scheduler-x-overrides.css'
 import { rescheduleSessionAction } from '@/actions/schedulingActions'
+import { SessionCard } from '@/components/scheduling/SessionCard'
+import { NowLine } from '@/components/scheduling/NowLine'
 import type { CalendarSession, FDSession, QuickAddRange } from '@/types/scheduling'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -34,82 +36,35 @@ const DAY_END_MIN       = 21 * 60
 const DAY_DURATION_MIN  = DAY_END_MIN - DAY_START_MIN
 const DRAG_THRESHOLD_PX = 20
 
-// ─── Status → Schedule-X calendar mapping ────────────────────────────────────
+// ─── Status → Schedule-X calendar mapping (Phase 5.0 light theme) ─────────────
+// Semantic anchor colors; the visible event card is rendered by SessionCard
+// using the per-client pastel palette, so these are mostly informational.
 
 const STATUS_CALENDARS: Record<string, CalendarType> = {
   scheduled: {
-    colorName:  'scheduled',
-    darkColors: { main: '#4B91FF', container: 'rgba(75,145,255,0.18)',  onContainer: '#A8C8FF' },
+    colorName:   'scheduled',
+    lightColors: { main: '#1A73E8', container: '#D2E3FC', onContainer: '#174EA6' },
   },
   confirmed: {
-    colorName:  'confirmed',
-    darkColors: { main: '#4ECBA0', container: 'rgba(78,203,160,0.18)',  onContainer: '#9CEDD2' },
+    colorName:   'confirmed',
+    lightColors: { main: '#188038', container: '#CEEAD6', onContainer: '#0D652D' },
   },
   completed: {
-    colorName:  'completed',
-    darkColors: { main: '#8B92A8', container: 'rgba(139,146,168,0.14)', onContainer: '#B6C0DA' },
+    colorName:   'completed',
+    lightColors: { main: '#5F6368', container: '#E8EAED', onContainer: '#3C4043' },
   },
   cancelled: {
-    colorName:  'cancelled',
-    darkColors: { main: '#E85C6A', container: 'rgba(232,92,106,0.14)',  onContainer: '#F0A0AA' },
+    colorName:   'cancelled',
+    lightColors: { main: '#D93025', container: '#FAD2CF', onContainer: '#A50E0E' },
   },
   no_show: {
-    colorName:  'no_show',
-    darkColors: { main: '#F5A623', container: 'rgba(245,166,35,0.14)',  onContainer: '#FBCC7E' },
+    colorName:   'no_show',
+    lightColors: { main: '#E37400', container: '#FEEFC3', onContainer: '#7E6101' },
   },
   skipped: {
-    colorName:  'skipped',
-    darkColors: { main: '#6B7385', container: 'rgba(107,115,133,0.12)', onContainer: '#8B92A8' },
+    colorName:   'skipped',
+    lightColors: { main: '#5F6368', container: '#E8EAED', onContainer: '#3C4043' },
   },
-}
-
-// ─── Status → block colors ───────────────────────────────────────────────────
-
-const STATUS_BLOCK: Record<string, { bg: string; border: string; text: string }> = {
-  scheduled: { bg: 'rgba(75,145,255,0.15)',  border: 'rgba(75,145,255,0.45)',  text: '#A8C8FF' },
-  confirmed: { bg: 'rgba(78,203,160,0.15)',  border: 'rgba(78,203,160,0.45)',  text: '#9CEDD2' },
-  completed: { bg: 'rgba(139,146,168,0.10)', border: 'rgba(139,146,168,0.30)', text: '#B6C0DA' },
-  cancelled: { bg: 'rgba(232,92,106,0.12)',  border: 'rgba(232,92,106,0.40)',  text: '#F0A0AA' },
-  no_show:   { bg: 'rgba(245,166,35,0.12)',  border: 'rgba(245,166,35,0.40)',  text: '#FBCC7E' },
-  skipped:   { bg: 'rgba(107,115,133,0.10)', border: 'rgba(107,115,133,0.30)', text: '#8B92A8' },
-}
-const DEFAULT_BLOCK = STATUS_BLOCK.scheduled
-
-// ─── Custom event block ───────────────────────────────────────────────────────
-
-function TimeGridEventComponent({ calendarEvent }: { calendarEvent?: Record<string, unknown> }) {
-  if (!calendarEvent) return null
-
-  const status = typeof calendarEvent.calendarId === 'string' ? calendarEvent.calendarId : 'scheduled'
-  const colors = STATUS_BLOCK[status] ?? DEFAULT_BLOCK
-  const title  = typeof calendarEvent.title === 'string' ? calendarEvent.title : ''
-
-  let timeStr: string | null = null
-  const s = calendarEvent.start as (Temporal.ZonedDateTime & { hour?: number; minute?: number }) | null
-  const e = calendarEvent.end   as (Temporal.ZonedDateTime & { hour?: number; minute?: number }) | null
-  if (s?.hour != null && e?.hour != null) {
-    const sMin = s.hour * 60 + (s.minute ?? 0)
-    const eMin = e.hour * 60 + (e.minute ?? 0)
-    if (eMin - sMin >= 30) {
-      timeStr = `${pad2(Math.floor(sMin / 60))}:${pad2(sMin % 60)}–${pad2(Math.floor(eMin / 60))}:${pad2(eMin % 60)}`
-    }
-  }
-
-  return (
-    <div
-      className="flex h-full flex-col overflow-hidden rounded-md border px-1.5 py-1"
-      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
-    >
-      <p className="truncate text-[10px] font-semibold leading-tight" style={{ color: colors.text }}>
-        {title}
-      </p>
-      {timeStr && (
-        <p className="mt-0.5 text-[9px] leading-none" style={{ color: colors.text, opacity: 0.7 }}>
-          {timeStr}
-        </p>
-      )}
-    </div>
-  )
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -137,7 +92,7 @@ function toBackgroundEvents(slots: Date[], tz: string): BackgroundEvent[] {
     return {
       start,
       end:   start.add({ minutes: 30 }),
-      style: { background: 'rgba(75,145,255,0.22)', borderLeft: '2px solid #4B91FF' },
+      style: { background: 'rgba(26,115,232,0.18)', borderLeft: '2px solid #1A73E8' },
     }
   })
 }
@@ -201,7 +156,7 @@ export function SchedulerXAdapter({
       views:     [createViewWeek(), createViewDay(), createViewMonthGrid()],
       defaultView: 'week',
       timezone,
-      isDark:    true,
+      isDark:    false,
       calendars: STATUS_CALENDARS,
       dayBoundaries: { start: '09:00', end: '21:00' },
       callbacks: {
@@ -307,10 +262,11 @@ export function SchedulerXAdapter({
   }, [selectedSlots, timezone, eventsService])
 
   return (
-    <div className="fd-sx-wrap [&_.sx-react-calendar-wrapper]:h-[700px] [&_.sx-react-calendar-wrapper]:w-full">
+    <div className="fd-sx-wrap relative h-full w-full">
+      <NowLine />
       <ScheduleXCalendar
         calendarApp={calendar}
-        customComponents={{ timeGridEvent: TimeGridEventComponent }}
+        customComponents={{ timeGridEvent: SessionCard }}
       />
     </div>
   )

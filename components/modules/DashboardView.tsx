@@ -337,29 +337,28 @@ export function DashboardView({
 
       {/* ── Revenue hero ───────────────────────────────────────────────────── */}
       <div
-        className="rounded-2xl p-6"
+        className="rounded-2xl border p-6"
         style={{
-          background:
-            'linear-gradient(135deg, color-mix(in srgb, var(--fd-accent) 58%, var(--fd-text) 42%) 0%, color-mix(in srgb, var(--fd-accent) 52%, var(--fd-surface) 48%) 100%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.06))',
-          backgroundBlendMode: 'overlay',
+          backgroundColor: 'var(--fd-surface)',
+          borderColor: 'var(--fd-border)',
+          boxShadow: '0 1px 2px rgba(60,64,67,0.08), 0 1px 3px rgba(60,64,67,0.12)',
         }}
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'rgba(240,237,230,0.78)' }}>
+        <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--fd-muted)' }}>
           This Month
         </p>
         <p className="mt-1 text-3xl font-bold leading-none tracking-tight" style={{ color: 'var(--fd-text)' }}>
           {fmtMoney(monthlyRevenue, currency)}
         </p>
-        <p className="mt-2 text-sm leading-snug" style={{ color: 'rgba(240,237,230,0.88)' }}>
+        <p className="mt-2 text-sm leading-snug" style={{ color: 'var(--fd-muted)' }}>
           You&apos;re on track this month.
         </p>
         <Link
           href="/dashboard/invoices"
-          className="mt-5 flex w-full items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold tracking-wide transition-opacity hover:opacity-90 active:opacity-70"
+          className="mt-5 flex w-full items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold tracking-wide transition-colors"
           style={{
-            backgroundColor: 'color-mix(in srgb, var(--fd-text) 95%, white)',
-            color: 'var(--fd-accent)',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            backgroundColor: 'var(--fd-blue)',
+            color: 'var(--fd-text-on-primary)',
           }}
         >
           View Payments

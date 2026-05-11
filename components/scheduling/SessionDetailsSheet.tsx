@@ -231,7 +231,7 @@ export function SessionDetailsSheet({
                     value={date}
                     onChange={e => setDate(e.target.value)}
                     className="w-full rounded-xl border px-2 py-2 text-sm outline-none"
-                    style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'dark' }}
+                    style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'light' }}
                   />
                 </div>
                 <div className="space-y-1">
@@ -241,7 +241,7 @@ export function SessionDetailsSheet({
                     value={time}
                     onChange={e => setTime(e.target.value)}
                     className="w-full rounded-xl border px-2 py-2 text-sm outline-none"
-                    style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'dark' }}
+                    style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'light' }}
                   />
                 </div>
               </div>
@@ -254,7 +254,7 @@ export function SessionDetailsSheet({
                   value={rate}
                   onChange={e => setRate(e.target.value)}
                   className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
-                  style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'dark' }}
+                  style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)', colorScheme: 'light' }}
                 />
               </div>
             </>
@@ -273,7 +273,7 @@ export function SessionDetailsSheet({
                 disabled={isPending}
                 onClick={handleSave}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
-                style={{ backgroundColor: '#00C853', color: '#0F1117' }}
+                style={{ backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }}
               >
                 {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Save changes

@@ -70,6 +70,29 @@ export function DashboardClientShell({ children, banner }: Props) {
   const userName  = session?.user?.name  ?? ''
   const userEmail = session?.user?.email ?? ''
 
+  // ── Route-level chrome bypass ──────────────────────────────────────────────
+  // The Planner (`/dashboard/schedule`) provides its own full-width chrome
+  // (PlannerShell + PlannerToolbar + optional sidebar) and must NOT be
+  // clamped to the 480px mobile shell or wrapped by the duplicate header /
+  // bottom nav. All other dashboard routes keep the existing mobile chrome.
+  const isFullWidthRoute =
+    pathname === '/dashboard/schedule' || pathname.startsWith('/dashboard/schedule/')
+
+  if (isFullWidthRoute) {
+    return (
+      <>
+        {banner}
+        {children}
+        <UserMenuSheet
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          userName={userName}
+          userEmail={userEmail}
+        />
+      </>
+    )
+  }
+
   return (
     <div className="min-h-dvh" style={{ backgroundColor: 'var(--fd-bg)' }}>
       <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col">
