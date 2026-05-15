@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   CheckCircle2,
-  Copy,
-  ExternalLink,
   MessageCircle,
   Plus,
   ReceiptText,
@@ -16,14 +14,13 @@ import {
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
-import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
-import { PAYMENT_PROVIDERS } from '@/lib/whish'
+import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
+import { addInvoice, recordPayment } from '@/actions/invoices'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { ErrorState } from '@/components/modules/ErrorState'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import type { Client, Invoice, InvoiceStatus } from '@/types'
-import type { PaymentProvider } from '@/lib/whish'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,57 +210,17 @@ interface MarkPaidSheetProps {
 function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   const isOpen = invoice !== null
 
-  const [isPending, startTransition]        = useTransition()
-  const [isLinkPending, startLinkTransition] = useTransition()
-  const [error, setError]                   = useState<string | null>(null)
-  const [provider, setProvider]             = useState<PaymentProvider>('cash')
-  const [generatedLink, setGeneratedLink]   = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError]            = useState<string | null>(null)
+  const [method, setMethod]          = useState<PaymentMethod>('cash')
 
   const today = new Date().toISOString().slice(0, 10)
-
-  const selectedProviderMeta = PAYMENT_PROVIDERS.find(p => p.provider === provider)
 
   // Reset state when a different invoice is opened
   function handleClose() {
     setError(null)
-    setGeneratedLink(null)
-    setProvider('cash')
+    setMethod('cash')
     onClose()
-  }
-
-  function handleProviderChange(p: PaymentProvider) {
-    setProvider(p)
-    setGeneratedLink(null) // reset any previously generated link
-  }
-
-  function handleGenerateLink() {
-    if (!invoice) return
-    setError(null)
-
-    startLinkTransition(async () => {
-      const result = await getPaymentLink({
-        invoiceId:  invoice.id,
-        amount:     invoice.outstandingAmount,
-        clientName: invoice.clientName,
-        provider,
-        currency:   invoice.currency,
-      })
-
-      if (result.success) {
-        setGeneratedLink(result.data.url ?? null)
-        toast.success('Payment link generated')
-      } else {
-        setError(result.error)
-      }
-    })
-  }
-
-  function handleCopyLink() {
-    if (!generatedLink) return
-    navigator.clipboard.writeText(generatedLink).then(
-      () => toast.success('Link copied'),
-      () => toast.error('Could not copy — please copy manually'),
-    )
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -277,15 +234,13 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
 
     startTransition(async () => {
       const result = await recordPayment({
-        invoiceId:     invoice.id,
-        clientId:      invoice.clientId,
+        invoiceId: invoice.id,
+        clientId:  invoice.clientId,
         amount,
-        modeOfPayment: provider === 'cash'          ? 'Cash'
-                     : provider === 'bank_transfer'  ? 'Bank Transfer'
-                     : 'Whish',
-        date:          fd.get('payment_date') as string,
-        reference:     (fd.get('reference') as string) || generatedLink?.split('/').pop() || undefined,
-        note:          (fd.get('note') as string) || undefined,
+        method,
+        date:      fd.get('payment_date') as string,
+        reference: (fd.get('reference') as string) || undefined,
+        note:      (fd.get('note') as string) || undefined,
       })
 
       if (result.success) {
@@ -378,66 +333,24 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
                     Payment method
                   </label>
                   <div className="flex gap-2">
-                    {PAYMENT_PROVIDERS.map(p => (
+                    {enabledPaymentMethods().map(m => (
                       <button
-                        key={p.provider}
+                        key={m.value}
                         type="button"
-                        onClick={() => handleProviderChange(p.provider)}
+                        onClick={() => setMethod(m.value)}
                         className="flex-1 rounded-xl py-2 text-xs font-semibold transition-colors"
                         style={{
                           backgroundColor:
-                            provider === p.provider ? 'var(--fd-accent)' : 'var(--fd-card)',
+                            method === m.value ? 'var(--fd-accent)' : 'var(--fd-card)',
                           color:
-                            provider === p.provider ? 'var(--fd-bg)' : 'var(--fd-muted)',
+                            method === m.value ? 'var(--fd-bg)' : 'var(--fd-muted)',
                         }}
                       >
-                        {p.label}
+                        {m.label}
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {/* Whish: generate link before recording */}
-                {selectedProviderMeta?.supportsLink && (
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={handleGenerateLink}
-                      disabled={isLinkPending}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-semibold transition-opacity disabled:opacity-50"
-                      style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-accent)' }}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      {isLinkPending ? 'Generating…' : 'Generate Whish Link'}
-                    </button>
-
-                    {generatedLink && (
-                      <div
-                        className="flex items-start gap-2 rounded-xl border p-3"
-                        style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
-                      >
-                        <p
-                          className="min-w-0 flex-1 break-all text-xs"
-                          style={{ color: 'var(--fd-muted)' }}
-                        >
-                          {generatedLink}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleCopyLink}
-                          className="shrink-0"
-                          style={{ color: 'var(--fd-accent)' }}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
-
-                    <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
-                      Share this link with the client. Record payment only after you confirm receipt.
-                    </p>
-                  </div>
-                )}
 
                 {/* Amount */}
                 <div className="space-y-1.5">
@@ -478,7 +391,6 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
                     name="reference"
                     className="input-base"
                     placeholder="Whish ref, bank ref, receipt no., etc."
-                    defaultValue={generatedLink ? generatedLink.split('/').pop() : ''}
                   />
                 </div>
 

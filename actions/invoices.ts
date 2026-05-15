@@ -10,6 +10,7 @@ import {
   PAYMENT_PROVIDERS,
   type PaymentProvider,
 } from '@/lib/whish'
+import { isPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
 import type { ActionResult, Invoice, Payment } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
@@ -148,23 +149,30 @@ export async function getPaymentLink(opts: {
  * Always call this AFTER the trainer has confirmed receipt.
  */
 export async function recordPayment(opts: {
-  invoiceId:     string
-  clientId:      string
-  amount:        number
-  modeOfPayment: string
-  date:          string
-  reference?:    string
-  note?:         string
+  invoiceId:  string
+  clientId:   string
+  amount:     number
+  method:     PaymentMethod
+  date:       string
+  reference?: string
+  note?:      string
 }): Promise<ActionResult<Payment>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // The ERPNext Mode of Payment name is resolved server-side — never trusted
+  // from the client, which only ever sends an internal PaymentMethod value.
+  if (!isPaymentMethod(opts.method)) {
+    return { success: false, error: 'Unsupported payment method.' }
+  }
+  const modeOfPayment = paymentMethodToErpMode(opts.method)
 
   try {
     const data = await markInvoicePaid({
       invoiceId:     opts.invoiceId,
       clientId:      opts.clientId,
       amount:        opts.amount,
-      modeOfPayment: opts.modeOfPayment,
+      modeOfPayment,
       date:          opts.date,
       reference:     opts.reference,
       note:          opts.note,
@@ -173,7 +181,7 @@ export async function recordPayment(opts: {
     logPaymentEvent({
       trainerId:  resolved.trainerId,
       invoiceId:  opts.invoiceId,
-      provider:   modeToProvider(opts.modeOfPayment),
+      provider:   modeToProvider(modeOfPayment),
       eventType:  'payment_recorded',
       amount:     opts.amount,
       reference:  opts.reference,
