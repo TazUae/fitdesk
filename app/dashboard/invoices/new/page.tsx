@@ -123,6 +123,7 @@ function NewInvoiceForm() {
             name="due_date"
             type="date"
             defaultValue={defaultDue}
+            min={today}
             required
             className="input-base"
           />

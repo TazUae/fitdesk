@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // `client.ts` imports lib/tenant/context which has `import "server-only"` —
 // that package is not available in vitest. Mock the module before any import
@@ -7,7 +7,8 @@ vi.mock('@/lib/tenant/context', () => ({
   getTenantContext: vi.fn(),
 }))
 
-import { clampDueDate, clientFields, mapInvoiceStatus, mapPaymentProvider, normalizeClient, normalizeInvoice } from './client'
+import { clampDueDate, clientFields, createInvoice, mapInvoiceStatus, mapPaymentProvider, normalizeClient, normalizeInvoice } from './client'
+import { getTenantContext } from '@/lib/tenant/context'
 import type { ERPClient, ERPInvoice } from './types'
 
 describe('clientFields', () => {
@@ -243,5 +244,73 @@ describe('clampDueDate', () => {
 
   it('leaves a due date after the posting date unchanged', () => {
     expect(clampDueDate('2026-05-16', '2026-05-23')).toBe('2026-05-23')
+  })
+})
+
+describe('createInvoice', () => {
+  const RAW_INVOICE: ERPInvoice = {
+    name:               'SINV-00010',
+    customer:           'CUST-1',
+    customer_name:      'Jane Doe',
+    posting_date:       '2026-05-16',
+    due_date:           '2026-05-16',
+    grand_total:        100,
+    outstanding_amount: 100,
+    currency:           'USD',
+    status:             'Draft',
+    creation:           '2026-05-16 10:00:00.000000',
+    modified:           '2026-05-16 10:00:00.000000',
+  }
+
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    process.env.CONTROL_PLANE_URL = 'http://control-plane.test'
+    process.env.FITDESK_JWT_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef'
+    vi.mocked(getTenantContext).mockResolvedValue({
+      userId:             'user-1',
+      slug:               'tenant-1',
+      tenantId:           'tenant-1',
+      provisioningStatus: 'ready',
+      lastSyncedAt:       null,
+    })
+    fetchMock = vi.fn().mockResolvedValue({
+      ok:   true,
+      json: async () => ({ data: RAW_INVOICE }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** Parse the JSON body POSTed to ERPNext on the first fetch call. */
+  function postedBody(): Record<string, unknown> {
+    return JSON.parse(fetchMock.mock.calls[0][1].body as string)
+  }
+
+  it('sends set_posting_time: 1 so ERPNext honors the supplied posting_date', async () => {
+    await createInvoice({
+      customer:     'CUST-1',
+      posting_date: '2026-05-16',
+      due_date:     '2026-05-16',
+      items:        [{ item_code: 'TRAINING-SESSION', qty: 1, rate: 100 }],
+    })
+
+    expect(postedBody().set_posting_time).toBe(1)
+  })
+
+  it('preserves posting_date and normalizes a due_date that precedes it', async () => {
+    await createInvoice({
+      customer:     'CUST-1',
+      posting_date: '2026-05-16',
+      due_date:     '2026-05-10',
+      items:        [{ item_code: 'TRAINING-SESSION', qty: 1, rate: 100 }],
+    })
+
+    const body = postedBody()
+    expect(body.posting_date).toBe('2026-05-16')
+    expect(body.due_date).toBe('2026-05-16')
   })
 })

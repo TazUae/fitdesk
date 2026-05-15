@@ -459,9 +459,13 @@ export function clampDueDate(postingDate: string, dueDate: string): string {
 
 /** Create a new Sales Invoice in ERPNext. Returns the saved draft invoice. */
 export async function createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
-  // Guarantee due_date >= posting_date for every caller (session + manual).
-  const body: CreateInvoicePayload = {
+  const body = {
     ...payload,
+    // ERPNext ignores a REST-supplied posting_date unless set_posting_time is
+    // enabled — without it, it stamps its own server-local date, which can land
+    // after due_date under UTC/UTC+ timezone drift and trip due-date validation.
+    set_posting_time: 1,
+    // Guarantee due_date >= posting_date for every caller (session + manual).
     due_date: clampDueDate(payload.posting_date, payload.due_date),
   }
   const res = await erpFetch<ERPDocResponse<ERPInvoice>>(
