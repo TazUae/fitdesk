@@ -410,6 +410,20 @@ describe('completeSession', () => {
     const payload = mockCreateInvoice.mock.calls[0][0]
     expect(payload.items[0].description).toBe('Training session')
   })
+
+  it('creates the invoice with due_date never before posting_date', async () => {
+    // BASE_SESSION is dated 2026-01-05 (a past session); the invoice payload
+    // must still carry due_date >= posting_date so ERPNext does not reject it.
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
+
+    await completeSession('fd-1', 1)
+
+    const payload = mockCreateInvoice.mock.calls[0][0]
+    expect(payload.posting_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(payload.due_date >= payload.posting_date).toBe(true)
+  })
 })
 
 // ─── markNoShow ───────────────────────────────────────────────────────────────

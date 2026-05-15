@@ -7,7 +7,7 @@ vi.mock('@/lib/tenant/context', () => ({
   getTenantContext: vi.fn(),
 }))
 
-import { clientFields, mapInvoiceStatus, mapPaymentProvider, normalizeClient, normalizeInvoice } from './client'
+import { clampDueDate, clientFields, mapInvoiceStatus, mapPaymentProvider, normalizeClient, normalizeInvoice } from './client'
 import type { ERPClient, ERPInvoice } from './types'
 
 describe('clientFields', () => {
@@ -229,5 +229,19 @@ describe('mapPaymentProvider', () => {
     expect(mapPaymentProvider('Cash')).toBe('cash')
     expect(mapPaymentProvider('card')).toBe('cash')
     expect(mapPaymentProvider('')).toBe('cash')
+  })
+})
+
+describe('clampDueDate', () => {
+  it('raises a due date that precedes the posting date', () => {
+    expect(clampDueDate('2026-05-16', '2026-05-10')).toBe('2026-05-16')
+  })
+
+  it('leaves a due date equal to the posting date unchanged', () => {
+    expect(clampDueDate('2026-05-16', '2026-05-16')).toBe('2026-05-16')
+  })
+
+  it('leaves a due date after the posting date unchanged', () => {
+    expect(clampDueDate('2026-05-16', '2026-05-23')).toBe('2026-05-23')
   })
 })

@@ -448,11 +448,25 @@ export async function getInvoiceById(id: string): Promise<Invoice> {
   return normalizeInvoice(res.data)
 }
 
+/**
+ * Clamp a Sales Invoice due date so it is never earlier than the posting date.
+ * ERPNext rejects a Sales Invoice whose due_date precedes posting_date. Dates
+ * are 'YYYY-MM-DD' strings, for which lexicographic order is chronological.
+ */
+export function clampDueDate(postingDate: string, dueDate: string): string {
+  return dueDate < postingDate ? postingDate : dueDate
+}
+
 /** Create a new Sales Invoice in ERPNext. Returns the saved draft invoice. */
 export async function createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
+  // Guarantee due_date >= posting_date for every caller (session + manual).
+  const body: CreateInvoicePayload = {
+    ...payload,
+    due_date: clampDueDate(payload.posting_date, payload.due_date),
+  }
   const res = await erpFetch<ERPDocResponse<ERPInvoice>>(
     `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}`,
-    { method: 'POST', body: payload },
+    { method: 'POST', body },
   )
   return normalizeInvoice(res.data)
 }

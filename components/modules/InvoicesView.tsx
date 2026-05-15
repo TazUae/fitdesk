@@ -566,7 +566,7 @@ function CreateInvoiceSheet({
               <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
                 Due date *
               </label>
-              <input name="due_date" type="date" defaultValue={defaultDue} required className="input-base" />
+              <input name="due_date" type="date" defaultValue={defaultDue} min={today} required className="input-base" />
             </div>
 
             {/* Line items */}
