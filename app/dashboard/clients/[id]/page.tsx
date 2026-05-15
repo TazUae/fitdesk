@@ -24,11 +24,12 @@ function sessionVariant(s: FDSessionStatus): BadgeVariant {
 
 function invoiceVariant(s: InvoiceStatus): BadgeVariant {
   const map: Record<InvoiceStatus, BadgeVariant> = {
-    draft:     'draft',
-    sent:      'pending',
-    paid:      'paid',
-    overdue:   'overdue',
-    cancelled: 'cancelled',
+    draft:          'draft',
+    sent:           'pending',
+    partially_paid: 'pending',
+    paid:           'paid',
+    overdue:        'overdue',
+    cancelled:      'cancelled',
   }
   return map[s]
 }

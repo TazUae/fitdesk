@@ -54,7 +54,22 @@ export interface ERPInvoice {
   outstanding_amount: number
   paid_amount?: number
   currency: string
-  status: 'Draft' | 'Submitted' | 'Paid' | 'Overdue' | 'Cancelled'
+  /**
+   * ERPNext-computed Sales Invoice status. For a submitted invoice ERPNext
+   * computes 'Unpaid' / 'Overdue' / 'Partly Paid' / 'Paid' — it never sets
+   * 'Submitted'. 'Submitted' is retained only for backward compatibility with
+   * older callers/fixtures and must not be relied on as the unpaid state.
+   */
+  status:
+    | 'Draft'
+    | 'Unpaid'
+    | 'Overdue'
+    | 'Partly Paid'
+    | 'Paid'
+    | 'Return'
+    | 'Credit Note Issued'
+    | 'Cancelled'
+    | 'Submitted'
   remarks?: string
   creation: string
   modified: string

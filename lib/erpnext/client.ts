@@ -163,12 +163,19 @@ export async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promis
 // ERPNext uses PascalCase status values; app types use lowercase.
 
 export function mapInvoiceStatus(s: string): InvoiceStatus {
+  // ERPNext computes the Sales Invoice `status` field on submit: a submitted
+  // unpaid invoice is 'Unpaid' (not 'Submitted'). 'Submitted' is mapped only
+  // for backward compatibility with older callers/fixtures.
   const map: Record<string, InvoiceStatus> = {
-    Draft:     'draft',
-    Submitted: 'sent',
-    Paid:      'paid',
-    Overdue:   'overdue',
-    Cancelled: 'cancelled',
+    Draft:                'draft',
+    Unpaid:               'sent',
+    Submitted:            'sent',
+    Overdue:              'overdue',
+    'Partly Paid':        'partially_paid',
+    Paid:                 'paid',
+    Cancelled:            'cancelled',
+    Return:               'cancelled',
+    'Credit Note Issued': 'cancelled',
   }
   return map[s] ?? 'draft'
 }

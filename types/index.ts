@@ -13,7 +13,9 @@
 
 export type ClientStatus = 'active' | 'inactive' | 'paused'
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
+// `sent` represents a submitted, unpaid (to-collect) invoice.
+// `partially_paid` represents a submitted invoice with a partial payment recorded.
+export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
 export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 

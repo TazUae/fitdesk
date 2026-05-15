@@ -114,18 +114,25 @@ describe('normalizeClient', () => {
 })
 
 describe('mapInvoiceStatus', () => {
-  it('maps known ERPNext statuses', () => {
+  it('maps real ERPNext Sales Invoice statuses', () => {
     expect(mapInvoiceStatus('Draft')).toBe('draft')
-    expect(mapInvoiceStatus('Submitted')).toBe('sent')
-    expect(mapInvoiceStatus('Paid')).toBe('paid')
+    expect(mapInvoiceStatus('Unpaid')).toBe('sent')
     expect(mapInvoiceStatus('Overdue')).toBe('overdue')
+    expect(mapInvoiceStatus('Partly Paid')).toBe('partially_paid')
+    expect(mapInvoiceStatus('Paid')).toBe('paid')
     expect(mapInvoiceStatus('Cancelled')).toBe('cancelled')
+    expect(mapInvoiceStatus('Return')).toBe('cancelled')
+    expect(mapInvoiceStatus('Credit Note Issued')).toBe('cancelled')
+  })
+
+  it('maps legacy "Submitted" to sent for backward compatibility', () => {
+    expect(mapInvoiceStatus('Submitted')).toBe('sent')
   })
 
   it('falls back to draft for unknown status', () => {
-    expect(mapInvoiceStatus('Return')).toBe('draft')
     expect(mapInvoiceStatus('')).toBe('draft')
     expect(mapInvoiceStatus('UNKNOWN_STATUS')).toBe('draft')
+    expect(mapInvoiceStatus('Internal Transfer')).toBe('draft')
   })
 })
 
@@ -139,7 +146,7 @@ describe('normalizeInvoice', () => {
     grand_total: 500,
     outstanding_amount: 500,
     currency: 'USD',
-    status: 'Submitted',
+    status: 'Unpaid',
     creation: '2026-01-01 10:00:00.000000',
     modified: '2026-01-01 10:00:00.000000',
   }
@@ -172,7 +179,8 @@ describe('normalizeInvoice', () => {
 
   it('maps status via mapInvoiceStatus', () => {
     expect(normalizeInvoice({ ...raw, status: 'Draft' }).status).toBe('draft')
-    expect(normalizeInvoice({ ...raw, status: 'Submitted' }).status).toBe('sent')
+    expect(normalizeInvoice({ ...raw, status: 'Unpaid' }).status).toBe('sent')
+    expect(normalizeInvoice({ ...raw, status: 'Partly Paid' }).status).toBe('partially_paid')
     expect(normalizeInvoice({ ...raw, status: 'Paid' }).status).toBe('paid')
     expect(normalizeInvoice({ ...raw, status: 'Overdue' }).status).toBe('overdue')
     expect(normalizeInvoice({ ...raw, status: 'Cancelled' }).status).toBe('cancelled')
@@ -199,7 +207,7 @@ describe('normalizeInvoice', () => {
   })
 
   it('leaves paidAt undefined when invoice is not fully paid', () => {
-    expect(normalizeInvoice({ ...raw, status: 'Submitted', outstanding_amount: 500 }).paidAt).toBeUndefined()
+    expect(normalizeInvoice({ ...raw, status: 'Unpaid', outstanding_amount: 500 }).paidAt).toBeUndefined()
     expect(normalizeInvoice({ ...raw, status: 'Overdue',   outstanding_amount: 250 }).paidAt).toBeUndefined()
   })
 })
