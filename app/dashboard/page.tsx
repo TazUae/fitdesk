@@ -1,6 +1,7 @@
 import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { DashboardView } from '@/components/modules/DashboardView'
 import {
   countActiveClients,
@@ -98,7 +99,7 @@ export default async function DashboardPage() {
     invoices === null
       ? null
       : invoices
-          .filter(i => i.status === 'overdue' || i.status === 'sent')
+          .filter(i => isOutstandingInvoiceStatus(i.status))
           .reduce((sum, i) => sum + i.outstandingAmount, 0)
 
   const monthlyRevenue: number | null =

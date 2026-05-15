@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
 import { Avatar } from '@/components/modules/Avatar'
@@ -26,7 +27,7 @@ import type { PaymentProvider } from '@/lib/whish'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FilterTab = 'outstanding' | 'paid' | 'all'
+type FilterTab = 'outstanding' | 'draft' | 'paid' | 'all'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,16 +45,18 @@ function statusVariant(s: InvoiceStatus): BadgeVariant {
 
 function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
   if (tab === 'outstanding') {
-    const list = invoices.filter(i => i.status === 'overdue' || i.status === 'sent')
+    const list = invoices.filter(i => isOutstandingInvoiceStatus(i.status))
     // Overdue first
     return [...list].sort((a, b) => (a.status === 'overdue' ? -1 : b.status === 'overdue' ? 1 : 0))
   }
+  if (tab === 'draft') return invoices.filter(i => i.status === 'draft')
   if (tab === 'paid') return invoices.filter(i => i.status === 'paid')
   return invoices
 }
 
 function tabCount(invoices: Invoice[], tab: FilterTab): number {
-  if (tab === 'outstanding') return invoices.filter(i => i.status === 'overdue' || i.status === 'sent').length
+  if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
+  if (tab === 'draft')       return invoices.filter(i => i.status === 'draft').length
   if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
   return invoices.length
 }
@@ -66,7 +69,7 @@ function fmtMoney(n: number, currency = 'USD'): string {
 
 function SummaryCards({ invoices }: { invoices: Invoice[] }) {
   const outstanding = invoices
-    .filter(i => i.status === 'overdue' || i.status === 'sent')
+    .filter(i => isOutstandingInvoiceStatus(i.status))
     .reduce((s, i) => s + i.outstandingAmount, 0)
 
   const collected = invoices
@@ -121,7 +124,7 @@ interface InvoiceCardProps {
 }
 
 function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
-  const isActionable = invoice.status === 'sent' || invoice.status === 'overdue'
+  const isActionable = isOutstandingInvoiceStatus(invoice.status)
 
   return (
     <div
@@ -169,7 +172,7 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
               owed {fmtMoney(invoice.outstandingAmount, invoice.currency)}
             </p>
           )}
-          <Badge variant={statusVariant(invoice.status)} />
+          <Badge variant={statusVariant(invoice.status)} label={invoiceStatusLabel(invoice.status)} />
         </div>
       </div>
 
@@ -182,7 +185,7 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
             style={{ backgroundColor: 'rgba(232,197,71,0.12)', color: 'var(--fd-accent)' }}
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Mark Paid
+            Record payment
           </button>
 
           <Link
@@ -759,9 +762,10 @@ function CreateInvoiceSheet({
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
 const TABS: { id: FilterTab; label: string }[] = [
-  { id: 'outstanding', label: 'Outstanding' },
-  { id: 'paid',        label: 'Paid'        },
-  { id: 'all',         label: 'All'         },
+  { id: 'outstanding', label: 'To collect' },
+  { id: 'draft',       label: 'Preparing'  },
+  { id: 'paid',        label: 'Paid'       },
+  { id: 'all',         label: 'All'        },
 ]
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -853,8 +857,9 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
             style={{ color: 'var(--fd-muted)' }}
           />
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            {activeTab === 'outstanding' ? 'No outstanding invoices.' :
-             activeTab === 'paid'        ? 'No paid invoices yet.'    :
+            {activeTab === 'outstanding' ? 'Nothing to collect right now.' :
+             activeTab === 'draft'       ? 'No invoices in preparation.'   :
+             activeTab === 'paid'        ? 'No paid invoices yet.'         :
              'No invoices yet.'}
           </p>
           {activeTab !== 'paid' && (

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Dumbbell, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
+import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -38,7 +39,7 @@ function invoiceVariant(s: InvoiceStatus): BadgeVariant {
 
 function outstandingBalance(invoices: Invoice[]): number {
   return invoices
-    .filter(i => i.status === 'overdue' || i.status === 'sent')
+    .filter(i => isOutstandingInvoiceStatus(i.status))
     .reduce((sum, i) => sum + i.outstandingAmount, 0)
 }
 
@@ -285,8 +286,8 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
         </p>
       </div>
       <div className="flex flex-col items-end gap-1.5">
-        <Badge variant={invoiceVariant(invoice.status)} />
-        {(invoice.status === 'sent' || invoice.status === 'overdue') && (
+        <Badge variant={invoiceVariant(invoice.status)} label={invoiceStatusLabel(invoice.status)} />
+        {isOutstandingInvoiceStatus(invoice.status) && (
           <Link
             href={`/dashboard/invoices/${invoice.id}/pay`}
             className="text-[11px] font-semibold"

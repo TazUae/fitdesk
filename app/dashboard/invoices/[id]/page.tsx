@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, MessageCircle } from 'lucide-react'
 import { getInvoiceById } from '@/lib/business-data'
+import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Badge } from '@/components/modules/Badge'
 import { Avatar } from '@/components/modules/Avatar'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -30,7 +31,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
   if (!result.success) notFound()
 
   const invoice = result.data
-  const isActionable = invoice.status === 'sent' || invoice.status === 'overdue'
+  const isActionable = isOutstandingInvoiceStatus(invoice.status)
 
   return (
     <div className="space-y-5 p-4">
@@ -41,7 +42,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <span className="flex-1" />
-        <Badge variant={statusVariant(invoice.status)} />
+        <Badge variant={statusVariant(invoice.status)} label={invoiceStatusLabel(invoice.status)} />
       </div>
 
       {/* ── Invoice header card ──────────────────────────────────────────── */}
