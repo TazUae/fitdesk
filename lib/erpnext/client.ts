@@ -478,6 +478,39 @@ export async function createInvoice(payload: CreateInvoicePayload): Promise<Invo
   return normalizeInvoice(res.data)
 }
 
+/**
+ * Submit a draft Sales Invoice so it becomes payable.
+ *
+ * A REST POST creates a Sales Invoice as a draft (docstatus 0), and a draft
+ * invoice cannot receive a Payment Entry. Submitting transitions it to
+ * docstatus 1, after which ERPNext computes its Unpaid / Overdue status.
+ *
+ * Submission uses the whitelisted `frappe.client.submit` method, which expects
+ * the full document — so the draft is fetched first (no `fields` filter, so
+ * every field and child table is included) and passed back verbatim.
+ *
+ * @returns the invoice re-fetched through getInvoiceById — its post-submit
+ *          state, not the submit echo.
+ */
+export async function submitSalesInvoice(invoiceId: string): Promise<Invoice> {
+  const docRes = await erpFetch<ERPDocResponse<ERPInvoice>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(invoiceId)}`,
+  )
+
+  const res = await erpFetch<{ message?: ERPInvoice }>(
+    '/api/method/frappe.client.submit',
+    { method: 'POST', body: { doc: docRes.data } },
+  )
+  if (!res.message) {
+    throw new ERPNextError(
+      502, 'Bad Gateway', '/api/method/frappe.client.submit',
+      `Submit returned no document for Sales Invoice ${invoiceId}.`,
+    )
+  }
+
+  return getInvoiceById(invoiceId)
+}
+
 /** Fetch the full raw Payment Entry document by docname. */
 export async function getPaymentEntry(paymentEntryId: string): Promise<ERPPaymentEntry> {
   const res = await erpFetch<ERPDocResponse<ERPPaymentEntry>>(

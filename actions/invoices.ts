@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { createAndSubmitPaymentEntry, createInvoice, getInvoiceById, getInvoices } from '@/lib/business-data/erp-adapter'
+import { createAndSubmitPaymentEntry, createInvoice, getInvoiceById, getInvoices, submitSalesInvoice } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import {
   generatePaymentLink,
@@ -258,5 +258,55 @@ export async function recordPayment(opts: {
     }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to record payment' }
+  }
+}
+
+/**
+ * Finalize a draft (Preparing) invoice so it becomes payable.
+ *
+ * Fetches the invoice fresh, confirms it is still a draft, submits the Sales
+ * Invoice in ERPNext, then confirms — via the re-fetched invoice — that it
+ * actually left draft state. Success is reported only after that confirmation.
+ *
+ * Payment recording is unaffected: this only transitions an invoice from
+ * draft to payable; it never records a payment.
+ */
+export async function finalizeInvoice(invoiceId: string): Promise<ActionResult<Invoice>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Fetch the invoice fresh and confirm it is still a draft. The fresh read
+  // also makes this idempotent against a double-tap — a second call sees a
+  // non-draft status and is rejected here before touching ERPNext.
+  let invoice: Invoice
+  try {
+    invoice = await getInvoiceById(invoiceId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (invoice.status !== 'draft') {
+    return {
+      success: false,
+      error: invoice.status === 'cancelled'
+        ? 'A cancelled invoice cannot be finalized.'
+        : 'This invoice is already finalized.',
+    }
+  }
+
+  // Submit in ERPNext, then verify the invoice actually left draft state.
+  try {
+    const refreshed = await submitSalesInvoice(invoiceId)
+
+    if (refreshed.status === 'draft') {
+      return {
+        success: false,
+        error: 'Invoice was submitted but ERPNext still reports it as a draft. Check the invoice in ERPNext before retrying.',
+      }
+    }
+
+    return { success: true, data: refreshed }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to finalize invoice' }
   }
 }

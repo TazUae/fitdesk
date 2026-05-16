@@ -18,6 +18,7 @@ import {
   normalizeClient,
   normalizeInvoice,
   submitPaymentEntry,
+  submitSalesInvoice,
 } from './client'
 import { getTenantContext } from '@/lib/tenant/context'
 import type { ERPClient, ERPInvoice } from './types'
@@ -498,5 +499,123 @@ describe('createAndSubmitPaymentEntry / submitPaymentEntry / getPaymentEntry', (
     const submitted = await submitPaymentEntry('PE-0001')
     expect(submitted.name).toBe('PE-0001')
     expect(calls.some(c => c.url.includes('/api/erp/method/frappe.client.submit'))).toBe(true)
+  })
+})
+
+describe('submitSalesInvoice', () => {
+  function rawInvoice(overrides: Partial<ERPInvoice> = {}): ERPInvoice {
+    return {
+      name:               'SINV-1',
+      customer:           'CUST-1',
+      customer_name:      'Jane Doe',
+      posting_date:       '2026-05-01',
+      due_date:           '2026-05-15',
+      grand_total:        100,
+      outstanding_amount: 100,
+      currency:           'USD',
+      status:             'Draft',
+      creation:           '2026-05-01 10:00:00.000000',
+      modified:           '2026-05-16 12:00:00.000000',
+      ...overrides,
+    }
+  }
+
+  interface ScenarioOpts {
+    invoiceAfter?: ERPInvoice
+    submitFails?: boolean
+  }
+
+  type RecordedCall = { url: string; method: string; body: unknown }
+
+  function setupFetch(opts: ScenarioOpts = {}): { calls: RecordedCall[] } {
+    const draftDoc = rawInvoice({ status: 'Draft' })
+    const invoiceAfter = opts.invoiceAfter ?? rawInvoice({ status: 'Unpaid', outstanding_amount: 100 })
+    let invoiceReads = 0
+    const calls: RecordedCall[] = []
+
+    const fetchMock = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const body = init?.body ? JSON.parse(init.body) : undefined
+      calls.push({ url, method, body })
+
+      const json = (data: unknown) => ({ ok: true, json: async () => data })
+
+      if (url.includes('/api/erp/method/frappe.client.submit')) {
+        if (opts.submitFails) {
+          return {
+            ok:         false,
+            status:     417,
+            statusText: 'Expectation Failed',
+            text:       async () => 'Income account is mandatory',
+          }
+        }
+        return json({ message: { ...draftDoc, status: 'Unpaid', docstatus: 1 } })
+      }
+      if (url.includes('/api/erp/doctype/Sales%20Invoice/')) {
+        invoiceReads += 1
+        // 1st read = raw doc fetched for submit; 2nd = post-submit re-fetch.
+        return invoiceReads === 1
+          ? json({ data: draftDoc })
+          : json({ data: invoiceAfter })
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return { calls }
+  }
+
+  beforeEach(() => {
+    process.env.CONTROL_PLANE_URL = 'http://control-plane.test'
+    process.env.FITDESK_JWT_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef'
+    vi.mocked(getTenantContext).mockResolvedValue({
+      userId:             'user-1',
+      slug:               'tenant-1',
+      tenantId:           'tenant-1',
+      provisioningStatus: 'ready',
+      lastSyncedAt:       null,
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('fetches the full Sales Invoice document before submitting (no fields filter)', async () => {
+    const { calls } = setupFetch()
+    await submitSalesInvoice('SINV-1')
+
+    expect(calls[0].method).toBe('GET')
+    expect(calls[0].url).toContain('/api/erp/doctype/Sales%20Invoice/SINV-1')
+    expect(calls[0].url).not.toContain('fields')
+  })
+
+  it('submits via the /api/erp/method frappe.client.submit path with the full doc', async () => {
+    const { calls } = setupFetch()
+    await submitSalesInvoice('SINV-1')
+
+    const submitCall = calls.find(c => c.url.includes('/api/erp/method/frappe.client.submit'))
+    expect(submitCall).toBeDefined()
+    expect(submitCall?.method).toBe('POST')
+    const sentDoc = (submitCall?.body as { doc?: { name?: string } }).doc
+    expect(sentDoc?.name).toBe('SINV-1')
+  })
+
+  it('re-fetches the invoice after submit and returns the refreshed normalized invoice', async () => {
+    const { calls } = setupFetch({ invoiceAfter: rawInvoice({ status: 'Unpaid', outstanding_amount: 100 }) })
+    const result = await submitSalesInvoice('SINV-1')
+
+    const submitIdx = calls.findIndex(c => c.url.includes('/api/erp/method/frappe.client.submit'))
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall.method).toBe('GET')
+    expect(lastCall.url).toContain('/api/erp/doctype/Sales%20Invoice/SINV-1')
+    expect(calls.length - 1).toBeGreaterThan(submitIdx)
+
+    expect(result.id).toBe('SINV-1')
+    expect(result.status).toBe('sent')
+  })
+
+  it('propagates an error when the submit call fails', async () => {
+    setupFetch({ submitFails: true })
+    await expect(submitSalesInvoice('SINV-1')).rejects.toThrow()
   })
 })

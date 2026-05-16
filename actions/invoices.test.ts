@@ -15,6 +15,7 @@ vi.mock('@/lib/trainer', () => ({
 vi.mock('@/lib/business-data/erp-adapter', () => ({
   getInvoiceById:              vi.fn(),
   createAndSubmitPaymentEntry: vi.fn(),
+  submitSalesInvoice:          vi.fn(),
   getInvoices:                 vi.fn(),
   createInvoice:               vi.fn(),
 }))
@@ -24,10 +25,10 @@ vi.mock('@/lib/whish', () => ({
   PAYMENT_PROVIDERS:   [],
 }))
 
-import { recordPayment } from './invoices'
+import { finalizeInvoice, recordPayment } from './invoices'
 import { auth } from '@/lib/auth'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
-import { createAndSubmitPaymentEntry, getInvoiceById } from '@/lib/business-data/erp-adapter'
+import { createAndSubmitPaymentEntry, getInvoiceById, submitSalesInvoice } from '@/lib/business-data/erp-adapter'
 import type { Invoice, InvoiceStatus, Payment } from '@/types'
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
@@ -234,5 +235,62 @@ describe('recordPayment', () => {
     const result = await recordPayment({ ...BASE, amount: 100 })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error).toMatch(/No deposit account/i)
+  })
+})
+
+describe('finalizeInvoice', () => {
+  beforeEach(() => {
+    vi.mocked(auth.api.getSession).mockResolvedValue({
+      user: { id: 'user-1', name: 'Trainer', email: 'trainer@example.com', phone: null },
+    } as never)
+    vi.mocked(ensureTrainerIdForUser).mockResolvedValue('trainer-1')
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it.each<InvoiceStatus>(['sent', 'overdue', 'partially_paid', 'paid', 'cancelled'])(
+    'rejects a %s invoice — only a draft can be finalized',
+    async status => {
+      vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status }))
+      const result = await finalizeInvoice('SINV-1')
+      expect(result.success).toBe(false)
+      expect(submitSalesInvoice).not.toHaveBeenCalled()
+    },
+  )
+
+  it('finalizes a draft invoice and returns the refreshed payable invoice', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockResolvedValue(invoice({ status: 'sent', outstandingAmount: 100 }))
+    const result = await finalizeInvoice('SINV-1')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.status).toBe('sent')
+    expect(submitSalesInvoice).toHaveBeenCalledWith('SINV-1')
+  })
+
+  it('fails when ERPNext still reports the invoice as a draft after submit', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockResolvedValue(invoice({ status: 'draft' }))
+    const result = await finalizeInvoice('SINV-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/still reports it as a draft/i)
+  })
+
+  it('surfaces an ERP submit error', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockRejectedValue(
+      new Error('ERPNext 417 Expectation Failed: Income account is mandatory'),
+    )
+    const result = await finalizeInvoice('SINV-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/Income account is mandatory/i)
+  })
+
+  it('rejects when the invoice cannot be loaded', async () => {
+    vi.mocked(getInvoiceById).mockRejectedValue(new Error('ERPNext 404 Not Found'))
+    const result = await finalizeInvoice('SINV-1')
+    expect(result.success).toBe(false)
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
   })
 })

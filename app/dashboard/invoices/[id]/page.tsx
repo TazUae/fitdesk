@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, MessageCircle } from 'lucide-react'
 import { getInvoiceById } from '@/lib/business-data'
 import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
+import { FinalizeInvoiceButton } from './FinalizeInvoiceButton'
 import { Badge } from '@/components/modules/Badge'
 import { Avatar } from '@/components/modules/Avatar'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -132,6 +133,11 @@ export default async function InvoiceDetailPage({ params }: Props) {
               Send
             </Link>
           </div>
+        )}
+
+        {/* Finalize action for draft / Preparing invoices */}
+        {invoice.status === 'draft' && (
+          <FinalizeInvoiceButton invoiceId={invoice.id} />
         )}
       </div>
 
