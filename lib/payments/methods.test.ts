@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   enabledPaymentMethods,
+  isEnabledPaymentMethod,
   isPaymentMethod,
   paymentMethodLabel,
   paymentMethodToErpMode,
@@ -50,7 +51,32 @@ describe('paymentMethodLabel', () => {
 })
 
 describe('enabledPaymentMethods', () => {
-  it('returns exactly cash, whish_money, and omt', () => {
-    expect(enabledPaymentMethods().map(m => m.value)).toEqual(['cash', 'whish_money', 'omt'])
+  it('returns only the enabled MVP methods — Cash and Whish Money', () => {
+    expect(enabledPaymentMethods().map(m => m.value)).toEqual(['cash', 'whish_money'])
+  })
+
+  it('does not offer OMT while it is disabled', () => {
+    expect(enabledPaymentMethods().map(m => m.value)).not.toContain('omt')
+  })
+})
+
+describe('isEnabledPaymentMethod', () => {
+  it('accepts the enabled MVP methods', () => {
+    expect(isEnabledPaymentMethod('cash')).toBe(true)
+    expect(isEnabledPaymentMethod('whish_money')).toBe(true)
+  })
+
+  it('rejects OMT while it is disabled (still a known value, just not enabled)', () => {
+    expect(isPaymentMethod('omt')).toBe(true)
+    expect(isEnabledPaymentMethod('omt')).toBe(false)
+  })
+
+  it('rejects retired, mode-name, and non-string values', () => {
+    expect(isEnabledPaymentMethod('whish')).toBe(false)
+    expect(isEnabledPaymentMethod('bank_transfer')).toBe(false)
+    expect(isEnabledPaymentMethod('Cash')).toBe(false)
+    expect(isEnabledPaymentMethod('')).toBe(false)
+    expect(isEnabledPaymentMethod(undefined)).toBe(false)
+    expect(isEnabledPaymentMethod(null)).toBe(false)
   })
 })

@@ -114,6 +114,24 @@ export interface Payment {
 }
 
 /**
+ * Result of a verified Record Payment action.
+ *
+ * Returned only after ERPNext has submitted the Payment Entry and the
+ * Sales Invoice has been re-fetched — `invoice` reflects the reconciled
+ * state, never an optimistic guess.
+ */
+export interface RecordPaymentResult {
+  /** The submitted ERPNext Payment Entry. */
+  payment: Payment
+  /** The Sales Invoice re-fetched after ERPNext reconciled the payment. */
+  invoice: Invoice
+  /** True when the invoice's outstanding balance reached zero. */
+  fullyPaid: boolean
+  /** Outstanding balance still owed after this payment (0 when fully paid). */
+  remainingAmount: number
+}
+
+/**
  * A drafted WhatsApp message pending trainer approval.
  * The body field is rendered from a template and ready to send.
  * approved must be true before sendMessage() is called.

@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { createInvoice, getInvoiceById, getInvoices, markInvoicePaid } from '@/lib/business-data/erp-adapter'
+import { createAndSubmitPaymentEntry, createInvoice, getInvoiceById, getInvoices } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import {
   generatePaymentLink,
@@ -10,8 +10,9 @@ import {
   PAYMENT_PROVIDERS,
   type PaymentProvider,
 } from '@/lib/whish'
-import { isPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
-import type { ActionResult, Invoice, Payment } from '@/types'
+import { isEnabledPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
+import type { ActionResult, Invoice, RecordPaymentResult } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,7 +146,12 @@ export async function getPaymentLink(opts: {
 /**
  * Record a payment for an invoice.
  *
- * Creates a Payment Entry in ERPNext and updates the invoice outstanding amount.
+ * Validates the request against a freshly-fetched invoice, creates AND
+ * submits an ERPNext Payment Entry, then re-fetches the invoice to confirm
+ * ERPNext actually reduced the outstanding amount. Success is reported only
+ * after that confirmation — a created-but-unreconciled payment is a failure,
+ * never a false success.
+ *
  * Always call this AFTER the trainer has confirmed receipt.
  */
 export async function recordPayment(opts: {
@@ -156,19 +162,56 @@ export async function recordPayment(opts: {
   date:       string
   reference?: string
   note?:      string
-}): Promise<ActionResult<Payment>> {
+}): Promise<ActionResult<RecordPaymentResult>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
-  // The ERPNext Mode of Payment name is resolved server-side — never trusted
-  // from the client, which only ever sends an internal PaymentMethod value.
-  if (!isPaymentMethod(opts.method)) {
-    return { success: false, error: 'Unsupported payment method.' }
+  // Validate the payment method server-side. Only enabled MVP methods
+  // (Cash, Whish Money) are accepted; a disabled method such as OMT is
+  // rejected even if a client sends its value directly. The ERPNext Mode of
+  // Payment name is resolved server-side — never trusted from the client.
+  if (!isEnabledPaymentMethod(opts.method)) {
+    return { success: false, error: 'That payment method is not available.' }
   }
   const modeOfPayment = paymentMethodToErpMode(opts.method)
 
+  // Validate the amount before any ERP call.
+  if (!Number.isFinite(opts.amount)) {
+    return { success: false, error: 'Enter a valid payment amount.' }
+  }
+  if (opts.amount <= 0) {
+    return { success: false, error: 'Payment amount must be greater than zero.' }
+  }
+
+  // Fetch the invoice fresh and confirm it can take a payment.
+  let invoice: Invoice
   try {
-    const data = await markInvoicePaid({
+    invoice = await getInvoiceById(opts.invoiceId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (!isOutstandingInvoiceStatus(invoice.status)) {
+    return {
+      success: false,
+      error: 'This invoice is not open for payment. Only sent, overdue, or partly-paid invoices can be paid.',
+    }
+  }
+
+  const oldOutstanding = invoice.outstandingAmount
+  if (oldOutstanding <= 0) {
+    return { success: false, error: 'This invoice has no outstanding balance to pay.' }
+  }
+  if (opts.amount > oldOutstanding) {
+    return {
+      success: false,
+      error: `Amount exceeds the outstanding balance (${invoice.currency} ${oldOutstanding.toLocaleString()}).`,
+    }
+  }
+
+  // Create + submit the Payment Entry, then re-fetch the invoice.
+  try {
+    const { payment, invoice: refreshed } = await createAndSubmitPaymentEntry({
       invoiceId:     opts.invoiceId,
       clientId:      opts.clientId,
       amount:        opts.amount,
@@ -177,6 +220,18 @@ export async function recordPayment(opts: {
       reference:     opts.reference,
       note:          opts.note,
     })
+
+    const newOutstanding = refreshed.outstandingAmount
+
+    // ERPNext must have reduced the outstanding amount. If it did not, the
+    // Payment Entry was created but not reconciled — report failure so the
+    // trainer is never told a payment landed when it did not.
+    if (newOutstanding >= oldOutstanding) {
+      return {
+        success: false,
+        error: 'Payment was created but ERPNext did not apply it to the invoice. Check the invoice in ERPNext before retrying.',
+      }
+    }
 
     logPaymentEvent({
       trainerId:  resolved.trainerId,
@@ -189,7 +244,18 @@ export async function recordPayment(opts: {
       timestamp:  new Date().toISOString(),
     })
 
-    return { success: true, data }
+    // Treat a sub-cent residual as fully paid: ERPNext rounds outstanding to
+    // currency precision, so anything below a cent is float dust.
+    const fullyPaid = newOutstanding < 0.01
+    return {
+      success: true,
+      data: {
+        payment,
+        invoice:         refreshed,
+        fullyPaid,
+        remainingAmount: fullyPaid ? 0 : newOutstanding,
+      },
+    }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to record payment' }
   }

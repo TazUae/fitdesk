@@ -25,12 +25,26 @@ interface PaymentMethodDef {
 export const PAYMENT_METHODS: readonly PaymentMethodDef[] = [
   { value: 'cash',        label: 'Cash',        erpNextModeOfPayment: 'Cash',        enabled: true },
   { value: 'whish_money', label: 'Whish Money', erpNextModeOfPayment: 'Whish Money', enabled: true },
-  { value: 'omt',         label: 'OMT',         erpNextModeOfPayment: 'OMT',         enabled: true },
+  // OMT stays defined but disabled until ERPNext provisioning adds an "OMT"
+  // Mode of Payment. Without it ERPNext rejects the Payment Entry, so the
+  // method must not be offered or accepted. Re-enable by flipping `enabled`.
+  { value: 'omt',         label: 'OMT',         erpNextModeOfPayment: 'OMT',         enabled: false },
 ]
 
-/** Type guard: true only for a known internal payment method value. */
+/** Type guard: true for any known internal payment method value. */
 export function isPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === 'string' && PAYMENT_METHODS.some(m => m.value === value)
+}
+
+/**
+ * Type guard: true only for a known internal payment method that is
+ * currently enabled. The server action uses this so a disabled method
+ * (e.g. OMT before its ERPNext provisioning lands) can never be recorded,
+ * even if a client sends its value directly.
+ */
+export function isEnabledPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === 'string'
+    && PAYMENT_METHODS.some(m => m.value === value && m.enabled)
 }
 
 /** Map an internal payment method to its ERPNext "Mode of Payment" name. */

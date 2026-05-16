@@ -39,7 +39,12 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
       })
 
       if (result.success) {
-        toast.success('Payment recorded')
+        const { fullyPaid, remainingAmount, invoice: paid } = result.data
+        toast.success(
+          fullyPaid
+            ? 'Payment recorded. Invoice is now paid.'
+            : `Payment recorded. ${paid.currency} ${remainingAmount.toLocaleString()} remaining.`,
+        )
         router.push('/dashboard/invoices')
       } else {
         setError(result.error)

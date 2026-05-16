@@ -3,7 +3,7 @@
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
 import { listFDSessionsAction } from '@/actions/schedulingActions'
-import type { ActionResult, Client, Invoice, Payment } from '@/types'
+import type { ActionResult, Client, Invoice, RecordPaymentResult } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
@@ -67,6 +67,6 @@ export async function recordPayment(input: {
   date: string
   reference?: string
   note?: string
-}): Promise<ActionResult<Payment>> {
+}): Promise<ActionResult<RecordPaymentResult>> {
   return recordInvoicePayment(input)
 }

@@ -244,7 +244,12 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
       })
 
       if (result.success) {
-        toast.success('Payment recorded')
+        const { fullyPaid, remainingAmount, invoice: paid } = result.data
+        toast.success(
+          fullyPaid
+            ? 'Payment recorded. Invoice is now paid.'
+            : `Payment recorded. ${paid.currency} ${remainingAmount.toLocaleString()} remaining.`,
+        )
         handleClose()
         onPaid()
       } else {
