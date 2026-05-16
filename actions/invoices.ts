@@ -310,3 +310,79 @@ export async function finalizeInvoice(invoiceId: string): Promise<ActionResult<I
     return { success: false, error: err instanceof Error ? err.message : 'Failed to finalize invoice' }
   }
 }
+
+/**
+ * Collect a payment for an invoice — finalizing it first if it is still a
+ * draft (Preparing).
+ *
+ * The trainer presses one action ("Record payment"); this composes the two
+ * existing steps so the ERPNext draft/submit lifecycle stays invisible:
+ *   - draft                          → finalizeInvoice, then recordPayment
+ *   - sent / overdue / partially_paid → recordPayment directly
+ *   - paid / cancelled                → rejected
+ *
+ * Composition only: recordPayment and finalizeInvoice keep their existing
+ * behavior — the payment accounting path is unchanged. Returns the same
+ * RecordPaymentResult shape as recordPayment.
+ */
+export async function collectPayment(opts: {
+  invoiceId:  string
+  clientId:   string
+  amount:     number
+  method:     PaymentMethod
+  date:       string
+  reference?: string
+  note?:      string
+}): Promise<ActionResult<RecordPaymentResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Cheap validation before any ERPNext write, so a bad request can never
+  // finalize an invoice and then fail on the payment.
+  if (!isEnabledPaymentMethod(opts.method)) {
+    return { success: false, error: 'That payment method is not available.' }
+  }
+  if (!Number.isFinite(opts.amount)) {
+    return { success: false, error: 'Enter a valid payment amount.' }
+  }
+  if (opts.amount <= 0) {
+    return { success: false, error: 'Payment amount must be greater than zero.' }
+  }
+
+  // Fetch fresh to decide whether a finalize step is needed.
+  let invoice: Invoice
+  try {
+    invoice = await getInvoiceById(opts.invoiceId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (invoice.status === 'paid') {
+    return { success: false, error: 'This invoice is already paid.' }
+  }
+  if (invoice.status === 'cancelled') {
+    return { success: false, error: 'A cancelled invoice cannot take a payment.' }
+  }
+
+  // A draft invoice must be finalized before it can receive a payment.
+  if (invoice.status === 'draft') {
+    const finalized = await finalizeInvoice(opts.invoiceId)
+    if (!finalized.success) {
+      return { success: false, error: finalized.error }
+    }
+
+    const paid = await recordPayment(opts)
+    if (!paid.success) {
+      // The invoice is finalized (now payable) but the payment did not land.
+      // A safe, recoverable state — the trainer can simply retry the payment.
+      return {
+        success: false,
+        error: 'Invoice was issued, but the payment didn\'t go through. Please try Record payment again.',
+      }
+    }
+    return paid
+  }
+
+  // Already payable (sent / overdue / partially_paid) — record directly.
+  return recordPayment(opts)
+}

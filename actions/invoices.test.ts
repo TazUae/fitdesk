@@ -25,7 +25,7 @@ vi.mock('@/lib/whish', () => ({
   PAYMENT_PROVIDERS:   [],
 }))
 
-import { finalizeInvoice, recordPayment } from './invoices'
+import { collectPayment, finalizeInvoice, recordPayment } from './invoices'
 import { auth } from '@/lib/auth'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { createAndSubmitPaymentEntry, getInvoiceById, submitSalesInvoice } from '@/lib/business-data/erp-adapter'
@@ -292,5 +292,143 @@ describe('finalizeInvoice', () => {
     const result = await finalizeInvoice('SINV-1')
     expect(result.success).toBe(false)
     expect(submitSalesInvoice).not.toHaveBeenCalled()
+  })
+})
+
+describe('collectPayment', () => {
+  beforeEach(() => {
+    vi.mocked(auth.api.getSession).mockResolvedValue({
+      user: { id: 'user-1', name: 'Trainer', email: 'trainer@example.com', phone: null },
+    } as never)
+    vi.mocked(ensureTrainerIdForUser).mockResolvedValue('trainer-1')
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('finalizes a draft invoice, then records payment (fully paid)', async () => {
+    let state: Invoice = invoice({ status: 'draft', outstandingAmount: 100 })
+    vi.mocked(getInvoiceById).mockImplementation(async () => state)
+    vi.mocked(submitSalesInvoice).mockImplementation(async () => {
+      state = invoice({ status: 'sent', outstandingAmount: 100 })
+      return state
+    })
+    vi.mocked(createAndSubmitPaymentEntry).mockImplementation(async () => {
+      state = invoice({ status: 'paid', outstandingAmount: 0 })
+      return { payment: payment(), invoice: state }
+    })
+
+    const result = await collectPayment({ ...BASE, amount: 100 })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.fullyPaid).toBe(true)
+      expect(result.data.remainingAmount).toBe(0)
+    }
+    expect(submitSalesInvoice).toHaveBeenCalledTimes(1)
+    expect(createAndSubmitPaymentEntry).toHaveBeenCalledTimes(1)
+  })
+
+  it('finalizes a draft invoice, then records a partial payment (remaining balance)', async () => {
+    let state: Invoice = invoice({ status: 'draft', outstandingAmount: 100 })
+    vi.mocked(getInvoiceById).mockImplementation(async () => state)
+    vi.mocked(submitSalesInvoice).mockImplementation(async () => {
+      state = invoice({ status: 'sent', outstandingAmount: 100 })
+      return state
+    })
+    vi.mocked(createAndSubmitPaymentEntry).mockImplementation(async () => {
+      state = invoice({ status: 'partially_paid', outstandingAmount: 40 })
+      return { payment: payment(), invoice: state }
+    })
+
+    const result = await collectPayment({ ...BASE, amount: 60 })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.fullyPaid).toBe(false)
+      expect(result.data.remainingAmount).toBe(40)
+    }
+    expect(submitSalesInvoice).toHaveBeenCalledTimes(1)
+  })
+
+  it.each<InvoiceStatus>(['sent', 'overdue', 'partially_paid'])(
+    'records payment directly on a %s invoice without finalizing',
+    async status => {
+      let state: Invoice = invoice({ status, outstandingAmount: 100 })
+      vi.mocked(getInvoiceById).mockImplementation(async () => state)
+      vi.mocked(createAndSubmitPaymentEntry).mockImplementation(async () => {
+        state = invoice({ status: 'paid', outstandingAmount: 0 })
+        return { payment: payment(), invoice: state }
+      })
+
+      const result = await collectPayment({ ...BASE, amount: 100 })
+
+      expect(result.success).toBe(true)
+      expect(submitSalesInvoice).not.toHaveBeenCalled()
+      expect(createAndSubmitPaymentEntry).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('rejects a paid invoice — touches neither finalize nor payment', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'paid', outstandingAmount: 0 }))
+    const result = await collectPayment(BASE)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/already paid/i)
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects a cancelled invoice', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'cancelled' }))
+    const result = await collectPayment(BASE)
+    expect(result.success).toBe(false)
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unavailable method before fetching, finalizing, or paying', async () => {
+    const result = await collectPayment({ ...BASE, method: 'omt' })
+    expect(result.success).toBe(false)
+    expect(getInvoiceById).not.toHaveBeenCalled()
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects amount <= 0 before fetching, finalizing, or paying', async () => {
+    const result = await collectPayment({ ...BASE, amount: 0 })
+    expect(result.success).toBe(false)
+    expect(getInvoiceById).not.toHaveBeenCalled()
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('stops before recording payment when finalize fails', async () => {
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockRejectedValue(
+      new Error('ERPNext 417: Due Date cannot be before Posting Date'),
+    )
+    const result = await collectPayment(BASE)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/Due Date/i)
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns the recovery message when finalize succeeds but payment fails', async () => {
+    let state: Invoice = invoice({ status: 'draft', outstandingAmount: 100 })
+    vi.mocked(getInvoiceById).mockImplementation(async () => state)
+    vi.mocked(submitSalesInvoice).mockImplementation(async () => {
+      state = invoice({ status: 'sent', outstandingAmount: 100 })
+      return state
+    })
+    vi.mocked(createAndSubmitPaymentEntry).mockRejectedValue(
+      new Error('ERPNext 503 Payment Account Missing'),
+    )
+
+    const result = await collectPayment({ ...BASE, amount: 100 })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/payment didn.t go through/i)
+    expect(submitSalesInvoice).toHaveBeenCalledTimes(1)
   })
 })

@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { recordPayment } from '@/lib/business-data'
+import { collectPayment } from '@/lib/business-data'
 import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
 import type { Invoice } from '@/types'
 
@@ -28,7 +28,7 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
     if (!amount || amount <= 0) { setError('Enter a valid amount'); return }
 
     startTransition(async () => {
-      const result = await recordPayment({
+      const result = await collectPayment({
         invoiceId: invoice.id,
         clientId: invoice.clientId,
         amount,
@@ -97,7 +97,7 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
             type="number"
             min="0.01"
             step="0.01"
-            defaultValue={invoice.outstandingAmount}
+            defaultValue={invoice.status === 'draft' ? invoice.amount : invoice.outstandingAmount}
             required
             className="input-base"
           />

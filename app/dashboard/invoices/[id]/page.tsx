@@ -32,7 +32,10 @@ export default async function InvoiceDetailPage({ params }: Props) {
   if (!result.success) notFound()
 
   const invoice = result.data
-  const isActionable = isOutstandingInvoiceStatus(invoice.status)
+  // Draft (Preparing) invoices are payable too — collectPayment finalizes
+  // them first, so the trainer never needs a separate finalize step.
+  const canCollectPayment =
+    invoice.status === 'draft' || isOutstandingInvoiceStatus(invoice.status)
 
   return (
     <div className="space-y-5 p-4">
@@ -112,8 +115,8 @@ export default async function InvoiceDetailPage({ params }: Props) {
           </div>
         )}
 
-        {/* Action buttons for actionable invoices */}
-        {isActionable && (
+        {/* Record payment — for draft (Preparing) and outstanding invoices */}
+        {canCollectPayment && (
           <div className="flex gap-2">
             <Link
               href={`/dashboard/invoices/${invoice.id}/pay`}
@@ -135,7 +138,8 @@ export default async function InvoiceDetailPage({ params }: Props) {
           </div>
         )}
 
-        {/* Finalize action for draft / Preparing invoices */}
+        {/* Secondary fallback on a Preparing invoice: issue it without
+            taking payment now (the "send now, collect later" case). */}
         {invoice.status === 'draft' && (
           <FinalizeInvoiceButton invoiceId={invoice.id} />
         )}

@@ -8,7 +8,7 @@ import type { FDSession } from '@/types/scheduling'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
 import { editClient, fetchClientById } from '@/actions/clients'
-import { fetchInvoiceById, finalizeInvoice as finalizeInvoiceAction } from '@/actions/invoices'
+import { collectPayment as collectInvoicePayment, fetchInvoiceById, finalizeInvoice as finalizeInvoiceAction } from '@/actions/invoices'
 import type { UpdateClientPayload } from '@/lib/erpnext/types'
 
 export async function getClients(): Promise<ActionResult<Client[]>> {
@@ -73,4 +73,16 @@ export async function recordPayment(input: {
   note?: string
 }): Promise<ActionResult<RecordPaymentResult>> {
   return recordInvoicePayment(input)
+}
+
+export async function collectPayment(input: {
+  invoiceId: string
+  clientId: string
+  amount: number
+  method: PaymentMethod
+  date: string
+  reference?: string
+  note?: string
+}): Promise<ActionResult<RecordPaymentResult>> {
+  return collectInvoicePayment(input)
 }
