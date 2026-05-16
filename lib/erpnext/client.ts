@@ -497,9 +497,18 @@ export async function submitSalesInvoice(invoiceId: string): Promise<Invoice> {
     `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(invoiceId)}`,
   )
 
+  // Normalize dates before submit. An old draft may carry set_posting_time = 0;
+  // ERPNext would then re-stamp posting_date to the server date on submit while
+  // leaving due_date untouched, producing due_date < posting_date. Setting
+  // set_posting_time = 1 makes ERPNext honor the stored posting_date; the clamp
+  // guarantees due_date >= posting_date. Amounts/party/items are untouched.
+  const doc = docRes.data
+  doc.set_posting_time = 1
+  doc.due_date = clampDueDate(doc.posting_date, doc.due_date)
+
   const res = await erpFetch<{ message?: ERPInvoice }>(
     '/api/method/frappe.client.submit',
-    { method: 'POST', body: { doc: docRes.data } },
+    { method: 'POST', body: { doc } },
   )
   if (!res.message) {
     throw new ERPNextError(

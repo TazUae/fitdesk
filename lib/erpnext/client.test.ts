@@ -521,14 +521,21 @@ describe('submitSalesInvoice', () => {
   }
 
   interface ScenarioOpts {
+    draft?: ERPInvoice
     invoiceAfter?: ERPInvoice
     submitFails?: boolean
   }
 
   type RecordedCall = { url: string; method: string; body: unknown }
 
+  /** The Sales Invoice doc sent in the frappe.client.submit call body. */
+  function submittedDoc(calls: RecordedCall[]): ERPInvoice {
+    const submitCall = calls.find(c => c.url.includes('/api/erp/method/frappe.client.submit'))
+    return (submitCall?.body as { doc: ERPInvoice }).doc
+  }
+
   function setupFetch(opts: ScenarioOpts = {}): { calls: RecordedCall[] } {
-    const draftDoc = rawInvoice({ status: 'Draft' })
+    const draftDoc = opts.draft ?? rawInvoice({ status: 'Draft' })
     const invoiceAfter = opts.invoiceAfter ?? rawInvoice({ status: 'Unpaid', outstanding_amount: 100 })
     let invoiceReads = 0
     const calls: RecordedCall[] = []
@@ -617,5 +624,50 @@ describe('submitSalesInvoice', () => {
   it('propagates an error when the submit call fails', async () => {
     setupFetch({ submitFails: true })
     await expect(submitSalesInvoice('SINV-1')).rejects.toThrow()
+  })
+
+  it('forces set_posting_time=1 and preserves dates for an old draft (set_posting_time 0)', async () => {
+    const { calls } = setupFetch({
+      draft: rawInvoice({
+        status: 'Draft', set_posting_time: 0,
+        posting_date: '2026-05-15', due_date: '2026-05-15',
+      }),
+    })
+    await submitSalesInvoice('SINV-1')
+
+    const doc = submittedDoc(calls)
+    expect(doc.set_posting_time).toBe(1)
+    expect(doc.posting_date).toBe('2026-05-15')   // preserved — not re-stamped
+    expect(doc.due_date).toBe('2026-05-15')       // unchanged, still >= posting_date
+  })
+
+  it('clamps a due_date that precedes the posting_date', async () => {
+    const { calls } = setupFetch({
+      draft: rawInvoice({
+        status: 'Draft', set_posting_time: 0,
+        posting_date: '2026-05-16', due_date: '2026-05-10',
+      }),
+    })
+    await submitSalesInvoice('SINV-1')
+
+    const doc = submittedDoc(calls)
+    expect(doc.set_posting_time).toBe(1)
+    expect(doc.posting_date).toBe('2026-05-16')   // preserved
+    expect(doc.due_date).toBe('2026-05-16')       // clamped up to posting_date
+  })
+
+  it('preserves posting_date and a valid due_date for an already-valid draft', async () => {
+    const { calls } = setupFetch({
+      draft: rawInvoice({
+        status: 'Draft', set_posting_time: 1,
+        posting_date: '2026-05-16', due_date: '2026-05-23',
+      }),
+    })
+    await submitSalesInvoice('SINV-1')
+
+    const doc = submittedDoc(calls)
+    expect(doc.set_posting_time).toBe(1)
+    expect(doc.posting_date).toBe('2026-05-16')   // preserved
+    expect(doc.due_date).toBe('2026-05-23')       // already valid, untouched
   })
 })

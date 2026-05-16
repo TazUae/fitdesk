@@ -50,6 +50,11 @@ export interface ERPInvoice {
   customer_name?: string     // fetched link label (read-only)
   posting_date: string       // YYYY-MM-DD
   due_date: string           // YYYY-MM-DD
+  /**
+   * When 0/absent, ERPNext re-stamps posting_date to the server date on
+   * submit. Set to 1 to make ERPNext honor the stored posting_date.
+   */
+  set_posting_time?: 0 | 1
   grand_total: number
   outstanding_amount: number
   paid_amount?: number
