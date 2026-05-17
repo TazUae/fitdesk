@@ -51,6 +51,7 @@ function sessionFields(): string {
     'start_at', 'end_at', 'duration_minutes', 'timezone',
     'status', 'occurrence_key', 'occurrence_index', 'is_override',
     'rate', 'session_type', 'invoice_id', 'notes', 'version',
+    'is_trial_session', 'session_consumed_package',
   ])
 }
 
@@ -82,8 +83,10 @@ function normalizeSession(raw: ERPFDSession): FDSession {
     rate:            raw.rate,
     sessionType:     raw.session_type ?? null,
     notes:           raw.notes ?? null,
-    invoiceId:       raw.invoice_id ?? null,
-    version:         raw.version,
+    invoiceId:              raw.invoice_id ?? null,
+    version:                raw.version,
+    isTrialSession:         raw.is_trial_session === 1,
+    sessionConsumedPackage: raw.session_consumed_package === 1,
   }
 }
 

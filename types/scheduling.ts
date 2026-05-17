@@ -107,6 +107,10 @@ export interface FDSession {
   notes:           string | null
   invoiceId:       string | null
   version:         number
+  /** is_trial_session — true when this session was a complimentary/trial (Phase B) */
+  isTrialSession:          boolean
+  /** session_consumed_package — true when this session was charged against a package balance (Phase B) */
+  sessionConsumedPackage:  boolean
 }
 
 // ─── FD SessionSeries (persisted) ────────────────────────────────────────────

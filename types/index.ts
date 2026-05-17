@@ -70,6 +70,12 @@ export interface Client {
   emergencyContactPhone?: string
   /** custom_remaining_sessions — sessions left in the client's package */
   remainingSessions?: number
+  /** custom_billing_mode — how the client is billed (Phase B) */
+  billingMode?: 'Package' | 'Pay Per Session' | 'Trial'
+  /** custom_default_session_rate — per-session rate for Pay Per Session clients (Phase B) */
+  defaultSessionRate?: number
+  /** custom_package_name — label for the client's purchased package (Phase B) */
+  packageName?: string
   createdAt: string
 }
 
@@ -93,6 +99,10 @@ export interface Invoice {
   dueDate: string
   issuedAt: string
   paidAt?: string
+  /** custom_fd_session — linked FD Session docname (Phase B) */
+  fdSessionId?: string
+  /** custom_invoice_kind — distinguishes package vs. per-session invoices (Phase B) */
+  invoiceKind?: 'Package' | 'Session'
 }
 
 /**

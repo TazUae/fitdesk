@@ -36,6 +36,9 @@ export interface ERPClient {
   custom_emergency_contact_name?: string  // (custom) Data
   custom_emergency_contact_phone?: string // (custom) Data
   custom_remaining_sessions?: number      // (custom) Int — sessions left in package
+  custom_billing_mode?: 'Package' | 'Pay Per Session' | 'Trial'  // (custom) Select — Phase B
+  custom_default_session_rate?: number    // (custom) Currency — Phase B
+  custom_package_name?: string            // (custom) Data — Phase B
   creation: string
   modified: string
 }
@@ -76,6 +79,8 @@ export interface ERPInvoice {
     | 'Cancelled'
     | 'Submitted'
   remarks?: string
+  custom_fd_session?: string              // (custom) Data — Phase B: linked FD Session docname
+  custom_invoice_kind?: 'Package' | 'Session'  // (custom) Select — Phase B
   creation: string
   modified: string
 }
@@ -133,6 +138,9 @@ export interface CreateClientPayload {
   custom_blood_type?: string
   custom_emergency_contact_name?: string
   custom_emergency_contact_phone?: string
+  custom_billing_mode?: 'Package' | 'Pay Per Session' | 'Trial'
+  custom_default_session_rate?: number
+  custom_package_name?: string
 }
 
 export interface UpdateClientPayload {
@@ -144,6 +152,10 @@ export interface UpdateClientPayload {
   custom_blood_type?: string
   custom_emergency_contact_name?: string
   custom_emergency_contact_phone?: string
+  custom_billing_mode?: 'Package' | 'Pay Per Session' | 'Trial'
+  custom_default_session_rate?: number
+  custom_package_name?: string
+  custom_remaining_sessions?: number
   /** 1 = deactivate/hide from active lists; 0 = re-enable. */
   disabled?: 0 | 1
 }
@@ -156,6 +168,8 @@ export interface CreateInvoicePayload {
   /** At minimum one line item is required by ERPNext. */
   items: CreateInvoiceItem[]
   remarks?: string
+  custom_fd_session?: string
+  custom_invoice_kind?: 'Package' | 'Session'
 }
 
 export interface CreateInvoiceItem {
@@ -210,6 +224,8 @@ export interface ERPFDSession {
   notes?: string | null
   invoice_id?: string | null
   version: number
+  is_trial_session?: 0 | 1
+  session_consumed_package?: 0 | 1
   creation: string
   modified: string
 }

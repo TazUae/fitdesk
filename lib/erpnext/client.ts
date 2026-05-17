@@ -206,6 +206,9 @@ export function normalizeClient(raw: ERPClient): Client {
     emergencyContactName:  raw.custom_emergency_contact_name ?? undefined,
     emergencyContactPhone: raw.custom_emergency_contact_phone ?? undefined,
     remainingSessions:     raw.custom_remaining_sessions ?? undefined,
+    billingMode:           raw.custom_billing_mode ?? undefined,
+    defaultSessionRate:    raw.custom_default_session_rate ?? undefined,
+    packageName:           raw.custom_package_name ?? undefined,
     createdAt:             raw.creation,
   }
 }
@@ -233,6 +236,8 @@ export function normalizeInvoice(raw: ERPInvoice): Invoice {
     dueDate: raw.due_date,
     issuedAt: raw.posting_date,
     paidAt,
+    fdSessionId:  raw.custom_fd_session ?? undefined,
+    invoiceKind:  raw.custom_invoice_kind ?? undefined,
   }
 }
 
@@ -262,6 +267,7 @@ export function clientFields(): string {
     'name', 'customer_name', 'mobile_no',
     'custom_fitness_goals', 'custom_trainer_notes', 'custom_package_type',
     'custom_remaining_sessions',
+    'custom_billing_mode', 'custom_default_session_rate', 'custom_package_name',
     'creation',
   ])
 }
@@ -270,7 +276,8 @@ function invoiceFields(): string {
   return JSON.stringify([
     'name', 'customer', 'customer_name', 'posting_date', 'due_date',
     'grand_total', 'outstanding_amount', 'paid_amount', 'currency',
-    'status', 'remarks', 'creation', 'modified',
+    'status', 'remarks', 'custom_fd_session', 'custom_invoice_kind',
+    'creation', 'modified',
   ])
 }
 
