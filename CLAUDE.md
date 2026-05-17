@@ -1,5 +1,16 @@
 # FitDesk — Claude Code Rules
 
+## Scope
+
+This file defines **FitDesk-specific product, app, and integration rules**. It is layered on top of the workspace-level rules at [../CLAUDE.md](../CLAUDE.md) — those workspace rules (platform architecture boundary, repo boundaries, approval gates, forbidden commands, secrets/data safety, incident handling, git/deployment, verification, final response format, etc.) **also apply inside FitDesk**.
+
+- Workspace rules apply globally across all AXIS ERP repos under `C:\Users\Lenovo\Dev\axis-erp\`.
+- This file adds FitDesk-only product, UX, and integration rules on top of those.
+- If rules conflict, the **safer and more specific rule wins**.
+- Do not duplicate workspace rules here — extend or constrain them with FitDesk-specific guidance.
+
+---
+
 ## Project Overview
 
 FitDesk is a mobile-first SaaS for personal trainers to manage:
