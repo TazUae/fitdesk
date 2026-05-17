@@ -45,7 +45,7 @@ function fromFrappeDatetime(s: string): Date {
 
 // ─── Field lists ──────────────────────────────────────────────────────────────
 
-function sessionFields(): string {
+export function sessionFields(): string {
   return JSON.stringify([
     'name', 'trainer_id', 'client_id', 'client_name', 'series_id',
     'start_at', 'end_at', 'duration_minutes', 'timezone',
@@ -64,7 +64,7 @@ function seriesFields(): string {
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
-function normalizeSession(raw: ERPFDSession): FDSession {
+export function normalizeSession(raw: ERPFDSession): FDSession {
   return {
     id:              raw.name,
     tenantId:        '',                       // implicit in ERP site context; callers may enrich

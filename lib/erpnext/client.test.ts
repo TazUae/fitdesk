@@ -46,6 +46,13 @@ describe('clientFields', () => {
     expect(fields).toContain('custom_remaining_sessions')
   })
 
+  it('includes Phase B billing custom fields (provisioned in fitdesk_setup.py)', () => {
+    const fields: string[] = JSON.parse(clientFields())
+    expect(fields).toContain('custom_billing_mode')
+    expect(fields).toContain('custom_default_session_rate')
+    expect(fields).toContain('custom_package_name')
+  })
+
   it('does not request fields not provisioned in the target tenant', () => {
     const fields: string[] = JSON.parse(clientFields())
     // These are mapped by normalizeClient (forward-compat) but not provisioned;
@@ -123,6 +130,26 @@ describe('normalizeClient', () => {
     expect(client.mobile).toBeUndefined()
     expect(client.fitnessGoals).toBeUndefined()
     expect(client.remainingSessions).toBeUndefined()
+  })
+
+  it('maps Phase B billing fields when present', () => {
+    const raw: ERPClient = {
+      ...minimal,
+      custom_billing_mode: 'Package',
+      custom_default_session_rate: 75,
+      custom_package_name: 'Gold Package',
+    }
+    const client = normalizeClient(raw)
+    expect(client.billingMode).toBe('Package')
+    expect(client.defaultSessionRate).toBe(75)
+    expect(client.packageName).toBe('Gold Package')
+  })
+
+  it('leaves Phase B billing fields undefined when absent', () => {
+    const client = normalizeClient(minimal)
+    expect(client.billingMode).toBeUndefined()
+    expect(client.defaultSessionRate).toBeUndefined()
+    expect(client.packageName).toBeUndefined()
   })
 })
 
@@ -222,6 +249,22 @@ describe('normalizeInvoice', () => {
   it('leaves paidAt undefined when invoice is not fully paid', () => {
     expect(normalizeInvoice({ ...raw, status: 'Unpaid', outstanding_amount: 500 }).paidAt).toBeUndefined()
     expect(normalizeInvoice({ ...raw, status: 'Overdue',   outstanding_amount: 250 }).paidAt).toBeUndefined()
+  })
+
+  it('maps Phase B invoice fields when present', () => {
+    const inv = normalizeInvoice({
+      ...raw,
+      custom_fd_session: 'FD-SESSION-ABC123',
+      custom_invoice_kind: 'Session',
+    })
+    expect(inv.fdSessionId).toBe('FD-SESSION-ABC123')
+    expect(inv.invoiceKind).toBe('Session')
+  })
+
+  it('leaves Phase B invoice fields undefined when absent', () => {
+    const inv = normalizeInvoice(raw)
+    expect(inv.fdSessionId).toBeUndefined()
+    expect(inv.invoiceKind).toBeUndefined()
   })
 })
 
