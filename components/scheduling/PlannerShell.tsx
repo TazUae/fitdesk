@@ -12,6 +12,8 @@ interface PlannerShellProps {
   currentDate?: Date
   /** Fired when the sidebar's "+ Create" button is tapped (desktop only). */
   onCreate?: () => void
+  /** Reserve desktop space for a fixed right-side drawer. */
+  rightDrawerOpen?: boolean
   /** Floating overlay slot — booking sheet, modals, FAB. Rendered last so they win z-index. */
   overlays?: ReactNode
 }
@@ -25,7 +27,13 @@ interface PlannerShellProps {
  *   md  768–1023  — sidebar hidden; calendar full-width.
  *   sm  < 768     — single-column; bottom nav + bottom-sheet drawers preserved.
  */
-export function PlannerShell({ children, currentDate, onCreate, overlays }: PlannerShellProps) {
+export function PlannerShell({
+  children,
+  currentDate,
+  onCreate,
+  rightDrawerOpen,
+  overlays,
+}: PlannerShellProps) {
   // Sidebar visible by default at xl (≥1280). Collapsed at lg, hidden < md.
   // We use a controlled state so the hamburger in PlannerToolbar can flip it
   // at any breakpoint.
@@ -44,12 +52,12 @@ export function PlannerShell({ children, currentDate, onCreate, overlays }: Plan
         onToggleSidebar={() => setSidebarOpen(v => !v)}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 overflow-hidden">
         {/* Sidebar — desktop only (md+). Always rendered so transitions work,
             visibility controlled by `sidebarOpen` + breakpoint utilities. */}
         <aside
           className={cn(
-            'hidden border-r md:flex md:flex-col',
+            'hidden min-w-0 shrink-0 border-r md:flex md:flex-col',
             sidebarOpen ? 'md:w-[260px]' : 'md:w-0 md:overflow-hidden',
             'transition-[width] duration-200 ease-out',
           )}
@@ -59,7 +67,14 @@ export function PlannerShell({ children, currentDate, onCreate, overlays }: Plan
         </aside>
 
         {/* Main calendar area */}
-        <main className="relative flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: 'var(--fd-surface)' }}>
+        <main
+          className={cn(
+            'relative flex min-w-0 flex-1 flex-col overflow-hidden',
+            'transition-[padding-right] duration-200 ease-out',
+            rightDrawerOpen && 'md:pr-[520px]',
+          )}
+          style={{ backgroundColor: 'var(--fd-surface)' }}
+        >
           {children}
         </main>
       </div>

@@ -262,7 +262,7 @@ export function SchedulerXAdapter({
   }, [selectedSlots, timezone, eventsService])
 
   return (
-    <div className="fd-sx-wrap relative h-full w-full">
+    <div className="fd-sx-wrap relative h-full min-w-0 w-full overflow-hidden">
       <NowLine />
       <ScheduleXCalendar
         calendarApp={calendar}

@@ -154,6 +154,7 @@ export function ScheduleView({
     <PlannerShell
       currentDate={new Date()}
       onCreate={openSuggestedSlot}
+      rightDrawerOpen={sheetOpen || isDetailOpen}
       overlays={
         <>
           <SelectionTray

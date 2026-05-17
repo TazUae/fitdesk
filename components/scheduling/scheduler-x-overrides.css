@@ -47,7 +47,24 @@
 .fd-sx-wrap,
 .fd-sx-wrap .sx-react-calendar-wrapper {
   height: 100%;
+  min-width: 0;
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.fd-sx-wrap .sx__calendar {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.fd-sx-wrap .sx__calendar-header,
+.fd-sx-wrap .sx__week-grid,
+.fd-sx-wrap .sx__week-grid__header,
+.fd-sx-wrap .sx__time-grid,
+.fd-sx-wrap .sx__time-grid-week {
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 
 /* ── Header bar (date nav + view switcher) ────────────────────────── */

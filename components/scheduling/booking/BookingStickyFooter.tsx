@@ -8,6 +8,8 @@ interface BookingStickyFooterProps {
   isPending:  boolean
   /** Label override (e.g. "Next: Configure Recurrence"); falls back to ctaLabel(validity). */
   cta?:       string
+  /** Optional per-step override for navigation CTAs before final review. */
+  canProceed?: boolean
   onPrimary:  () => void
   /** Optional secondary back button. */
   onBack?:    () => void
@@ -39,10 +41,11 @@ export function BookingStickyFooter({
   validity,
   isPending,
   cta,
+  canProceed,
   onPrimary,
   onBack,
 }: BookingStickyFooterProps) {
-  const enabled = validity.kind === 'ready' || validity.kind === 'blocked' && validity.reason === 'PACKAGE_OVERDRAW'
+  const enabled = canProceed ?? (validity.kind === 'ready' || validity.kind === 'blocked' && validity.reason === 'PACKAGE_OVERDRAW')
   const label = cta ?? ctaLabel(validity)
 
   return (
