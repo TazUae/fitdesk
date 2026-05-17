@@ -132,6 +132,20 @@ export interface RecordPaymentResult {
 }
 
 /**
+ * Result of issuing an invoice — creating the Sales Invoice and finalizing it.
+ */
+export interface IssueInvoiceResult {
+  /** The created invoice — finalized ("To collect") when issued cleanly. */
+  invoice: Invoice
+  /**
+   * Set when the invoice was created but could not be finalized: it remains
+   * a draft (Preparing) and is recoverable from the All tab. Carries the
+   * finalize error so it is surfaced, not hidden.
+   */
+  issueWarning?: string
+}
+
+/**
  * A drafted WhatsApp message pending trainer approval.
  * The body field is rendered from a template and ready to send.
  * approved must be true before sendMessage() is called.

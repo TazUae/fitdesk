@@ -25,11 +25,12 @@ vi.mock('@/lib/whish', () => ({
   PAYMENT_PROVIDERS:   [],
 }))
 
-import { collectPayment, finalizeInvoice, recordPayment } from './invoices'
+import { collectPayment, finalizeInvoice, issueInvoice, recordPayment } from './invoices'
 import { auth } from '@/lib/auth'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
-import { createAndSubmitPaymentEntry, getInvoiceById, submitSalesInvoice } from '@/lib/business-data/erp-adapter'
+import { createAndSubmitPaymentEntry, createInvoice, getInvoiceById, submitSalesInvoice } from '@/lib/business-data/erp-adapter'
 import type { Invoice, InvoiceStatus, Payment } from '@/types'
+import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -430,5 +431,87 @@ describe('collectPayment', () => {
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error).toMatch(/payment didn.t go through/i)
     expect(submitSalesInvoice).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('issueInvoice', () => {
+  function invoicePayload(overrides: Partial<CreateInvoicePayload> = {}): CreateInvoicePayload {
+    return {
+      customer:     'CUST-1',
+      posting_date: '2026-05-16',
+      due_date:     '2026-05-23',
+      items:        [{ item_code: 'TRAINING-SESSION', qty: 1, rate: 100, description: 'PT' }],
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    vi.mocked(auth.api.getSession).mockResolvedValue({
+      user: { id: 'user-1', name: 'Trainer', email: 'trainer@example.com', phone: null },
+    } as never)
+    vi.mocked(ensureTrainerIdForUser).mockResolvedValue('trainer-1')
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it.each([
+    { label: 'zero rate',     items: [{ item_code: 'X', qty: 1, rate: 0 }] },
+    { label: 'zero quantity', items: [{ item_code: 'X', qty: 0, rate: 100 }] },
+  ])('rejects a $label invoice (total <= 0) before any ERP write', async ({ items }) => {
+    const result = await issueInvoice(invoicePayload({ items }))
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/greater than 0/i)
+    expect(createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('creates the Sales Invoice and finalizes it (To collect), no payment touched', async () => {
+    vi.mocked(createInvoice).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockResolvedValue(invoice({ status: 'sent' }))
+
+    const result = await issueInvoice(invoicePayload())
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.invoice.status).toBe('sent')
+      expect(result.data.issueWarning).toBeUndefined()
+    }
+    expect(createInvoice).toHaveBeenCalledTimes(1)
+    expect(submitSalesInvoice).toHaveBeenCalledTimes(1)
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns the create error when invoice creation fails', async () => {
+    vi.mocked(createInvoice).mockRejectedValue(new Error('ERPNext 500 Internal Server Error'))
+    const result = await issueInvoice(invoicePayload())
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toMatch(/500/)
+    expect(submitSalesInvoice).not.toHaveBeenCalled()
+  })
+
+  it('returns success with issueWarning when finalize fails after create', async () => {
+    vi.mocked(createInvoice).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(getInvoiceById).mockResolvedValue(invoice({ status: 'draft' }))
+    vi.mocked(submitSalesInvoice).mockRejectedValue(
+      new Error('ERPNext 417: Due Date cannot be before Posting Date'),
+    )
+
+    const result = await issueInvoice(invoicePayload())
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.invoice.status).toBe('draft')
+      expect(result.data.issueWarning).toMatch(/Due Date/i)
+    }
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the trainer is not authenticated', async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValue(null as never)
+    const result = await issueInvoice(invoicePayload())
+    expect(result.success).toBe(false)
+    expect(createInvoice).not.toHaveBeenCalled()
   })
 })

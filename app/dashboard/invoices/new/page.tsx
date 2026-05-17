@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { createInvoice, getClients } from '@/lib/business-data'
+import { getClients, issueInvoice } from '@/lib/business-data'
 import type { Client } from '@/types'
 
 interface LineItem {
@@ -56,13 +56,17 @@ function NewInvoiceForm() {
     const clientId = fd.get('client_id') as string
 
     if (!clientId) { setError('Please select a client'); return }
-    if (items.some(i => !i.description || i.rate <= 0)) {
-      setError('Fill in all item descriptions and rates')
+    if (items.some(i => !i.description)) {
+      setError('Fill in all item descriptions')
+      return
+    }
+    if (total <= 0) {
+      setError('Invoice amount must be greater than 0.')
       return
     }
 
     startTransition(async () => {
-      const result = await createInvoice({
+      const result = await issueInvoice({
         customer: clientId,
         posting_date: today,
         due_date: fd.get('due_date') as string,
@@ -76,7 +80,11 @@ function NewInvoiceForm() {
       })
 
       if (result.success) {
-        toast.success('Invoice created')
+        if (result.data.issueWarning) {
+          toast.warning('Invoice created — it’s still Preparing. Open it to finish issuing.')
+        } else {
+          toast.success('Invoice created')
+        }
         router.push('/dashboard/invoices')
       } else {
         setError(result.error)

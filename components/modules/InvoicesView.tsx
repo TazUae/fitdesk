@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
-import { addInvoice, recordPayment } from '@/actions/invoices'
+import { issueInvoice, recordPayment } from '@/actions/invoices'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { ErrorState } from '@/components/modules/ErrorState'
@@ -24,7 +24,7 @@ import type { Client, Invoice, InvoiceStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FilterTab = 'outstanding' | 'draft' | 'paid' | 'all'
+type FilterTab = 'outstanding' | 'paid' | 'all'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,14 +46,13 @@ function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
     // Overdue first
     return [...list].sort((a, b) => (a.status === 'overdue' ? -1 : b.status === 'overdue' ? 1 : 0))
   }
-  if (tab === 'draft') return invoices.filter(i => i.status === 'draft')
   if (tab === 'paid') return invoices.filter(i => i.status === 'paid')
+  // 'all' — every invoice, including draft (Preparing) ones for recovery.
   return invoices
 }
 
 function tabCount(invoices: Invoice[], tab: FilterTab): number {
   if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
-  if (tab === 'draft')       return invoices.filter(i => i.status === 'draft').length
   if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
   return invoices.length
 }
@@ -484,11 +483,12 @@ function CreateInvoiceSheet({
     const fd       = new FormData(e.currentTarget)
     const clientId = fd.get('client_id') as string
 
-    if (!clientId)                                       { setError('Select a client'); return }
-    if (items.some(i => !i.description || i.rate <= 0)) { setError('Fill in all item descriptions and rates'); return }
+    if (!clientId)                       { setError('Select a client'); return }
+    if (items.some(i => !i.description)) { setError('Fill in all item descriptions'); return }
+    if (total <= 0)                      { setError('Invoice amount must be greater than 0.'); return }
 
     startTransition(async () => {
-      const result = await addInvoice({
+      const result = await issueInvoice({
         customer:     clientId,
         posting_date: today,
         due_date:     fd.get('due_date') as string,
@@ -502,7 +502,11 @@ function CreateInvoiceSheet({
       })
 
       if (result.success) {
-        toast.success('Invoice created')
+        if (result.data.issueWarning) {
+          toast.warning('Invoice created — it’s still Preparing. Open it to finish issuing.')
+        } else {
+          toast.success('Invoice created')
+        }
         ;(e.target as HTMLFormElement).reset()
         setItems([{ description: 'PT Sessions', qty: 1, rate: 0 }])
         onCreated()
@@ -680,7 +684,6 @@ function CreateInvoiceSheet({
 
 const TABS: { id: FilterTab; label: string }[] = [
   { id: 'outstanding', label: 'To collect' },
-  { id: 'draft',       label: 'Preparing'  },
   { id: 'paid',        label: 'Paid'       },
   { id: 'all',         label: 'All'        },
 ]
@@ -775,7 +778,6 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
           />
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
             {activeTab === 'outstanding' ? 'Nothing to collect right now.' :
-             activeTab === 'draft'       ? 'No invoices in preparation.'   :
              activeTab === 'paid'        ? 'No paid invoices yet.'         :
              'No invoices yet.'}
           </p>

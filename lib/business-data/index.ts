@@ -3,12 +3,12 @@
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
 import { listFDSessionsAction } from '@/actions/schedulingActions'
-import type { ActionResult, Client, Invoice, RecordPaymentResult } from '@/types'
+import type { ActionResult, Client, Invoice, IssueInvoiceResult, RecordPaymentResult } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
 import { editClient, fetchClientById } from '@/actions/clients'
-import { collectPayment as collectInvoicePayment, fetchInvoiceById, finalizeInvoice as finalizeInvoiceAction } from '@/actions/invoices'
+import { collectPayment as collectInvoicePayment, fetchInvoiceById, finalizeInvoice as finalizeInvoiceAction, issueInvoice as issueInvoiceAction } from '@/actions/invoices'
 import type { UpdateClientPayload } from '@/lib/erpnext/types'
 
 export async function getClients(): Promise<ActionResult<Client[]>> {
@@ -61,6 +61,10 @@ export async function createClient(
 
 export async function createInvoice(input: CreateInvoicePayload): Promise<ActionResult<Invoice>> {
   return addInvoice(input)
+}
+
+export async function issueInvoice(input: CreateInvoicePayload): Promise<ActionResult<IssueInvoiceResult>> {
+  return issueInvoiceAction(input)
 }
 
 export async function recordPayment(input: {

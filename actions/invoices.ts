@@ -12,7 +12,7 @@ import {
 } from '@/lib/whish'
 import { isEnabledPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
-import type { ActionResult, Invoice, RecordPaymentResult } from '@/types'
+import type { ActionResult, Invoice, IssueInvoiceResult, RecordPaymentResult } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -385,4 +385,41 @@ export async function collectPayment(opts: {
 
   // Already payable (sent / overdue / partially_paid) — record directly.
   return recordPayment(opts)
+}
+
+/**
+ * Issue an invoice: create the Sales Invoice, then finalize it so it is
+ * immediately payable ("To collect") — the trainer never has to deal with a
+ * Preparing draft on the normal path.
+ *
+ * Composition only — addInvoice and finalizeInvoice keep their behavior. If
+ * creation succeeds but finalization fails, the invoice still exists as a
+ * draft: success is returned with an issueWarning so the trainer recovers it
+ * from the All tab instead of creating a duplicate.
+ */
+export async function issueInvoice(
+  payload: CreateInvoicePayload,
+): Promise<ActionResult<IssueInvoiceResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Reject a zero/negative (or non-numeric) invoice before any ERPNext write.
+  const total = payload.items.reduce((sum, item) => sum + item.qty * item.rate, 0)
+  if (!(total > 0)) {
+    return { success: false, error: 'Invoice amount must be greater than 0.' }
+  }
+
+  const created = await addInvoice(payload)
+  if (!created.success) return created
+
+  const finalized = await finalizeInvoice(created.data.id)
+  if (finalized.success) {
+    return { success: true, data: { invoice: finalized.data } }
+  }
+
+  // Created but not finalized — recoverable as a Preparing draft in All.
+  return {
+    success: true,
+    data: { invoice: created.data, issueWarning: finalized.error },
+  }
 }
