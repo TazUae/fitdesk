@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { bookPlanAction, buildPlanAction } from '@/actions/schedulingActions'
@@ -69,7 +70,7 @@ function emptyDraft(timezone: string, durationMinutes = 60): BookingDraft {
     date:            todayInTz(timezone),
     startTime:       '09:00',
     durationMinutes,
-    packageOptIn:    true,
+    packageOptIn:    false,
     repeatMode:      'one_off',
     recurrenceWeeks: 4,
     patternSlots:    null,
@@ -137,6 +138,28 @@ function buildSuggestedPattern(n: number, anchorDate: string, anchorTime: string
   return result
 }
 
+function hasCompleteDateTime(draft: BookingDraft): boolean {
+  return !!draft.date && !!draft.startTime
+}
+
+function isValidPatternSlot(slot: PatternSlot): boolean {
+  return (
+    Number.isInteger(slot.weekday) &&
+    slot.weekday >= 0 &&
+    slot.weekday <= 6 &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(slot.localTime)
+  )
+}
+
+function canPreviewCurrentPattern(draft: BookingDraft, previewPlan: BookingPlan | null): boolean {
+  if (!draft.clientId || !hasCompleteDateTime(draft)) return false
+  if (draft.repeatMode === 'weekly') {
+    const hasPattern = draft.patternSlots?.some(isValidPatternSlot) ?? false
+    if (!hasPattern) return false
+  }
+  return (previewPlan?.occurrences.length ?? 0) > 0
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function BookingSheet(props: BookingSheetProps) {
@@ -148,6 +171,12 @@ export function BookingSheet(props: BookingSheetProps) {
   const [pkgBalance, setPkgBalance] = useState<PackageBalanceState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  // SSR / hydration guard for `createPortal(..., document.body)`. `document`
+  // does not exist during server render or the first client render pass; we
+  // mount the portal only after the component has hydrated on the client.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   // Reset every time the sheet (re-)opens
   useEffect(() => {
@@ -226,7 +255,7 @@ export function BookingSheet(props: BookingSheetProps) {
     if (previewPlan.outOfHours.length > 0) {
       return { kind: 'blocked', reason: 'OUT_OF_HOURS', details: previewPlan.outOfHours[0].reason }
     }
-    if (pkgBalance?.status === 'overdraw') {
+    if (draft.packageOptIn && pkgBalance?.status === 'overdraw') {
       return { kind: 'blocked', reason: 'PACKAGE_OVERDRAW', details: `Will consume ${pkgBalance.willConsume} of ${pkgBalance.remainingSessions ?? 0}` }
     }
     return { kind: 'ready', plan: previewPlan, total: previewPlan.occurrences.length }
@@ -262,6 +291,11 @@ export function BookingSheet(props: BookingSheetProps) {
 
   // ── Step navigation ─────────────────────────────────────────────────────
   const hidePattern = draft.repeatMode === 'one_off' && (draft.patternSlots == null || draft.patternSlots.length <= 1)
+  const canProceedFromStep =
+    step === 'client'   ? !!draft.clientId :
+    step === 'datetime' ? !!draft.clientId && hasCompleteDateTime(draft) && (previewPlan?.occurrences.length ?? 0) > 0 :
+    step === 'pattern'  ? canPreviewCurrentPattern(draft, previewPlan) :
+    undefined
 
   function goNext() {
     if (step === 'client')   { setStep('datetime'); return }
@@ -346,8 +380,12 @@ export function BookingSheet(props: BookingSheetProps) {
 
   // ── Render ──────────────────────────────────────────────────────────────
   if (!open) return null
+  // Render nothing until the client has mounted, so `document.body` exists
+  // before we ask `createPortal` for it.
+  if (!mounted) return null
 
   const selectedClient = clients.find(c => c.id === draft.clientId) ?? null
+  const activePackageBalance = draft.packageOptIn ? pkgBalance : null
   const ctaOverride: string | undefined = (() => {
     if (successIds) return undefined
     if (step === 'client')   return 'Next: Date & Time'
@@ -356,7 +394,11 @@ export function BookingSheet(props: BookingSheetProps) {
     return undefined // review uses validity-driven label
   })()
 
-  return (
+  // Render the overlay + drawer through a portal anchored at `document.body`.
+  // This places the sheet OUTSIDE every PlannerShell / ScheduleView wrapper, so
+  // no ancestor with transform / filter / contain / overflow can ever become
+  // its containing block. The drawer is guaranteed to be viewport-anchored.
+  return createPortal(
     <>
       <div
         aria-hidden="true"
@@ -368,10 +410,22 @@ export function BookingSheet(props: BookingSheetProps) {
         aria-modal="true"
         aria-label="Book session"
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[92dvh] flex-col rounded-t-2xl shadow-2xl',
-          'md:inset-y-0 md:right-0 md:left-auto md:bottom-0 md:max-h-none md:w-[480px] md:rounded-none md:rounded-l-2xl',
+          // shared: fixed positioning, stacking above the overlay (z-40), flex column,
+          // overflow-hidden so the rounded corners and any inner painting are clipped
+          // cleanly — guarantees no calendar bleed-through past the rounded edges
+          'fixed z-50 flex flex-col overflow-hidden shadow-2xl',
+          // mobile bottom sheet
+          'inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl',
+          // desktop right drawer: full viewport height (top+bottom = 0),
+          // 520px wide capped at 92vw on narrow displays, rounded only on the left edge
+          'md:inset-y-0 md:right-0 md:left-auto md:bottom-0 md:max-h-none',
+          'md:w-[520px] md:max-w-[92vw] md:rounded-none md:rounded-l-2xl',
         )}
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+        // Background MUST live on the root aside so every inner region (header,
+        // body, footer) inherits an opaque white surface. Use an explicit hex
+        // rather than `var(--fd-surface)` so CSS-var resolution can never leave
+        // any pixel transparent and expose the overlay or calendar behind.
+        style={{ backgroundColor: '#FFFFFF' }}
       >
         {/* Header */}
         <header
@@ -436,7 +490,7 @@ export function BookingSheet(props: BookingSheetProps) {
             <BookingReviewStep
               plan={previewPlan}
               client={selectedClient}
-              packageBalance={pkgBalance}
+              packageBalance={activePackageBalance}
               sessionType={draft.sessionType}
               fee={draft.fee}
               notes={draft.notes}
@@ -469,11 +523,13 @@ export function BookingSheet(props: BookingSheetProps) {
             validity={validity}
             isPending={isPending}
             cta={ctaOverride}
+            canProceed={canProceedFromStep}
             onPrimary={goNext}
             onBack={step === 'client' ? undefined : goBack}
           />
         )}
       </aside>
-    </>
+    </>,
+    document.body,
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, CalendarClock, CheckCircle2, Loader2, Trash2, UserX, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -52,6 +53,9 @@ export function SessionDetailsSheet({
   const [date, setDate]              = useState('')
   const [time, setTime]              = useState('09:00')
   const [rate, setRate]              = useState('')
+  const [mounted, setMounted]        = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     if (!session) return
@@ -159,9 +163,9 @@ export function SessionDetailsSheet({
     })
   }
 
-  if (!session) return null
+  if (!session || !mounted) return null
 
-  return (
+  return createPortal(
     <>
       <div
         aria-hidden="true"
@@ -176,15 +180,16 @@ export function SessionDetailsSheet({
         aria-modal="true"
         aria-label="Session details"
         className={cn(
-          'fixed bottom-0 left-1/2 z-[70] w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-200',
+          'fixed bottom-0 left-1/2 z-[70] flex max-h-[min(88vh,640px)] w-full max-w-[480px] -translate-x-1/2 flex-col overflow-hidden',
+          'rounded-t-3xl border-t shadow-2xl transition-transform duration-200',
+          'md:inset-y-0 md:right-0 md:left-auto md:bottom-0 md:max-h-none md:w-[520px] md:max-w-[92vw]',
+          'md:translate-x-0 md:rounded-none md:rounded-l-2xl md:border-l md:border-t-0',
           isOpen ? 'translate-y-0' : 'translate-y-full',
         )}
         style={{
           backgroundColor: 'var(--fd-surface)',
           borderColor: 'var(--fd-border)',
           paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)',
-          maxHeight: 'min(88vh, 640px)',
         }}
       >
         <div className="flex justify-center pb-2 pt-3">
@@ -325,6 +330,7 @@ export function SessionDetailsSheet({
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
