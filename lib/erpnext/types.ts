@@ -141,6 +141,7 @@ export interface CreateClientPayload {
   custom_billing_mode?: 'Package' | 'Pay Per Session' | 'Trial'
   custom_default_session_rate?: number
   custom_package_name?: string
+  custom_remaining_sessions?: number
 }
 
 export interface UpdateClientPayload {
