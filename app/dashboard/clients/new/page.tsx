@@ -7,9 +7,17 @@ import { ArrowLeft, Calendar, Camera, CheckCircle2, ChevronDown, Loader2, Receip
 import { toast } from 'sonner'
 import { addClient } from '@/actions/clients'
 import { Avatar } from '@/components/modules/Avatar'
+import { BillingSetupSection } from '@/components/clients/BillingSetupSection'
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { MultiGoalSelector } from '@/components/ui/MultiGoalSelector'
+import {
+  billingPayloadFields,
+  describeBilling,
+  emptyBillingDraft,
+  validateBillingDraft,
+  type BillingDraft,
+} from '@/lib/clients/billing'
 import type { GoalSelection } from '@/utils/goalHelpers'
 import type { Client } from '@/types'
 
@@ -72,6 +80,11 @@ function SuccessView({ client }: { client: Client }) {
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
             Added to your roster
           </p>
+          {describeBilling(client) && (
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              {describeBilling(client)}
+            </p>
+          )}
         </div>
 
         {/* Quick actions */}
@@ -124,6 +137,7 @@ export default function NewClientPage() {
   const [ecName,      setEcName]      = useState('')
   const [ecPhone,     setEcPhone]     = useState<PhoneValue | undefined>()
   const [notes,       setNotes]       = useState('')
+  const [billing,     setBilling]     = useState<BillingDraft>(emptyBillingDraft)
   const [error,       setError]       = useState<string | null>(null)
   const [showMedical, setShowMedical] = useState(false)
 
@@ -135,6 +149,9 @@ export default function NewClientPage() {
 
     if (!name.trim())              { setError('Full name is required.');    return }
     if (!phoneValue?.phone_number) { setError('Phone number is required.'); return }
+
+    const billingCheck = validateBillingDraft(billing)
+    if (!billingCheck.ok) { setError(billingCheck.error); return }
 
     // Prepend age / DOB to trainer notes if provided
     let trainerNotes = notes.trim()
@@ -162,6 +179,7 @@ export default function NewClientPage() {
         custom_blood_type:              bloodType || undefined,
         custom_emergency_contact_name:  ecName.trim() || undefined,
         custom_emergency_contact_phone: ecPhone?.phone_full || undefined,
+        ...billingPayloadFields(billing),
       })
 
       if (result.success) {
@@ -248,6 +266,12 @@ export default function NewClientPage() {
 
         {/* Age / Date of birth */}
         <AgeInput value={ageValue} onChange={setAgeValue} />
+
+        {/* Billing — required */}
+        <BillingSetupSection
+          draft={billing}
+          onChange={next => { setBilling(next); setError(null) }}
+        />
 
         {/* Medical & Emergency — collapsible optional section */}
         <div className="space-y-3">
