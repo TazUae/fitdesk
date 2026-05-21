@@ -8,6 +8,10 @@ import {
   countSessionsCompletedThisWeek,
   findLowBalanceClients,
 } from '@/lib/dashboard/metrics'
+import { buildSetupChecklist } from '@/lib/dashboard/setup-checklist'
+import { getTrainerSettingsDoc } from '@/lib/erpnext/client'
+import { getTrainerWhatsAppConnection } from '@/lib/evolution'
+import { getTrainerId } from '@/lib/trainer'
 import type { Client, Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
 
@@ -35,10 +39,11 @@ export default async function DashboardPage() {
   // ── Parallel data fetch ─────────────────────────────────────────────────────
   // Actions resolve the trainer ID from the auth session internally.
   // Promise.allSettled so a single ERP failure doesn't blank the whole dashboard.
-  const [clientsResult, sessionsResult, invoicesResult] = await Promise.allSettled([
+  const [clientsResult, sessionsResult, invoicesResult, trainerSettingsResult] = await Promise.allSettled([
     getClients(),
     getSessions(),
     getInvoices(),
+    getTrainerSettingsDoc(),
   ])
 
   const clients: Client[] | null =
@@ -55,6 +60,38 @@ export default async function DashboardPage() {
     invoicesResult.status === 'fulfilled' && invoicesResult.value.success
       ? invoicesResult.value.data
       : null
+
+  const availabilityConfirmed =
+    trainerSettingsResult.status === 'fulfilled'
+      ? trainerSettingsResult.value?.initialized === 1
+      : false
+
+  // WhatsApp status is best-effort — a missing mapping or Evolution outage
+  // must never blank the dashboard. Default to "not connected".
+  let whatsappConnected = false
+  if (session?.user?.id) {
+    try {
+      const trainerId = await getTrainerId(session.user.id)
+      if (trainerId) {
+        const conn = await getTrainerWhatsAppConnection(trainerId)
+        whatsappConnected = conn?.status === 'connected'
+      }
+    } catch {
+      whatsappConnected = false
+    }
+  }
+
+  const setupChecklist = buildSetupChecklist({
+    workspaceReady:        true, // middleware only lets users in once provisioning is complete
+    availabilityConfirmed,
+    hasFirstClient:        (clients?.length ?? 0) > 0,
+    hasFirstSession:       (sessions?.length ?? 0) > 0,
+    whatsappConnected,
+    // Cash is on by default; we don't auto-tick this — the trainer can
+    // open Settings to enable extra providers later. Future work: persist
+    // a per-trainer "payments-ack" flag once a method beyond Cash is added.
+    paymentsAcknowledged:  false,
+  })
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -132,6 +169,7 @@ export default async function DashboardPage() {
       upcomingSessions={upcomingSessions}
       overdueInvoices={overdueInvoices}
       lowBalanceClients={lowBalanceClients}
+      setupChecklist={setupChecklist}
     />
   )
 }

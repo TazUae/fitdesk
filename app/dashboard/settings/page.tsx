@@ -1,6 +1,6 @@
 import { getLiveSetupSummary } from "@/lib/settings/live-setup";
 import { getWhishReadiness } from "@/lib/whish";
-import { WorkingDaysEditor } from "@/components/modules/WorkingDaysEditor";
+import { BusinessHoursEditor } from "@/components/modules/BusinessHoursEditor";
 
 type Weekday = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
 const DAY_SET: ReadonlySet<Weekday> = new Set([
@@ -89,17 +89,19 @@ export default async function SettingsPage() {
           <>
             <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--fd-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--fd-muted)" }}>
-                Edit working days
+                Business hours
               </p>
               <p className="mt-1 text-xs" style={{ color: "var(--fd-muted)" }}>
-                Toggle which weekdays are bookable. Per-day hours, buffer, and billing item
-                are still edited in the ERPNext desk.
+                Pick the days you train and set your shared start and end times.
+                You can change this any time.
               </p>
             </div>
-            <WorkingDaysEditor
+            <BusinessHoursEditor
               initialEnabled={setup.trainerSettings.enabledDayCodes.filter(
                 (d): d is Weekday => DAY_SET.has(d as Weekday),
               )}
+              initialStartTime={setup.trainerSettings.sharedStartTime}
+              initialEndTime={setup.trainerSettings.sharedEndTime}
             />
           </>
         )}

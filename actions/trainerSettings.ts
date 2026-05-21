@@ -3,11 +3,16 @@
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
+import {
+  ALL_WEEKDAYS,
+  buildWorkingDaysRows,
+  validateAvailabilityInput,
+  type Weekday,
+} from '@/lib/availability'
 import { getTrainerSettingsDoc, updateTrainerSettingsDoc } from '@/lib/erpnext/client'
 import type { ActionResult } from '@/types'
 
-const ALL_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
-type Weekday = typeof ALL_DAYS[number]
+const ALL_DAYS = ALL_WEEKDAYS
 
 /**
  * Update which working days are enabled on FitDesk Trainer Settings.
@@ -64,6 +69,48 @@ export async function updateWorkingDays(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to update working days.',
+    }
+  }
+}
+
+/**
+ * Update both the enabled working days AND the shared start/end times for
+ * all 7 weekday rows. Used by the Settings → Business Hours editor.
+ *
+ * Re-uses the same validation + row-builder as the onboarding availability
+ * step so the persisted shape is identical (one shared range, no per-day
+ * custom hours).
+ */
+export async function updateBusinessHours(
+  enabledDays: Weekday[],
+  startTime: string,
+  endTime: string,
+): Promise<ActionResult<{ workingDays: Weekday[]; startTime: string; endTime: string }>> {
+  const session = await auth.api.getSession({ headers: headers() })
+  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+
+  const v = validateAvailabilityInput({ enabledDays, startTime, endTime })
+  if (!v.ok) return { success: false, error: v.error }
+
+  try {
+    // Read current settings so the partial update below doesn't accidentally
+    // drop unrelated fields the ERP layer doesn't read into our TS shape.
+    await getTrainerSettingsDoc()
+
+    const working_days = buildWorkingDaysRows(v.days, startTime, endTime)
+    await updateTrainerSettingsDoc({ working_days })
+
+    revalidatePath('/dashboard/schedule')
+    revalidatePath('/dashboard/settings')
+
+    return {
+      success: true,
+      data: { workingDays: v.days, startTime, endTime },
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Couldn't save your business hours.",
     }
   }
 }

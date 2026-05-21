@@ -42,6 +42,41 @@ describe("live setup summary helpers", () => {
     expect(normalized.enabledDayCodes).toEqual(["mon", "wed", "sun"]);
   });
 
+  it("reads `initialized` as a boolean and extracts shared HH:MM hours", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      initialized: 1,
+      working_days: [
+        { weekday: "mon", enabled: 1, start_time: "08:30:00", end_time: "19:45:00" },
+        { weekday: "tue", enabled: 1, start_time: "08:30:00", end_time: "19:45:00" },
+      ],
+    });
+    expect(normalized.initialized).toBe(true);
+    expect(normalized.sharedStartTime).toBe("08:30");
+    expect(normalized.sharedEndTime).toBe("19:45");
+  });
+
+  it("treats missing initialized as false", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      working_days: [],
+    });
+    expect(normalized.initialized).toBe(false);
+    expect(normalized.sharedStartTime).toBeNull();
+    expect(normalized.sharedEndTime).toBeNull();
+  });
+
+  it("falls back to the first row's hours when no day is enabled yet", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      working_days: [
+        { weekday: "mon", enabled: 0, start_time: "09:00:00", end_time: "20:00:00" },
+      ],
+    });
+    expect(normalized.sharedStartTime).toBe("09:00");
+    expect(normalized.sharedEndTime).toBe("20:00");
+  });
+
   it("handles empty session types list", () => {
     const normalized = normalizeSessionTypes([]);
     expect(normalized.status).toBe("missing");

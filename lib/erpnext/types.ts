@@ -107,12 +107,17 @@ export interface ERPPaymentEntry {
 /**
  * Raw FitDesk Trainer Settings (singleton DocType).
  * Provisioned by fitdesk-app; only the fields the scheduler reads are typed.
+ *
+ * `initialized` is the onboarding completion flag — fresh tenants are
+ * seeded with `0`. Once the trainer confirms availability it flips to `1`
+ * and is used as the onboarding completion signal (no migration needed).
  */
 export interface ERPTrainerSettings {
   timezone?: string
   buffer_minutes?: number
   default_session_duration?: number
   working_days?: ERPFitDeskWorkingDay[]
+  initialized?: 0 | 1
 }
 
 /** Child table row of FitDesk Trainer Settings.working_days. */

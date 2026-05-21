@@ -1,18 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
-import { Building2, CheckCircle2, ChevronDown, Loader2, MessageCircle, RefreshCw, User } from 'lucide-react'
+import { Building2, ChevronDown, Loader2, User } from 'lucide-react'
+import { AvailabilityStep } from './AvailabilityStep'
 import { ProvisioningStatus } from './provisioning-status'
-import { connectWithPairingCode, pollWhatsAppStatus } from '@/actions/whatsapp'
 import { authClient, useSession } from '@/lib/auth-client'
-import type { WhatsAppConnection } from '@/types'
 import type { JobStatusResponse } from '@/types/controlplane'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Step = 'profile' | 'whatsapp' | 'workspace'
+type Step = 'profile' | 'workspace' | 'availability'
 
 interface ProfileData {
   trainerName:  string
@@ -30,15 +28,7 @@ interface InitialRecord {
 interface OnboardingWizardProps {
   initialRecord: InitialRecord | null
   provisioningDone: boolean
-  whatsappDone: boolean
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatPairingCode(raw: string): string {
-  const clean = raw.replace(/\W/g, '').toUpperCase()
-  if (clean.length === 8) return `${clean.slice(0, 4)}-${clean.slice(4)}`
-  return clean
+  availabilityDone: boolean
 }
 
 // ─── Country / currency data ──────────────────────────────────────────────────
@@ -94,7 +84,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
   const [detecting,    setDetecting]    = useState(true)
   const [error,        setError]        = useState<string | null>(null)
 
-  // Pre-fill trainer name from auth session once loaded
   useEffect(() => {
     if (session?.user?.name && !trainerName) {
       setTrainerName(session.user.name)
@@ -102,7 +91,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.name])
 
-  // Auto-detect country from IP on mount
   useEffect(() => {
     fetch('/api/geoip', { cache: 'no-store' })
       .then(r => r.json())
@@ -116,7 +104,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
       .finally(() => setDetecting(false))
   }, [])
 
-  // When country changes, auto-update currency
   function handleCountryChange(code: string) {
     setCountry(code)
     if (COUNTRY_CURRENCY[code]) setCurrency(COUNTRY_CURRENCY[code])
@@ -158,7 +145,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
             </p>
           )}
 
-          {/* Trainer name — first field */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Your name
@@ -186,7 +172,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
             </p>
           </div>
 
-          {/* Business name */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Business / gym name
@@ -213,7 +198,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
             </p>
           </div>
 
-          {/* Country */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Country
@@ -238,7 +222,6 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
             </div>
           </div>
 
-          {/* Currency */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Currency
@@ -274,230 +257,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
   )
 }
 
-// ─── Step 2: WhatsApp ─────────────────────────────────────────────────────────
-
-type PairingState =
-  | { phase: 'idle' }
-  | { phase: 'requesting' }
-  | { phase: 'waiting'; conn: WhatsAppConnection }
-  | { phase: 'connected'; conn: WhatsAppConnection }
-  | { phase: 'error'; message: string }
-
-function WhatsAppStep({ onDone }: { onDone: () => void }) {
-  const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
-
-  const [phone, setPhone] = useState('')
-  const [state, setState] = useState<PairingState>({ phase: 'idle' })
-  const [isPending, startTransition] = useTransition()
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-  }, [])
-
-  const startPolling = useCallback(() => {
-    stopPolling()
-    pollRef.current = setInterval(() => {
-      startTransition(async () => {
-        const result = await pollWhatsAppStatus()
-        if (!result.success) return
-        const conn = result.data
-        if (conn.status === 'connected') {
-          stopPolling()
-          setState({ phase: 'connected', conn })
-          setTimeout(() => onDoneRef.current(), 1800)
-        } else {
-          setState(prev => prev.phase === 'waiting' ? { phase: 'waiting', conn } : prev)
-        }
-      })
-    }, 4000)
-  }, [stopPolling])
-
-  useEffect(() => () => stopPolling(), [stopPolling])
-
-  function handleRequest() {
-    const digits = phone.replace(/\D/g, '')
-    if (digits.length < 7) { toast.error('Enter your WhatsApp phone number first.'); return }
-    setState({ phase: 'requesting' })
-    startTransition(async () => {
-      const result = await connectWithPairingCode(phone)
-      if (!result.success) {
-        setState({ phase: 'error', message: result.error ?? 'Failed to get pairing code.' })
-        return
-      }
-      const conn = result.data
-      if (!conn.pairingCode) {
-        setState({ phase: 'error', message: 'No pairing code returned. Make sure the number is active on WhatsApp.' })
-        return
-      }
-      setState({ phase: 'waiting', conn })
-      startPolling()
-    })
-  }
-
-  function handleRetry() { stopPolling(); setState({ phase: 'idle' }) }
-
-  const busy = isPending || state.phase === 'requesting'
-
-  return (
-    <div className="space-y-6">
-      <StepHeader
-        step={2}
-        title="Connect WhatsApp"
-        subtitle="Send invoices and payment reminders directly from your WhatsApp number."
-      />
-
-      {(state.phase === 'idle' || state.phase === 'error') && (
-        <div
-          className="rounded-2xl border p-5 space-y-5"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          {state.phase === 'error' && (
-            <p
-              className="text-sm rounded-xl px-3 py-2"
-              style={{ color: 'var(--fd-red)', backgroundColor: 'rgba(232,92,106,0.08)', border: '1px solid rgba(232,92,106,0.2)' }}
-            >
-              {state.message}
-            </p>
-          )}
-
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-              WhatsApp phone number
-            </label>
-            <div
-              className="flex items-center rounded-xl border overflow-hidden"
-              style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
-            >
-              <span
-                className="px-3 py-3 text-sm font-medium select-none border-r"
-                style={{ color: 'var(--fd-muted)', borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-surface)' }}
-              >
-                +961
-              </span>
-              <input
-                type="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="71 234 567"
-                className="flex-1 bg-transparent px-3 py-3 text-sm outline-none"
-                style={{ color: 'var(--fd-text)' }}
-                onKeyDown={e => e.key === 'Enter' && handleRequest()}
-              />
-            </div>
-            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-              The number linked to your WhatsApp account
-            </p>
-          </div>
-
-          <button
-            onClick={handleRequest}
-            disabled={busy}
-            className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-opacity disabled:opacity-50"
-            style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-          >
-            {busy
-              ? <><Loader2 className="h-4 w-4 animate-spin" /> Getting code…</>
-              : <><MessageCircle className="h-4 w-4" /> Get Pairing Code</>
-            }
-          </button>
-        </div>
-      )}
-
-      {state.phase === 'requesting' && (
-        <div
-          className="rounded-2xl border p-5 flex items-center gap-3"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: 'var(--fd-accent)' }} />
-          <p className="text-sm" style={{ color: 'var(--fd-text)' }}>Generating your pairing code…</p>
-        </div>
-      )}
-
-      {state.phase === 'waiting' && state.conn.pairingCode && (
-        <div className="space-y-4">
-          <div
-            className="rounded-2xl border p-5 space-y-4"
-            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-          >
-            <p className="text-xs font-semibold uppercase tracking-widest text-center" style={{ color: 'var(--fd-muted)' }}>
-              Your pairing code
-            </p>
-
-            <div
-              className="rounded-2xl border-2 px-6 py-5 text-center"
-              style={{ borderColor: 'var(--fd-accent)', backgroundColor: 'rgba(99,102,241,0.06)' }}
-            >
-              <span
-                className="text-4xl font-black tabular-nums"
-                style={{ color: 'var(--fd-accent)', letterSpacing: '0.3em' }}
-              >
-                {formatPairingCode(state.conn.pairingCode)}
-              </span>
-            </div>
-
-            <ol className="space-y-2 text-sm" style={{ color: 'var(--fd-text)' }}>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}>1</span>
-                Open <strong>WhatsApp</strong> on your phone
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}>2</span>
-                Go to <strong>Settings → Linked Devices → Link a Device</strong>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}>3</span>
-                Tap <strong>&ldquo;Link with phone number&rdquo;</strong> and enter the code above
-              </li>
-            </ol>
-
-            <div className="flex items-center gap-2 pt-1">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" style={{ color: 'var(--fd-muted)' }} />
-              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                Waiting for you to enter the code… (expires in ~60 s)
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={handleRetry}
-            disabled={busy}
-            className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-opacity disabled:opacity-50"
-            style={{ backgroundColor: 'rgba(138,143,168,0.1)', color: 'var(--fd-text)' }}
-          >
-            <RefreshCw className="h-4 w-4" /> Get a new code
-          </button>
-        </div>
-      )}
-
-      {state.phase === 'connected' && (
-        <div
-          className="rounded-2xl border p-5 flex items-center gap-3"
-          style={{ backgroundColor: 'rgba(78,203,160,0.08)', borderColor: 'rgba(78,203,160,0.3)' }}
-        >
-          <CheckCircle2 className="h-6 w-6 shrink-0" style={{ color: 'var(--fd-green)' }} />
-          <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--fd-green)' }}>WhatsApp connected!</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--fd-muted)' }}>Setting up your workspace next…</p>
-          </div>
-        </div>
-      )}
-
-      {state.phase !== 'connected' && (
-        <button
-          onClick={onDone}
-          className="w-full text-center text-sm py-1 transition-opacity hover:opacity-70"
-          style={{ color: 'var(--fd-muted)' }}
-        >
-          Skip for now →
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ─── Step 3: Workspace ───────────────────────────────────────────────────────
+// ─── Step 2: Workspace provisioning ───────────────────────────────────────────
 
 function WorkspaceStep({
   initialRecord: initialRecordProp,
@@ -538,9 +298,9 @@ function WorkspaceStep({
   return (
     <div className="space-y-6">
       <StepHeader
-        step={3}
-        title="Setting up your workspace"
-        subtitle={`Creating your ERP workspace${profile.businessName ? ` for "${profile.businessName}"` : ''}. This usually takes 1–2 minutes.`}
+        step={2}
+        title="Preparing your workspace"
+        subtitle={`We're setting up FitDesk${profile.businessName ? ` for "${profile.businessName}"` : ''}. This usually takes 1–2 minutes.`}
       />
       {startError ? (
         <div
@@ -583,11 +343,12 @@ function StepHeader({ step, title, subtitle }: { step: number; title: string; su
 
 // ─── Progress dots ────────────────────────────────────────────────────────────
 
+const STEP_ORDER: Step[] = ['profile', 'workspace', 'availability']
+
 function StepDots({ current }: { current: Step }) {
-  const steps: Step[] = ['profile', 'whatsapp', 'workspace']
   return (
     <div className="flex items-center justify-center gap-2">
-      {steps.map(s => (
+      {STEP_ORDER.map(s => (
         <span
           key={s}
           className="h-2 rounded-full transition-all duration-300"
@@ -603,28 +364,39 @@ function StepDots({ current }: { current: Step }) {
 
 // ─── Wizard root ──────────────────────────────────────────────────────────────
 
-export function OnboardingWizard({ initialRecord, provisioningDone, whatsappDone }: OnboardingWizardProps) {
+export function OnboardingWizard({ initialRecord, provisioningDone, availabilityDone }: OnboardingWizardProps) {
   const router = useRouter()
 
-  // Jump to workspace if provisioning already started (profile + WhatsApp steps already done)
-  const [step, setStep] = useState<Step>(initialRecord !== null ? 'workspace' : 'profile')
+  // Pick the right entry point:
+  //  - workspace already complete + availability not yet confirmed → availability step
+  //  - workspace already started but not done → workspace step
+  //  - nothing yet → profile
+  const initialStep: Step =
+    provisioningDone && !availabilityDone ? 'availability'
+    : initialRecord !== null              ? 'workspace'
+    : 'profile'
+
+  const [step, setStep] = useState<Step>(initialStep)
   const [profile, setProfile] = useState<ProfileData>({ trainerName: '', businessName: '', country: 'LB', currency: 'USD' })
 
   useEffect(() => {
-    if (provisioningDone && whatsappDone) router.replace('/dashboard')
-  }, [provisioningDone, whatsappDone, router])
+    if (provisioningDone && availabilityDone) router.replace('/dashboard')
+  }, [provisioningDone, availabilityDone, router])
 
   function handleProfileDone(data: ProfileData) {
     setProfile(data)
-    // Sync confirmed trainer name back to auth user record (fire-and-forget)
     if (data.trainerName) {
       void authClient.updateUser({ name: data.trainerName })
     }
-    setStep('whatsapp')
+    setStep('workspace')
   }
 
-  function handleWhatsAppDone() {
-    setStep('workspace')
+  function handleWorkspaceDone() {
+    setStep('availability')
+  }
+
+  function handleAvailabilityDone() {
+    router.replace('/dashboard')
   }
 
   return (
@@ -639,16 +411,16 @@ export function OnboardingWizard({ initialRecord, provisioningDone, whatsappDone
         <ProfileStep onDone={handleProfileDone} />
       )}
 
-      {step === 'whatsapp' && (
-        <WhatsAppStep onDone={handleWhatsAppDone} />
-      )}
-
       {step === 'workspace' && (
         <WorkspaceStep
           initialRecord={initialRecord}
           profile={profile}
-          onDone={() => router.replace('/dashboard')}
+          onDone={handleWorkspaceDone}
         />
+      )}
+
+      {step === 'availability' && (
+        <AvailabilityStep onDone={handleAvailabilityDone} />
       )}
     </main>
   )

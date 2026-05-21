@@ -18,6 +18,12 @@ export type TrainerSettingsSummary = {
   workingDayNames: string[];
   /** 3-letter codes ('mon'..'sun') of currently enabled working days. */
   enabledDayCodes: string[];
+  /** Shared start time across enabled rows, e.g. '09:00', or null if unknown/mixed. */
+  sharedStartTime: string | null;
+  /** Shared end time across enabled rows, e.g. '20:00', or null if unknown/mixed. */
+  sharedEndTime: string | null;
+  /** True once availability has been confirmed (FitDesk Trainer Settings.initialized == 1). */
+  initialized: boolean;
   standardBillingItem: string | null;
 };
 
@@ -90,6 +96,20 @@ function isEnabledRow(v: unknown): boolean {
   return v === 1 || v === true || v === "1";
 }
 
+/**
+ * Frappe Time fields come back as 'HH:MM:SS'. Trim to 'HH:MM' for the
+ * trainer-facing UI. Returns null for empty/invalid input so the caller
+ * can fall back to the default.
+ */
+function toHHmm(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Accept 'HH:MM', 'HH:MM:SS', or 'HH:MM:SS.ffff'. Reject anything else.
+  const match = /^(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(trimmed);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
 export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSettingsSummary {
   if (!doc) {
     return {
@@ -97,6 +117,9 @@ export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSetting
       workingDaysCount: 0,
       workingDayNames: [],
       enabledDayCodes: [],
+      sharedStartTime: null,
+      sharedEndTime: null,
+      initialized: false,
       standardBillingItem: null,
     };
   }
@@ -109,19 +132,35 @@ export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSetting
     })
     .filter((v): v is string => Boolean(v));
 
-  const enabledDayCodes = workingDays
-    .map((row) => {
-      const rec = (row ?? {}) as Record<string, unknown>;
-      if (!isEnabledRow(rec.enabled)) return null;
-      return toDayCode(rec.weekday ?? rec.day ?? rec.week_day);
-    })
+  const enabledRows = workingDays
+    .map((row) => (row ?? {}) as Record<string, unknown>)
+    .filter((rec) => isEnabledRow(rec.enabled));
+
+  const enabledDayCodes = enabledRows
+    .map((rec) => toDayCode(rec.weekday ?? rec.day ?? rec.week_day))
     .filter((v): v is string => Boolean(v));
+
+  // Prefer enabled-row times; fall back to the first row's times when no
+  // day is enabled yet (fresh tenants seed Mon–Fri 09:00–20:00 with the
+  // same range, so the trainer-facing UI just needs *any* sane default).
+  const sampleRows = enabledRows.length > 0
+    ? enabledRows
+    : (workingDays.length > 0 ? [workingDays[0] as Record<string, unknown>] : []);
+  const sharedStartTime = sampleRows.length > 0
+    ? toHHmm(sampleRows[0].start_time)
+    : null;
+  const sharedEndTime = sampleRows.length > 0
+    ? toHHmm(sampleRows[0].end_time)
+    : null;
 
   return {
     status: toStringOrNull(doc.name) ? "ok" : "missing",
     workingDaysCount: workingDays.length,
     workingDayNames,
     enabledDayCodes,
+    sharedStartTime,
+    sharedEndTime,
+    initialized: isEnabledRow(doc.initialized),
     standardBillingItem:
       toStringOrNull(doc.standard_billing_item) ??
       toStringOrNull(doc.default_billing_item) ??

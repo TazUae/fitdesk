@@ -22,6 +22,7 @@ import {
 import { StatCard } from './StatCard'
 import { Avatar }   from './Avatar'
 import { Badge }    from './Badge'
+import { SetupChecklist, type ChecklistItem } from '@/components/dashboard/SetupChecklist'
 import { WEEKLY_SESSION_GOAL } from '@/lib/dashboard/constants'
 import type { Client, Invoice } from '@/types'
 import type { FDSession } from '@/types/scheduling'
@@ -47,6 +48,7 @@ interface DashboardViewProps {
   upcomingSessions:  FDSession[]
   overdueInvoices:   Invoice[]
   lowBalanceClients: Client[]
+  setupChecklist?:   ChecklistItem[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -295,6 +297,7 @@ export function DashboardView({
   upcomingSessions,
   overdueInvoices,
   lowBalanceClients,
+  setupChecklist,
 }: DashboardViewProps) {
   const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisWeek } = stats
   const firstName = trainerName.split(' ')[0] ?? trainerName
@@ -334,6 +337,11 @@ export function DashboardView({
           {formatTodayLabel(today)}
         </p>
       </div>
+
+      {/* ── Setup checklist ─────────────────────────────────────────────── */}
+      {setupChecklist && setupChecklist.length > 0 && (
+        <SetupChecklist items={setupChecklist} hideWhenAllDone />
+      )}
 
       {/* ── Revenue hero ───────────────────────────────────────────────────── */}
       <div
