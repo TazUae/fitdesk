@@ -10,8 +10,10 @@ interface PlannerShellProps {
   children: ReactNode
   /** Optional currently-selected date for MiniCalendar / toolbar title context. */
   currentDate?: Date
-  /** Fired when the sidebar's "+ Create" button is tapped (desktop only). */
+  /** Fired when the toolbar "Book session" button is tapped. */
   onCreate?: () => void
+  /** Fired when the user taps a date in the mini-calendar. */
+  onSelectDate?: (date: Date) => void
   /** Reserve desktop space for a fixed right-side drawer. */
   rightDrawerOpen?: boolean
   /** Floating overlay slot — booking sheet, modals, FAB. Rendered last so they win z-index. */
@@ -31,6 +33,7 @@ export function PlannerShell({
   children,
   currentDate,
   onCreate,
+  onSelectDate,
   rightDrawerOpen,
   overlays,
 }: PlannerShellProps) {
@@ -50,6 +53,7 @@ export function PlannerShell({
       <PlannerToolbar
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(v => !v)}
+        onCreate={onCreate}
       />
 
       <div className="flex min-w-0 flex-1 overflow-hidden">
@@ -63,7 +67,7 @@ export function PlannerShell({
           )}
           style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-bg)' }}
         >
-          <PlannerSidebar currentDate={currentDate} onCreate={onCreate} />
+          <PlannerSidebar currentDate={currentDate} onSelectDate={onSelectDate} />
         </aside>
 
         {/* Main calendar area */}
