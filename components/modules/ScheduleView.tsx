@@ -59,6 +59,7 @@ export function ScheduleView({
   const [detailSessionId,   setDetailSessionId]   = useState<string | null>(null)
   const [sheetOpen,         setSheetOpen]         = useState(false)
   const [durationHint,      setDurationHint]      = useState<number | undefined>(undefined)
+  const [calendarDate,      setCalendarDate]      = useState<Date>(() => new Date())
 
   const detailSession = useMemo(
     () => (detailSessionId ? sessionState.find(s => s.id === detailSessionId) ?? null : null),
@@ -152,7 +153,8 @@ export function ScheduleView({
 
   return (
     <PlannerShell
-      currentDate={new Date()}
+      currentDate={calendarDate}
+      onSelectDate={setCalendarDate}
       onCreate={openSuggestedSlot}
       rightDrawerOpen={sheetOpen || isDetailOpen}
       overlays={
@@ -237,6 +239,8 @@ export function ScheduleView({
           onOptimisticReplace={handleOptimisticReplace}
           onReconcile={reconcile}
           timezone={trainerConfig.timezone}
+          calendarDate={calendarDate}
+          onCalendarDateChange={setCalendarDate}
         />
       </SchedulerErrorBoundary>
     </PlannerShell>

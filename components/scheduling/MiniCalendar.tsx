@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -39,6 +39,17 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
   const today = useMemo(() => new Date(), [])
   const initial = selectedDate ?? today
   const [viewMonth, setViewMonth] = useState<Date>(startOfMonth(initial))
+
+  // When the selectedDate prop changes (driven by main calendar navigation), keep
+  // the displayed month in sync — but only when the date moves to a different month.
+  useEffect(() => {
+    if (!selectedDate) return
+    setViewMonth(prev => {
+      const next = startOfMonth(selectedDate)
+      if (next.getFullYear() === prev.getFullYear() && next.getMonth() === prev.getMonth()) return prev
+      return next
+    })
+  }, [selectedDate])
 
   const days = useMemo(() => {
     const first = startOfMonth(viewMonth)

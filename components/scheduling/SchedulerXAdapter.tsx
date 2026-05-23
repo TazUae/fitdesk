@@ -7,7 +7,7 @@ import { ScheduleXCalendar, useNextCalendarApp } from '@schedule-x/react'
 import { createViewWeek, createViewDay, createViewMonthGrid } from '@schedule-x/calendar'
 import type { BackgroundEvent, CalendarEvent, CalendarType } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
-import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop'
+import { createCalendarControlsPlugin } from '@schedule-x/calendar-controls'
 import '@schedule-x/theme-default/dist/index.css'
 import './scheduler-x-overrides.css'
 import { rescheduleSessionAction } from '@/actions/schedulingActions'
@@ -27,6 +27,8 @@ interface SchedulerXAdapterProps {
   onOptimisticReplace:  (next: FDSession) => void
   onReconcile:          () => void
   timezone:             string
+  calendarDate:         Date
+  onCalendarDateChange: (date: Date) => void
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -101,6 +103,10 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
+function dateToYMD(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
 function formatHHmm(minutes: number): string {
   return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`
 }
@@ -125,6 +131,8 @@ export function SchedulerXAdapter({
   onOptimisticReplace,
   onReconcile,
   timezone,
+  calendarDate,
+  onCalendarDateChange,
 }: SchedulerXAdapterProps) {
   const sessionsRef            = useRef(sessions)
   const rawSessionsRef         = useRef(rawSessions)
@@ -136,7 +144,9 @@ export function SchedulerXAdapter({
   const onReconcileRef         = useRef(onReconcile)
   const timezoneRef            = useRef(timezone)
   // Set by drag-end so the click that follows is suppressed
-  const wasDragRef             = useRef(false)
+  const wasDragRef               = useRef(false)
+  const onCalendarDateChangeRef  = useRef(onCalendarDateChange)
+  const calendarDateRef          = useRef(calendarDate)
 
   useEffect(() => { sessionsRef.current            = sessions            }, [sessions])
   useEffect(() => { rawSessionsRef.current         = rawSessions         }, [rawSessions])
@@ -147,9 +157,11 @@ export function SchedulerXAdapter({
   useEffect(() => { onOptimisticReplaceRef.current = onOptimisticReplace }, [onOptimisticReplace])
   useEffect(() => { onReconcileRef.current         = onReconcile         }, [onReconcile])
   useEffect(() => { timezoneRef.current            = timezone            }, [timezone])
+  useEffect(() => { onCalendarDateChangeRef.current = onCalendarDateChange }, [onCalendarDateChange])
+  useEffect(() => { calendarDateRef.current         = calendarDate         }, [calendarDate])
 
-  const eventsService  = useMemo(() => createEventsServicePlugin(), [])
-  const dragAndDrop    = useMemo(() => createDragAndDropPlugin(30), [])
+  const eventsService          = useMemo(() => createEventsServicePlugin(), [])
+  const calendarControlsPlugin = useMemo(() => createCalendarControlsPlugin(), [])
 
   const calendar = useNextCalendarApp(
     {
@@ -246,9 +258,15 @@ export function SchedulerXAdapter({
             void onReconcileRef.current()
           })
         },
+        // SX → React: fired when the main calendar's anchor date changes (prev/next, today, date picker)
+        onSelectedDateUpdate: (date) => {
+          const newStr = `${date.year}-${pad2(date.month)}-${pad2(date.day)}`
+          if (newStr === dateToYMD(calendarDateRef.current)) return
+          onCalendarDateChangeRef.current(new Date(date.year, date.month - 1, date.day))
+        },
       },
     },
-    [eventsService, dragAndDrop],
+    [eventsService, calendarControlsPlugin],
   )
 
   // Sync sessions on every reconcile
@@ -261,12 +279,27 @@ export function SchedulerXAdapter({
     eventsService.setBackgroundEvents(toBackgroundEvents(selectedSlots, timezone))
   }, [selectedSlots, timezone, eventsService])
 
+  // React → SX: sync calendarDate into the main calendar (mini-calendar click direction)
+  useEffect(() => {
+    if (!calendar) return
+    const incoming = dateToYMD(calendarDate)
+    const current  = calendarControlsPlugin.getDate()
+    const currentStr = `${current.year}-${pad2(current.month)}-${pad2(current.day)}`
+    if (incoming === currentStr) return
+    calendarControlsPlugin.setDate(Temporal.PlainDate.from(incoming))
+  }, [calendar, calendarDate, calendarControlsPlugin])
+
+  const sxCustomComponents = useMemo(
+    () => ({ timeGridEvent: SessionCard }),
+    [],
+  )
+
   return (
     <div className="fd-sx-wrap relative h-full min-w-0 w-full overflow-hidden">
       <NowLine />
       <ScheduleXCalendar
         calendarApp={calendar}
-        customComponents={{ timeGridEvent: SessionCard }}
+        customComponents={sxCustomComponents}
       />
     </div>
   )
