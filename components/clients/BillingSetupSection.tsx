@@ -83,12 +83,25 @@ export function BillingSetupSection({
         })}
       </div>
 
-      {/* Package fields */}
+      {/* Package fields — Phase C0 block: package billing is not yet wired
+          end-to-end (auto-invoice + Paid Now/Pay Later land in Phase C1). The
+          form's submit handler rejects this mode; the banner explains why. */}
       {draft.mode === 'Package' && (
         <div
           className="space-y-4 rounded-2xl border p-4"
           style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
         >
+          <div
+            role="status"
+            className="rounded-xl px-3 py-2.5 text-xs"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--fd-accent) 8%, var(--fd-surface))',
+              border:          '1px solid color-mix(in srgb, var(--fd-accent) 30%, transparent)',
+              color:           'var(--fd-text)',
+            }}
+          >
+            Package billing is not yet available. Use Pay Per Session or Trial for now — Package mode will be enabled once package invoicing is verified.
+          </div>
           <div className="space-y-1.5">
             <FieldLabel>Package name</FieldLabel>
             <input

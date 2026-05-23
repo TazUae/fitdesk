@@ -153,6 +153,15 @@ export default function NewClientPage() {
     const billingCheck = validateBillingDraft(billing)
     if (!billingCheck.ok) { setError(billingCheck.error); return }
 
+    // Phase C0 block: Package mode is not yet safe to submit (no auto-invoice,
+    // no Paid Now/Pay Later flow). Defense-in-depth on top of the banner shown
+    // by BillingSetupSection. Unblocked by Phase C1 once the full lifecycle is
+    // verified end-to-end.
+    if (billing.mode === 'Package') {
+      setError('Package billing is not yet available. Use Pay Per Session or Trial.')
+      return
+    }
+
     // Prepend age / DOB to trainer notes if provided
     let trainerNotes = notes.trim()
     const ageParts: string[] = []
