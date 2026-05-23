@@ -181,6 +181,16 @@ Client → Server Action / Route Handler → Typed Adapter → External Service
 
 ---
 
+## Local Build Isolation Rules
+
+- **Never run `npm run build` while `npm run dev` is active in the same FitDesk checkout.**
+  `next build` overwrites `.next/` with production artifacts; the dev server's compiled CSS and JS file references become 404 and the page renders unstyled.
+- For local pre-commit verification while the dev server is active, always use `npm run build:verify`.
+  This outputs to `.next-verify/` and never touches the running dev server's `.next/` assets.
+- `npm run build` remains required for CI, Docker, and Dokploy deployment, or when the dev server is stopped.
+
+---
+
 ## Docker / Deployment Rules
 
 - App must run via Docker on a VPS
