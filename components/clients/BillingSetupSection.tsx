@@ -71,8 +71,18 @@ export function BillingSetupSection({
                 )}
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                  {copy.title}
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                    {copy.title}
+                  </span>
+                  {mode === 'Package' && (
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide leading-none"
+                      style={{ backgroundColor: 'rgba(138,143,168,0.12)', color: 'var(--fd-muted)' }}
+                    >
+                      Coming soon
+                    </span>
+                  )}
                 </span>
                 <span className="block text-xs" style={{ color: 'var(--fd-muted)' }}>
                   {copy.description}
@@ -83,36 +93,11 @@ export function BillingSetupSection({
         })}
       </div>
 
-      {/* Package fields */}
+      {/* Package — Phase C0: coming soon. Inputs and price field land in Phase C1. */}
       {draft.mode === 'Package' && (
-        <div
-          className="space-y-4 rounded-2xl border p-4"
-          style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
-        >
-          <div className="space-y-1.5">
-            <FieldLabel>Package name</FieldLabel>
-            <input
-              type="text"
-              value={draft.packageName}
-              onChange={e => onChange({ ...draft, packageName: e.target.value })}
-              placeholder="e.g. Gold 10-pack"
-              className="input-base"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <FieldLabel>Sessions in package</FieldLabel>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              step={1}
-              value={draft.packageSessions}
-              onChange={e => onChange({ ...draft, packageSessions: e.target.value })}
-              placeholder="e.g. 10"
-              className="input-base"
-            />
-          </div>
-        </div>
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          Package billing is coming soon. Use Pay Per Session or Trial for now.
+        </p>
       )}
 
       {/* Pay Per Session fields */}

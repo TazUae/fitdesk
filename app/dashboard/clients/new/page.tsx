@@ -153,6 +153,15 @@ export default function NewClientPage() {
     const billingCheck = validateBillingDraft(billing)
     if (!billingCheck.ok) { setError(billingCheck.error); return }
 
+    // Phase C0 block: Package mode is not yet safe to submit (no auto-invoice,
+    // no Paid Now/Pay Later flow). Defense-in-depth on top of the banner shown
+    // by BillingSetupSection. Unblocked by Phase C1 once the full lifecycle is
+    // verified end-to-end.
+    if (billing.mode === 'Package') {
+      setError('Package billing is not yet available. Use Pay Per Session or Trial.')
+      return
+    }
+
     // Prepend age / DOB to trainer notes if provided
     let trainerNotes = notes.trim()
     const ageParts: string[] = []
@@ -193,6 +202,8 @@ export default function NewClientPage() {
 
   // ── Success state ────────────────────────────────────────────────────────────
   if (createdClient) return <SuccessView client={createdClient} />
+
+  const packageBlocked = billing.mode === 'Package'
 
   // ── Form ─────────────────────────────────────────────────────────────────────
   return (
@@ -365,16 +376,18 @@ export default function NewClientPage() {
           </div>
         )}
 
-        {/* Submit */}
+        {/* Submit — disabled while Package is selected; matches the C0 submit guard above. */}
         <button
           type="submit"
-          disabled={isPending}
+          disabled={isPending || packageBlocked}
           className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-sm font-bold transition-opacity disabled:opacity-50 active:scale-[0.98]"
           style={{ backgroundColor: '#00C853', color: '#0F1117' }}
         >
           {isPending
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
-            : 'Create Client'
+            : packageBlocked
+              ? 'Package coming soon'
+              : 'Create Client'
           }
         </button>
 
