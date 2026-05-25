@@ -24,13 +24,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={dmSans.variable} suppressHydrationWarning>
       <head>
-        {/*
-          viewport-fit=cover: allow content behind iPhone notch
-          maximum-scale=1: prevent iOS double-tap zoom on form inputs
-        */}
+        {/* viewport-fit=cover: allow content behind iPhone notch */}
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
         {/* Status bar matches app background on iOS PWA (Phase 5.0 — light) */}
         <meta name="theme-color" content="#FFFFFF" />
