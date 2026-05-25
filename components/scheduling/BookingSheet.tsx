@@ -14,7 +14,7 @@ import { BookingReviewStep } from '@/components/scheduling/booking/BookingReview
 import { BookingSuccessSheet } from '@/components/scheduling/booking/BookingSuccessSheet'
 import { BookingStickyFooter } from '@/components/scheduling/booking/BookingStickyFooter'
 import { buildBookingPlan } from '@/lib/scheduling/engine'
-import { draftToPlanInput, selectedSlotsToPattern } from '@/lib/scheduling/draft'
+import { computePackageStatus, draftToPlanInput, selectedSlotsToPattern } from '@/lib/scheduling/draft'
 import { cn } from '@/lib/utils'
 import type { Client } from '@/types'
 import type {
@@ -171,6 +171,10 @@ export function BookingSheet(props: BookingSheetProps) {
   const [pkgBalance, setPkgBalance] = useState<PackageBalanceState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Authoritative billing mode for the selected client — populated by the
+  // fetchClientById effect below. Drives the package-overdraw gate in place of
+  // the legacy `draft.packageOptIn` flag (removed from the UI in Phase C0).
+  const [selectedClientBillingMode, setSelectedClientBillingMode] = useState<Client['billingMode'] | null>(null)
 
   // SSR / hydration guard for `createPortal(..., document.body)`. `document`
   // does not exist during server render or the first client render pass; we
@@ -189,24 +193,30 @@ export function BookingSheet(props: BookingSheetProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Fetch package balance when the client changes
+  // Fetch package balance and authoritative billing mode when the client changes
   useEffect(() => {
     if (!draft.clientId) {
       setPkgBalance(null)
+      setSelectedClientBillingMode(null)
       return
     }
+    // Eagerly clear stale billing mode so the overdraw gate does not flash
+    // the previous client's state while the new fetch is in flight.
+    setSelectedClientBillingMode(null)
     let cancelled = false
     fetchClientById(draft.clientId).then(result => {
       if (cancelled) return
       if (!result.success) {
         setPkgBalance(null)
+        setSelectedClientBillingMode(null)
         return
       }
       const remaining = result.data.remainingSessions
+      setSelectedClientBillingMode(result.data.billingMode ?? null)
       setPkgBalance(prev => ({
         remainingSessions: remaining ?? null,
         willConsume:       prev?.willConsume ?? 0,
-        status:            remaining == null ? 'no_package' : remaining > 3 ? 'ok' : remaining > 0 ? 'low' : 'overdraw',
+        status:            computePackageStatus(remaining ?? null, 0),
       }))
     })
     return () => { cancelled = true }
@@ -230,14 +240,15 @@ export function BookingSheet(props: BookingSheetProps) {
     if (!pkgBalance || pkgBalance.remainingSessions == null) return
     const willConsume = previewPlan?.occurrences.length ?? 0
     const remaining = pkgBalance.remainingSessions
-    const status: PackageBalanceState['status'] =
-      remaining <= 0 || willConsume > remaining ? 'overdraw'
-      : remaining <= 3                          ? 'low'
-      : 'ok'
+    const status = computePackageStatus(remaining, willConsume)
     if (pkgBalance.willConsume !== willConsume || pkgBalance.status !== status) {
       setPkgBalance({ remainingSessions: remaining, willConsume, status })
     }
   }, [previewPlan, pkgBalance])
+
+  // Drive the overdraw gate from the authoritative billing mode fetched per-client,
+  // not the legacy `draft.packageOptIn` flag (removed from the UI in Phase C0).
+  const isPackageClient = selectedClientBillingMode === 'Package'
 
   // ── Validity state machine ──────────────────────────────────────────────
   const validity: BookingValidity = useMemo(() => {
@@ -255,11 +266,11 @@ export function BookingSheet(props: BookingSheetProps) {
     if (previewPlan.outOfHours.length > 0) {
       return { kind: 'blocked', reason: 'OUT_OF_HOURS', details: previewPlan.outOfHours[0].reason }
     }
-    if (draft.packageOptIn && pkgBalance?.status === 'overdraw') {
+    if (isPackageClient && pkgBalance?.status === 'overdraw') {
       return { kind: 'blocked', reason: 'PACKAGE_OVERDRAW', details: `Will consume ${pkgBalance.willConsume} of ${pkgBalance.remainingSessions ?? 0}` }
     }
     return { kind: 'ready', plan: previewPlan, total: previewPlan.occurrences.length }
-  }, [draft, previewPlan, pkgBalance])
+  }, [draft, previewPlan, pkgBalance, isPackageClient])
 
   // ── Draft mutation handler with auto-pattern suggestion ─────────────────
   const updateDraft = useCallback((patch: Partial<BookingDraft>) => {
@@ -385,7 +396,7 @@ export function BookingSheet(props: BookingSheetProps) {
   if (!mounted) return null
 
   const selectedClient = clients.find(c => c.id === draft.clientId) ?? null
-  const activePackageBalance = draft.packageOptIn ? pkgBalance : null
+  const activePackageBalance = isPackageClient ? pkgBalance : null
   const ctaOverride: string | undefined = (() => {
     if (successIds) return undefined
     if (step === 'client')   return 'Next: Date & Time'

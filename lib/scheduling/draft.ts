@@ -9,10 +9,12 @@
  */
 
 import { DateTime } from 'luxon'
+import type { Client } from '@/types'
 import type {
   BookingDraft,
   BookingPlan,
   Interval,
+  PackageBalanceState,
   PatternSlot,
   TrainerConfig,
 } from '@/types/scheduling'
@@ -224,4 +226,52 @@ export function selectedSlotsToPattern(
     if (da !== 0) return da
     return a.localTime.localeCompare(b.localTime)
   })
+}
+
+/**
+ * Compute `PackageBalanceState.status` from a client's remaining sessions and
+ * the number of sessions the pending booking plan would consume.
+ *
+ * Used by BookingSheet in two places:
+ *  1. After `fetchClientById` resolves — pass `willConsume = 0` to set an
+ *     initial status from the raw remaining count before the plan size is known.
+ *  2. After the preview plan recomputes — pass the actual occurrence count to
+ *     reflect whether the plan would exceed the package.
+ *
+ * Status transitions (earlier rules win):
+ *  - `remaining` is null/undefined  → `'no_package'`
+ *  - `remaining ≤ 0`                → `'overdraw'`  (balance already exhausted)
+ *  - `willConsume > remaining`       → `'overdraw'`  (plan exceeds balance)
+ *  - `remaining ≤ 3`                → `'low'`
+ *  - otherwise                      → `'ok'`
+ */
+export function computePackageStatus(
+  remaining:   number | null,
+  willConsume: number,
+): PackageBalanceState['status'] {
+  if (remaining == null)                         return 'no_package'
+  if (remaining <= 0 || willConsume > remaining) return 'overdraw'
+  if (remaining <= 3)                            return 'low'
+  return 'ok'
+}
+
+/**
+ * Pure guard: returns `true` when a client is on a Package billing plan AND
+ * the pending booking would exceed their remaining sessions.
+ *
+ * Extracted here (away from BookingSheet) so it can be unit-tested
+ * independently of React state. BookingSheet derives the same logic by reading
+ * `selectedClientBillingMode` (authoritative, from `fetchClientById`) instead
+ * of the legacy `draft.packageOptIn` flag that was removed from the UI.
+ *
+ * Safe for all billing modes:
+ *  - 'Pay Per Session' / 'Trial' / null / undefined → always false
+ *  - 'Package' + balance not overdraw → false
+ *  - 'Package' + balance overdraw → true
+ */
+export function isPackageOverdraw(
+  billingMode: Client['billingMode'] | null | undefined,
+  balance:     PackageBalanceState | null,
+): boolean {
+  return billingMode === 'Package' && balance?.status === 'overdraw'
 }

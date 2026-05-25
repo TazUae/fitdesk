@@ -5,9 +5,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
+  computePackageStatus,
   draftToPlanInput,
   expandPatternSlotsToFirstWeek,
   humanSummary,
+  isPackageOverdraw,
   nextAvailableSlot,
   selectedSlotsToPattern,
 } from '@/lib/scheduling/draft'
@@ -245,5 +247,227 @@ describe('nextAvailableSlot', () => {
     const result = nextAvailableSlot(DEFAULT_CONFIG, monLate)
     expect(result.localDate).toBe('2026-01-06')
     expect(result.localTime).toBe('09:00')
+  })
+})
+
+// ─── isPackageOverdraw ───────────────────────────────────────────────────────
+
+describe('isPackageOverdraw', () => {
+  const overdraw = { remainingSessions: 0, willConsume: 2, status: 'overdraw' as const }
+  const low      = { remainingSessions: 1, willConsume: 2, status: 'low'      as const }
+  const ok       = { remainingSessions: 5, willConsume: 1, status: 'ok'       as const }
+  const noPkg    = { remainingSessions: null, willConsume: 0, status: 'no_package' as const }
+
+  it('returns true for Package + overdraw balance', () => {
+    expect(isPackageOverdraw('Package', overdraw)).toBe(true)
+  })
+
+  it('returns false for Package + low balance (not an overdraw)', () => {
+    expect(isPackageOverdraw('Package', low)).toBe(false)
+  })
+
+  it('returns false for Package + ok balance', () => {
+    expect(isPackageOverdraw('Package', ok)).toBe(false)
+  })
+
+  it('returns false for Package + no_package status', () => {
+    expect(isPackageOverdraw('Package', noPkg)).toBe(false)
+  })
+
+  it('returns false for Package + null balance', () => {
+    expect(isPackageOverdraw('Package', null)).toBe(false)
+  })
+
+  it('returns false for Pay Per Session regardless of balance', () => {
+    expect(isPackageOverdraw('Pay Per Session', overdraw)).toBe(false)
+  })
+
+  it('returns false for Trial regardless of balance', () => {
+    expect(isPackageOverdraw('Trial', overdraw)).toBe(false)
+  })
+
+  it('returns false for null billingMode (legacy/unknown)', () => {
+    expect(isPackageOverdraw(null, overdraw)).toBe(false)
+  })
+
+  it('returns false for undefined billingMode', () => {
+    expect(isPackageOverdraw(undefined, overdraw)).toBe(false)
+  })
+})
+
+// ─── computePackageStatus ────────────────────────────────────────────────────
+
+describe('computePackageStatus', () => {
+  // ── null remaining (no package data from ERP) ──────────────────────────
+  it('returns no_package when remaining is null', () => {
+    expect(computePackageStatus(null, 0)).toBe('no_package')
+  })
+
+  it('returns no_package when remaining is null regardless of willConsume', () => {
+    expect(computePackageStatus(null, 99)).toBe('no_package')
+  })
+
+  // ── remaining ≤ 0 (balance already exhausted before this booking) ──────
+  it('returns overdraw when remaining is 0 and willConsume is 0', () => {
+    expect(computePackageStatus(0, 0)).toBe('overdraw')
+  })
+
+  it('returns overdraw when remaining is 0 and willConsume is non-zero', () => {
+    expect(computePackageStatus(0, 5)).toBe('overdraw')
+  })
+
+  // ── willConsume > remaining (plan exceeds balance) ─────────────────────
+  it('returns overdraw when willConsume exceeds remaining by 1', () => {
+    expect(computePackageStatus(2, 3)).toBe('overdraw')
+  })
+
+  it('returns overdraw for the main audit scenario: remaining=2, willConsume=8', () => {
+    // Proves the recurring 8-session booking triggers overdraw for a client
+    // with only 2 sessions left.
+    expect(computePackageStatus(2, 8)).toBe('overdraw')
+  })
+
+  it('returns overdraw when remaining=1 and willConsume=2', () => {
+    expect(computePackageStatus(1, 2)).toBe('overdraw')
+  })
+
+  it('returns overdraw when remaining=3 and willConsume=4', () => {
+    expect(computePackageStatus(3, 4)).toBe('overdraw')
+  })
+
+  it('returns overdraw when remaining=10 and willConsume=11', () => {
+    expect(computePackageStatus(10, 11)).toBe('overdraw')
+  })
+
+  // ── willConsume === remaining (consuming exactly what's left) ──────────
+  // Intentional: strict ">" means exact-balance books are not an overdraw.
+  it('returns low when willConsume equals remaining (boundary: 2)', () => {
+    expect(computePackageStatus(2, 2)).toBe('low')
+  })
+
+  it('returns low when willConsume equals remaining (boundary: 1)', () => {
+    expect(computePackageStatus(1, 1)).toBe('low')
+  })
+
+  it('returns ok when willConsume equals remaining (boundary: 4)', () => {
+    // remaining=4 > 3, so low threshold doesn't apply even with exact balance
+    expect(computePackageStatus(4, 4)).toBe('ok')
+  })
+
+  // ── low threshold (remaining ≤ 3, no overdraw) ────────────────────────
+  it('returns low when remaining=1 and willConsume=0 (initial state)', () => {
+    expect(computePackageStatus(1, 0)).toBe('low')
+  })
+
+  it('returns low when remaining=2 and willConsume=0 (initial state)', () => {
+    expect(computePackageStatus(2, 0)).toBe('low')
+  })
+
+  it('returns low when remaining=3 and willConsume=0 (boundary)', () => {
+    expect(computePackageStatus(3, 0)).toBe('low')
+  })
+
+  it('returns low when remaining=3 and willConsume=3 (exact boundary)', () => {
+    expect(computePackageStatus(3, 3)).toBe('low')
+  })
+
+  // ── ok threshold (remaining > 3, no overdraw) ─────────────────────────
+  it('returns ok when remaining=4 and willConsume=0 (initial state)', () => {
+    expect(computePackageStatus(4, 0)).toBe('ok')
+  })
+
+  it('returns ok when remaining=10 and willConsume=5', () => {
+    expect(computePackageStatus(10, 5)).toBe('ok')
+  })
+
+  it('returns ok when remaining=4 and willConsume=3', () => {
+    expect(computePackageStatus(4, 3)).toBe('ok')
+  })
+})
+
+// ─── computePackageStatus + buildBookingPlan integration ────────────────────
+
+describe('Package overdraw — full booking chain', () => {
+  it('8-session recurring plan with 2 remaining → status overdraw', () => {
+    // Prove the chain: engine occurrence count → computePackageStatus → overdraw.
+    // Simulates BookingSheet's willConsume recomputation effect for the primary
+    // audit scenario: Package client, remaining=2, recurrenceWeeks=8.
+    const plan = buildBookingPlan({
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '09:00' }],
+      trainerId:        'T',
+      clientId:         'C',
+      durationMinutes:  60,
+      timezone:         RIYADH_TZ,
+      recurrenceWeeks:  8,
+      config:           DEFAULT_CONFIG,
+      existingSessions: [],
+    })
+    expect(plan.occurrences.length).toBe(8)
+    expect(computePackageStatus(2, plan.occurrences.length)).toBe('overdraw')
+  })
+
+  it('isPackageOverdraw returns true for the full chain: Package + 8-session plan + 2 remaining', () => {
+    const plan = buildBookingPlan({
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '09:00' }],
+      trainerId:        'T',
+      clientId:         'C',
+      durationMinutes:  60,
+      timezone:         RIYADH_TZ,
+      recurrenceWeeks:  8,
+      config:           DEFAULT_CONFIG,
+      existingSessions: [],
+    })
+    const status = computePackageStatus(2, plan.occurrences.length)
+    expect(isPackageOverdraw('Package', { remainingSessions: 2, willConsume: plan.occurrences.length, status })).toBe(true)
+  })
+
+  it('4-session recurring plan with 5 remaining → status ok (no overdraw)', () => {
+    const plan = buildBookingPlan({
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '09:00' }],
+      trainerId:        'T',
+      clientId:         'C',
+      durationMinutes:  60,
+      timezone:         RIYADH_TZ,
+      recurrenceWeeks:  4,
+      config:           DEFAULT_CONFIG,
+      existingSessions: [],
+    })
+    expect(plan.occurrences.length).toBe(4)
+    expect(computePackageStatus(5, plan.occurrences.length)).toBe('ok')
+    expect(isPackageOverdraw('Package', { remainingSessions: 5, willConsume: plan.occurrences.length, status: 'ok' })).toBe(false)
+  })
+
+  it('Pay Per Session client with overdraw balance → isPackageOverdraw false', () => {
+    // Proves billing mode gates the guard: PPS client never triggers overdraw
+    // even if pkgBalance.status is somehow 'overdraw'.
+    const plan = buildBookingPlan({
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '09:00' }],
+      trainerId:        'T',
+      clientId:         'C',
+      durationMinutes:  60,
+      timezone:         RIYADH_TZ,
+      recurrenceWeeks:  8,
+      config:           DEFAULT_CONFIG,
+      existingSessions: [],
+    })
+    const status = computePackageStatus(2, plan.occurrences.length)
+    expect(status).toBe('overdraw')
+    expect(isPackageOverdraw('Pay Per Session', { remainingSessions: 2, willConsume: plan.occurrences.length, status })).toBe(false)
+  })
+
+  it('one-off session with 2 remaining → status low (not overdraw)', () => {
+    const plan = buildBookingPlan({
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '09:00' }],
+      trainerId:        'T',
+      clientId:         'C',
+      durationMinutes:  60,
+      timezone:         RIYADH_TZ,
+      recurrenceWeeks:  null,
+      config:           DEFAULT_CONFIG,
+      existingSessions: [],
+    })
+    expect(plan.occurrences.length).toBe(1)
+    expect(computePackageStatus(2, plan.occurrences.length)).toBe('low')
+    expect(isPackageOverdraw('Package', { remainingSessions: 2, willConsume: 1, status: 'low' })).toBe(false)
   })
 })
