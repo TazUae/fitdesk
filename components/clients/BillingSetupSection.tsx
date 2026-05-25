@@ -1,6 +1,7 @@
 'use client'
 
 import { BILLING_MODES, type BillingDraft, type BillingMode } from '@/lib/clients/billing'
+import { Badge } from '@/components/modules/Badge'
 
 // ─── Mode copy ────────────────────────────────────────────────────────────────
 
@@ -57,17 +58,17 @@ export function BillingSetupSection({
               onClick={() => selectMode(mode)}
               className="flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors active:opacity-70"
               style={{
-                borderColor:     selected ? 'var(--fd-accent)' : 'var(--fd-border)',
+                borderColor:     selected ? 'var(--fd-blue)' : 'var(--fd-border)',
                 backgroundColor: 'var(--fd-card)',
               }}
             >
               {/* Radio dot */}
               <span
                 className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
-                style={{ borderColor: selected ? 'var(--fd-accent)' : 'var(--fd-border)' }}
+                style={{ borderColor: selected ? 'var(--fd-blue)' : 'var(--fd-border)' }}
               >
                 {selected && (
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--fd-accent)' }} />
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--fd-blue)' }} />
                 )}
               </span>
               <span className="min-w-0">
@@ -76,12 +77,7 @@ export function BillingSetupSection({
                     {copy.title}
                   </span>
                   {mode === 'Package' && (
-                    <span
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide leading-none"
-                      style={{ backgroundColor: 'rgba(138,143,168,0.12)', color: 'var(--fd-muted)' }}
-                    >
-                      Coming soon
-                    </span>
+                    <Badge variant="coming-soon" label="Coming soon" />
                   )}
                 </span>
                 <span className="block text-xs" style={{ color: 'var(--fd-muted)' }}>

@@ -92,7 +92,7 @@ function SuccessView({ client }: { client: Client }) {
           <Link
             href={`/dashboard/schedule?clientId=${encodeURIComponent(client.id)}`}
             className="flex w-full items-center justify-center gap-2.5 rounded-2xl py-4 text-sm font-bold transition-opacity active:opacity-70"
-            style={{ backgroundColor: '#00C853', color: '#0F1117' }}
+            style={{ backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }}
           >
             <Calendar className="h-5 w-5" />
             Book a session
@@ -382,7 +382,7 @@ export default function NewClientPage() {
           type="submit"
           disabled={isPending || packageBlocked}
           className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-sm font-bold transition-opacity disabled:opacity-50 active:scale-[0.98]"
-          style={{ backgroundColor: '#00C853', color: '#0F1117' }}
+          style={{ backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }}
         >
           {isPending
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
