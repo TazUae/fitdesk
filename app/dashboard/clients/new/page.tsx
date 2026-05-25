@@ -314,6 +314,7 @@ export default function NewClientPage() {
                       backgroundColor: 'var(--fd-surface)',
                       borderColor:     'var(--fd-border)',
                       color:           bloodType ? 'var(--fd-text)' : 'var(--fd-muted)',
+                      fontSize:        '1rem',
                     }}
                   >
                     <option value="">Select blood type</option>

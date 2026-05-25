@@ -260,7 +260,7 @@ function CountryDropdown({ selected, onSelect, disabled }: CountryDropdownProps)
               onChange={e => setQuery(e.target.value)}
               placeholder="Search country or code…"
               className="flex-1 bg-transparent text-sm outline-none"
-              style={{ color: 'var(--fd-text)' }}
+              style={{ color: 'var(--fd-text)', fontSize: '1rem' }}
               aria-label="Search countries"
             />
             {query && (
@@ -536,7 +536,7 @@ export function PhoneInput({
           placeholder={placeholder}
           disabled={disabled}
           className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm outline-none"
-          style={{ color: 'var(--fd-text)' }}
+          style={{ color: 'var(--fd-text)', fontSize: '1rem' }}
           aria-label="Phone number"
         />
       </div>
