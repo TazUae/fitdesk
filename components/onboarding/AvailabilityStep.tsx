@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { CheckCircle2, Clock, Loader2 } from 'lucide-react'
 import { confirmAvailability } from '@/actions/confirmAvailability'
 import {
@@ -26,6 +26,7 @@ interface Props {
 }
 
 export function AvailabilityStep({ onDone }: Props) {
+  const workingDaysId = useId()
   const [selected, setSelected] = useState<Set<Weekday>>(new Set(DEFAULT_ENABLED_DAYS))
   const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
   const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
@@ -100,10 +101,11 @@ export function AvailabilityStep({ onDone }: Props) {
           )}
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            {/* id links to the button group below via aria-labelledby */}
+            <label id={workingDaysId} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Working days
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div role="group" aria-labelledby={workingDaysId} className="flex flex-wrap gap-2">
               {DAY_LABELS.map(({ id, short }) => {
                 const active = selected.has(id)
                 return (

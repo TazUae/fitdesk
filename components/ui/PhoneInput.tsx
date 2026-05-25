@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -382,6 +383,8 @@ export function PhoneInput({
   disabled,
   showWhatsApp = true,
 }: PhoneInputProps) {
+  const id = useId()
+
   // Resolve initial country — must be in our list
   const resolvedDefault = useMemo((): CountryCode => {
     const up = defaultCountry.toUpperCase() as CountryCode
@@ -502,9 +505,9 @@ export function PhoneInput({
 
   return (
     <div className="space-y-2.5">
-      {/* Label */}
+      {/* Label — htmlFor links to the tel input via shared id */}
       {label && (
-        <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+        <label htmlFor={id} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
           {label}
           {required && (
             <span className="ml-0.5" style={{ color: 'var(--fd-red)' }}>*</span>
@@ -527,6 +530,7 @@ export function PhoneInput({
         />
 
         <input
+          id={id}
           type="tel"
           inputMode="tel"
           autoComplete="tel-national"

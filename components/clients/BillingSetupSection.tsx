@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import { BILLING_MODES, type BillingDraft, type BillingMode } from '@/lib/clients/billing'
 import { Badge } from '@/components/modules/Badge'
 
@@ -13,9 +14,22 @@ const MODE_COPY: Record<BillingMode, { title: string; description: string }> = {
 
 // ─── Field label ──────────────────────────────────────────────────────────────
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+/**
+ * Supports two label-control association patterns:
+ * - `htmlFor` + `id` on the input: for standard labelable controls (inputs, selects)
+ * - `id` alone: for groups (radiogroup, button group) that reference it via `aria-labelledby`
+ */
+function FieldLabel({
+  children,
+  htmlFor,
+  id,
+}: {
+  children: React.ReactNode
+  htmlFor?: string
+  id?:      string
+}) {
   return (
-    <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+    <label htmlFor={htmlFor} id={id} className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
       {children}
       <span className="ml-0.5" style={{ color: 'var(--fd-red)' }}>*</span>
     </label>
@@ -36,16 +50,19 @@ export function BillingSetupSection({
   draft:    BillingDraft
   onChange: (next: BillingDraft) => void
 }) {
+  const billingLabelId = useId()
+  const rateId         = useId()
+
   function selectMode(mode: BillingMode) {
     onChange({ mode, sessionRate: '', packageName: '', packageSessions: '' })
   }
 
   return (
     <div className="space-y-3">
-      <FieldLabel>Billing</FieldLabel>
+      <FieldLabel id={billingLabelId}>Billing</FieldLabel>
 
-      {/* Mode selector */}
-      <div role="radiogroup" aria-label="Billing mode" className="space-y-2">
+      {/* Mode selector — aria-labelledby references the visible "Billing" label above */}
+      <div role="radiogroup" aria-labelledby={billingLabelId} className="space-y-2">
         {BILLING_MODES.map(mode => {
           const selected = draft.mode === mode
           const copy     = MODE_COPY[mode]
@@ -103,8 +120,9 @@ export function BillingSetupSection({
           style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
         >
           <div className="space-y-1.5">
-            <FieldLabel>Session rate</FieldLabel>
+            <FieldLabel htmlFor={rateId}>Session rate</FieldLabel>
             <input
+              id={rateId}
               type="number"
               inputMode="decimal"
               min={0}

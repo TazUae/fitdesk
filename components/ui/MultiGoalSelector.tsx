@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import { Check } from 'lucide-react'
 import type { GoalSelection } from '@/utils/goalHelpers'
 
@@ -67,6 +68,7 @@ interface MultiGoalSelectorProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function MultiGoalSelector({ value, onChange }: MultiGoalSelectorProps) {
+  const labelId = useId()
 
   function toggleGoal(type: GoalType) {
     const exists = value.find(g => g.type === type)
@@ -95,8 +97,8 @@ export function MultiGoalSelector({ value, onChange }: MultiGoalSelectorProps) {
   return (
     <div className="space-y-4">
 
-      {/* Label */}
-      <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+      {/* Label — id links to the button group below via aria-labelledby */}
+      <label id={labelId} className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
         Goals
         <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
           (select all that apply)
@@ -104,7 +106,7 @@ export function MultiGoalSelector({ value, onChange }: MultiGoalSelectorProps) {
       </label>
 
       {/* Goal chips — 2-column grid */}
-      <div className="grid grid-cols-2 gap-2">
+      <div role="group" aria-labelledby={labelId} className="grid grid-cols-2 gap-2">
         {(Object.entries(GOALS) as [GoalType, typeof GOALS[GoalType]][]).map(([type, goal]) => {
           const selected = selectedGoals.includes(type)
           return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,7 @@ interface AgeInputProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AgeInput({ value, onChange }: AgeInputProps) {
+  const id         = useId()
   const [showDob,  setShowDob]  = useState(!!value?.date_of_birth)
   // Track whether the last age value came from DOB auto-calc or manual typing.
   // If manual, we don't overwrite on subsequent DOB changes.
@@ -70,11 +71,12 @@ export function AgeInput({ value, onChange }: AgeInputProps) {
     <div className="space-y-3">
       {/* Age */}
       <div className="space-y-1.5">
-        <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+        <label htmlFor={`${id}-age`} className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
           Age
           <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>(optional)</span>
         </label>
         <input
+          id={`${id}-age`}
           type="number"
           min={10}
           max={100}
@@ -101,11 +103,12 @@ export function AgeInput({ value, onChange }: AgeInputProps) {
       {/* DOB field */}
       {showDob && (
         <div className="space-y-1.5">
-          <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+          <label htmlFor={`${id}-dob`} className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
             Date of Birth
             <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>(optional)</span>
           </label>
           <input
+            id={`${id}-dob`}
             type="date"
             value={dob}
             onChange={e => handleDobChange(e.target.value)}
