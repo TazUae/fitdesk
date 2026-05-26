@@ -2,7 +2,7 @@
   "name": "FitDesk",
   "short_name": "FitDesk",
   "description": "PT business operating system — clients, sessions, invoices, payments.",
-  "start_url": "/",
+  "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
