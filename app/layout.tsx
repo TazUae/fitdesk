@@ -18,6 +18,17 @@ export const metadata: Metadata = {
   },
   description: 'PT business operating system — clients, sessions, invoices, payments.',
   robots: { index: false, follow: false }, // private SaaS app
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'FitDesk',
+  },
+  icons: {
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180' },
+    ],
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
