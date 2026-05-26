@@ -6,6 +6,7 @@ import { Camera, Check, Loader2, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient, signOut, useSession } from '@/lib/auth-client'
 import { Avatar } from '@/components/modules/Avatar'
+import { SignOutConfirmSheet } from '@/components/account/SignOutConfirmSheet'
 
 // ─── Currency options ─────────────────────────────────────────────────────────
 
@@ -55,9 +56,10 @@ export default function AccountPage() {
   const [photoUrl,     setPhotoUrl]     = useState('')
   const [showPhoto,    setShowPhoto]    = useState(false)
 
-  const [saving,   setSaving]   = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
-  const [saved,    setSaved]    = useState(false)
+  const [saving,            setSaving]            = useState(false)
+  const [signingOut,        setSigningOut]        = useState(false)
+  const [saved,             setSaved]             = useState(false)
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Seed form from session once loaded
@@ -282,7 +284,7 @@ export default function AccountPage() {
         </p>
         <button
           type="button"
-          onClick={handleSignOut}
+          onClick={() => setShowSignOutConfirm(true)}
           disabled={signingOut}
           className="flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-50 active:opacity-60"
           style={{ borderColor: 'rgba(232,92,106,0.4)', color: 'var(--fd-red)', backgroundColor: 'rgba(232,92,106,0.06)' }}
@@ -293,6 +295,13 @@ export default function AccountPage() {
           }
         </button>
       </div>
+
+      <SignOutConfirmSheet
+        open={showSignOutConfirm}
+        pending={signingOut}
+        onCancel={() => setShowSignOutConfirm(false)}
+        onConfirm={handleSignOut}
+      />
 
     </div>
   )

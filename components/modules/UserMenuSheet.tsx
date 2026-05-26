@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Settings, HelpCircle, LogOut, X } from 'lucide-react'
@@ -17,22 +17,45 @@ interface UserMenuSheetProps {
 export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSheetProps) {
   const router = useRouter()
 
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+  const [signingOut,        setSigningOut]        = useState(false)
+
+  const cancelBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Reset confirmation state whenever the sheet closes
+  useEffect(() => {
+    if (!open) setConfirmingSignOut(false)
+  }, [open])
+
+  // Focus Cancel button when confirmation appears
+  useEffect(() => {
+    if (confirmingSignOut) cancelBtnRef.current?.focus()
+  }, [confirmingSignOut])
+
   // Lock body scroll while sheet is open
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  // Close on Escape key
+  // Escape key: cancel confirmation if active, otherwise close sheet
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    function handler(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (confirmingSignOut) {
+        setConfirmingSignOut(false)
+      } else {
+        onClose()
+      }
+    }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+  }, [open, confirmingSignOut, onClose])
 
-  async function handleSignOut() {
-    onClose()
+  async function handleConfirmSignOut() {
+    if (signingOut) return
+    setSigningOut(true)
     await signOut()
     router.replace('/auth/login')
   }
@@ -98,40 +121,74 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
           </div>
         </div>
 
-        {/* Menu items */}
-        <div className="py-2">
-          <Link
-            href="/dashboard/account"
-            onClick={onClose}
-            className={itemBase}
-            style={{ color: 'var(--fd-text)' }}
+        {/* ── Confirmation section (replaces menu items while confirming) ─── */}
+        {confirmingSignOut ? (
+          <div
+            className="px-6 py-6"
+            aria-live="polite"
           >
-            <Settings className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
-            Account Settings
-          </Link>
+            <p className="mb-1 text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
+              Sign out of FitDesk?
+            </p>
+            <p className="mb-6 text-sm" style={{ color: 'var(--fd-muted)' }}>
+              You will need to sign in again to access your workspace.
+            </p>
+            <div className="flex gap-3">
+              <button
+                ref={cancelBtnRef}
+                onClick={() => setConfirmingSignOut(false)}
+                disabled={signingOut}
+                className="flex-1 rounded-xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-50 active:opacity-60"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSignOut}
+                disabled={signingOut}
+                className="flex-1 rounded-xl py-3 text-sm font-semibold transition-opacity disabled:opacity-50 active:opacity-60"
+                style={{ backgroundColor: 'var(--fd-red)', color: '#fff' }}
+              >
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Normal menu items ────────────────────────────────────────── */
+          <div className="py-2">
+            <Link
+              href="/dashboard/account"
+              onClick={onClose}
+              className={itemBase}
+              style={{ color: 'var(--fd-text)' }}
+            >
+              <Settings className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+              Account Settings
+            </Link>
 
-          <Link
-            href="/dashboard/help"
-            onClick={onClose}
-            className={itemBase}
-            style={{ color: 'var(--fd-text)' }}
-          >
-            <HelpCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
-            Help &amp; Support
-          </Link>
+            <Link
+              href="/dashboard/help"
+              onClick={onClose}
+              className={itemBase}
+              style={{ color: 'var(--fd-text)' }}
+            >
+              <HelpCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+              Help &amp; Support
+            </Link>
 
-          {/* Divider */}
-          <div className="my-2 border-t" style={{ borderColor: 'var(--fd-border)' }} />
+            {/* Divider */}
+            <div className="my-2 border-t" style={{ borderColor: 'var(--fd-border)' }} />
 
-          <button
-            onClick={handleSignOut}
-            className={itemBase}
-            style={{ color: 'var(--fd-red)' }}
-          >
-            <LogOut className="h-5 w-5 shrink-0" />
-            Sign Out
-          </button>
-        </div>
+            <button
+              onClick={() => setConfirmingSignOut(true)}
+              className={itemBase}
+              style={{ color: 'var(--fd-red)' }}
+            >
+              <LogOut className="h-5 w-5 shrink-0" />
+              Sign Out
+            </button>
+          </div>
+        )}
 
         {/* iPhone home bar clearance */}
         <div style={{ height: 'max(env(safe-area-inset-bottom), 12px)' }} />
