@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Calendar, Camera, CheckCircle2, ChevronDown, Loader2, Receipt } from 'lucide-react'
@@ -27,16 +27,18 @@ function Field({
   label,
   required,
   hint,
+  htmlFor,
   children,
 }: {
   label: string
   required?: boolean
   hint?: string
+  htmlFor?: string
   children: React.ReactNode
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+      <label htmlFor={htmlFor} className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
         {label}
         {required && <span className="ml-0.5" style={{ color: 'var(--fd-red)' }}>*</span>}
       </label>
@@ -127,6 +129,7 @@ function SuccessView({ client }: { client: Client }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewClientPage() {
+  const id = useId()
   const [isPending, startTransition] = useTransition()
 
   const [name,        setName]        = useState('')
@@ -248,8 +251,9 @@ export default function NewClientPage() {
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {/* Full name */}
-        <Field label="Full name" required>
+        <Field label="Full name" required htmlFor={`${id}-name`}>
           <input
+            id={`${id}-name`}
             type="text"
             value={name}
             onChange={e => { setName(e.target.value); setError(null) }}
@@ -304,9 +308,10 @@ export default function NewClientPage() {
               style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
             >
               {/* Blood type */}
-              <Field label="Blood type">
+              <Field label="Blood type" htmlFor={`${id}-bloodType`}>
                 <div className="relative">
                   <select
+                    id={`${id}-bloodType`}
                     value={bloodType}
                     onChange={e => setBloodType(e.target.value)}
                     className="w-full appearance-none rounded-xl border px-3 py-3 pr-9 text-sm outline-none"
@@ -330,8 +335,9 @@ export default function NewClientPage() {
               </Field>
 
               {/* Emergency contact */}
-              <Field label="Emergency contact name">
+              <Field label="Emergency contact name" htmlFor={`${id}-ecName`}>
                 <input
+                  id={`${id}-ecName`}
                   type="text"
                   value={ecName}
                   onChange={e => setEcName(e.target.value)}
@@ -353,8 +359,9 @@ export default function NewClientPage() {
         </div>
 
         {/* Trainer notes */}
-        <Field label="Trainer notes">
+        <Field label="Trainer notes" htmlFor={`${id}-notes`}>
           <textarea
+            id={`${id}-notes`}
             value={notes}
             onChange={e => setNotes(e.target.value)}
             rows={3}

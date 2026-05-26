@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Building2, ChevronDown, Loader2, User } from 'lucide-react'
 import { AvailabilityStep } from './AvailabilityStep'
@@ -75,6 +75,7 @@ const COUNTRY_CURRENCY: Record<string, string> = Object.fromEntries(
 // ─── Step 1: Profile ─────────────────────────────────────────────────────────
 
 function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
+  const id = useId()
   const { data: session } = useSession()
 
   const [trainerName,  setTrainerName]  = useState('')
@@ -146,7 +147,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
           )}
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            <label htmlFor={`${id}-trainerName`} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Your name
               <span className="ml-1 text-xs font-normal" style={{ color: 'var(--fd-red)' }}>*</span>
             </label>
@@ -158,6 +159,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
                 <User className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
               </span>
               <input
+                id={`${id}-trainerName`}
                 type="text"
                 value={trainerName}
                 onChange={e => { setTrainerName(e.target.value); setError(null) }}
@@ -173,7 +175,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            <label htmlFor={`${id}-businessName`} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Business / gym name
               <span className="ml-1 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>(optional)</span>
             </label>
@@ -185,6 +187,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
                 <Building2 className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
               </span>
               <input
+                id={`${id}-businessName`}
                 type="text"
                 value={businessName}
                 onChange={e => { setBusinessName(e.target.value); setError(null) }}
@@ -199,7 +202,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            <label htmlFor={`${id}-country`} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Country
               {detecting && (
                 <span className="ml-2 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
@@ -209,6 +212,7 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
             </label>
             <div className="relative">
               <select
+                id={`${id}-country`}
                 value={country}
                 onChange={e => { handleCountryChange(e.target.value); setError(null) }}
                 className="w-full appearance-none rounded-xl border px-3 py-3 pr-9 text-sm outline-none"
@@ -223,11 +227,12 @@ function ProfileStep({ onDone }: { onDone: (data: ProfileData) => void }) {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            <label htmlFor={`${id}-currency`} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
               Currency
             </label>
             <div className="relative">
               <select
+                id={`${id}-currency`}
                 value={currency}
                 onChange={e => { setCurrency(e.target.value); setError(null) }}
                 className="w-full appearance-none rounded-xl border px-3 py-3 pr-9 text-sm outline-none"

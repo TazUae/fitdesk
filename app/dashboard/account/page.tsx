@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Camera, Check, Loader2, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
@@ -17,10 +17,20 @@ const CURRENCIES = [
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  htmlFor,
+  children,
+}: {
+  label: string
+  hint?: string
+  htmlFor?: string
+  children: React.ReactNode
+}) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+      <label htmlFor={htmlFor} className="block text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
         {label}
       </label>
       {children}
@@ -34,6 +44,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
+  const id = useId()
   const router = useRouter()
   const { data: session, isPending: sessionLoading } = useSession()
 
@@ -169,8 +180,9 @@ export default function AccountPage() {
 
           {/* Full name */}
           <div className="p-4">
-            <Field label="Full name">
+            <Field label="Full name" htmlFor={`${id}-name`}>
               <input
+                id={`${id}-name`}
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -182,8 +194,9 @@ export default function AccountPage() {
 
           {/* Email — read-only */}
           <div className="p-4">
-            <Field label="Email" hint="Contact support to change your email address.">
+            <Field label="Email" hint="Contact support to change your email address." htmlFor={`${id}-email`}>
               <input
+                id={`${id}-email`}
                 type="email"
                 value={email}
                 readOnly
@@ -194,8 +207,9 @@ export default function AccountPage() {
 
           {/* Phone */}
           <div className="p-4">
-            <Field label="Phone number" hint="Used for your WhatsApp business connection.">
+            <Field label="Phone number" hint="Used for your WhatsApp business connection." htmlFor={`${id}-phone`}>
               <input
+                id={`${id}-phone`}
                 type="tel"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
@@ -207,8 +221,9 @@ export default function AccountPage() {
 
           {/* Currency */}
           <div className="p-4">
-            <Field label="Preferred currency" hint="Used on invoices and payments.">
+            <Field label="Preferred currency" hint="Used on invoices and payments." htmlFor={`${id}-currency`}>
               <select
+                id={`${id}-currency`}
                 value={currency}
                 onChange={e => setCurrency(e.target.value)}
                 className="input-base appearance-none"
@@ -223,8 +238,9 @@ export default function AccountPage() {
 
           {/* Business name */}
           <div className="p-4">
-            <Field label="Business / Studio name" hint="Optional — shown on invoices instead of your personal name.">
+            <Field label="Business / Studio name" hint="Optional — shown on invoices instead of your personal name." htmlFor={`${id}-businessName`}>
               <input
+                id={`${id}-businessName`}
                 type="text"
                 value={businessName}
                 onChange={e => setBusinessName(e.target.value)}

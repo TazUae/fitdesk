@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useId, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -11,6 +11,7 @@ import type { Client } from '@/types'
 type Props = { params: { id: string } }
 
 export default function EditClientPage({ params }: Props) {
+  const id = useId()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [client, setClient] = useState<Client | null>(null)
@@ -87,10 +88,11 @@ export default function EditClientPage({ params }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+          <label htmlFor={`${id}-name`} className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Full name *
           </label>
           <input
+            id={`${id}-name`}
             name="customer_name"
             required
             defaultValue={client.name}
@@ -99,10 +101,11 @@ export default function EditClientPage({ params }: Props) {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+          <label htmlFor={`${id}-phone`} className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Phone
           </label>
           <input
+            id={`${id}-phone`}
             name="mobile_no"
             type="tel"
             defaultValue={client.mobile ?? ''}
@@ -111,10 +114,11 @@ export default function EditClientPage({ params }: Props) {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+          <label htmlFor={`${id}-packageType`} className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Package type
           </label>
           <select
+            id={`${id}-packageType`}
             name="custom_package_type"
             defaultValue={client.packageType ?? ''}
             className="input-base"
@@ -127,10 +131,11 @@ export default function EditClientPage({ params }: Props) {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+          <label htmlFor={`${id}-fitnessGoals`} className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Fitness goals
           </label>
           <input
+            id={`${id}-fitnessGoals`}
             name="custom_fitness_goals"
             defaultValue={client.fitnessGoals ?? ''}
             className="input-base"
@@ -139,10 +144,11 @@ export default function EditClientPage({ params }: Props) {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+          <label htmlFor={`${id}-trainerNotes`} className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Trainer notes
           </label>
           <textarea
+            id={`${id}-trainerNotes`}
             name="custom_trainer_notes"
             rows={3}
             defaultValue={client.trainerNotes ?? ''}
