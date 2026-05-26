@@ -1,5 +1,6 @@
 import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
+import { ymdInTz, hourInTz } from '@/lib/date'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { DashboardView } from '@/components/modules/DashboardView'
@@ -30,21 +31,30 @@ export default async function DashboardPage() {
   const session     = await auth.api.getSession({ headers: headers() })
   const trainerName = session?.user?.name ?? 'Trainer'
 
-  // ── Dates ───────────────────────────────────────────────────────────────────
-  const now        = new Date()
-  const today      = now.toISOString().slice(0, 10)
-  const greeting   = timeGreeting(now.getUTCHours())
-  const monthStart = today.slice(0, 8) + '01'
-
   // ── Parallel data fetch ─────────────────────────────────────────────────────
-  // Actions resolve the trainer ID from the auth session internally.
-  // Promise.allSettled so a single ERP failure doesn't blank the whole dashboard.
+  // Capture `now` before awaiting so the timestamp is consistent even if ERP
+  // is slow. Promise.allSettled so a single failure doesn't blank the dashboard.
+  const now = new Date()
+
   const [clientsResult, sessionsResult, invoicesResult, trainerSettingsResult] = await Promise.allSettled([
     getClients(),
     getSessions(),
     getInvoices(),
     getTrainerSettingsDoc(),
   ])
+
+  // ── Dates (resolved in the trainer's configured timezone) ───────────────────
+  // Fallback to 'UTC' when settings are unavailable — identical to prior behaviour.
+  const tz =
+    trainerSettingsResult.status === 'fulfilled' &&
+    typeof trainerSettingsResult.value?.timezone === 'string' &&
+    trainerSettingsResult.value.timezone.trim()
+      ? trainerSettingsResult.value.timezone.trim()
+      : 'UTC'
+
+  const today      = ymdInTz(now, tz)
+  const greeting   = timeGreeting(hourInTz(now, tz))
+  const monthStart = today.slice(0, 8) + '01'
 
   const clients: Client[] | null =
     clientsResult.status  === 'fulfilled' && clientsResult.value.success
@@ -103,7 +113,7 @@ export default async function DashboardPage() {
     ? null
     : countActiveClients(sessions, now.getTime())
 
-  const sessionYmd = (s: FDSession) => s.startAt.toISOString().slice(0, 10)
+  const sessionYmd = (s: FDSession) => ymdInTz(s.startAt, tz)
   const isActive   = (s: FDSession) => s.status === 'scheduled' || s.status === 'confirmed'
 
   const todaySessions: FDSession[] =
@@ -156,6 +166,7 @@ export default async function DashboardPage() {
       trainerName={trainerName}
       greeting={greeting}
       today={today}
+      timezone={tz}
       stats={{
         activeClients,
         totalClients,

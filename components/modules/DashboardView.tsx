@@ -19,6 +19,7 @@ import {
   FileText,
   UserPlus,
 } from 'lucide-react'
+import { ymdInTz, hhmInTz } from '@/lib/date'
 import { StatCard } from './StatCard'
 import { Avatar }   from './Avatar'
 import { Badge }    from './Badge'
@@ -33,6 +34,8 @@ interface DashboardViewProps {
   trainerName: string
   greeting:    string
   today:       string
+  /** IANA timezone for session date/time display (e.g. 'Asia/Riyadh'). */
+  timezone:    string
 
   stats: {
     activeClients:      number | null
@@ -200,13 +203,15 @@ function QuickActions({ progressText }: { progressText: string }) {
 function SessionCard({
   session,
   today,
+  timezone,
   compact = false,
 }: {
   session:  FDSession
   today:    string
+  timezone: string
   compact?: boolean
 }) {
-  const dateLabel = fmtSessionDate(session.startAt.toISOString().slice(0, 10), today)
+  const dateLabel = fmtSessionDate(ymdInTz(session.startAt, timezone), today)
 
   return (
     <Link
@@ -292,6 +297,7 @@ export function DashboardView({
   trainerName,
   greeting,
   today,
+  timezone,
   stats,
   todaySessions,
   upcomingSessions,
@@ -314,9 +320,9 @@ export function DashboardView({
     : 'All caught up'
   const completedThisWeek = sessionsThisWeek ?? 0
   const quickActionsProgress = `${completedThisWeek} of ${WEEKLY_SESSION_GOAL} sessions completed this week`
-  const nextSessionYmd = nextSession ? nextSession.startAt.toISOString().slice(0, 10) : ''
+  const nextSessionYmd = nextSession ? ymdInTz(nextSession.startAt, timezone) : ''
   const nextSessionDateLabel = nextSession ? fmtSessionDate(nextSessionYmd, today) : ''
-  const nextSessionTimeLabel = nextSession ? nextSession.startAt.toISOString().slice(11, 16) : 'Time TBD'
+  const nextSessionTimeLabel = nextSession ? hhmInTz(nextSession.startAt, timezone) : 'Time TBD'
   const nextSessionRelative = nextSession
     ? (nextSessionYmd === today
       ? 'Today'
@@ -564,7 +570,7 @@ export function DashboardView({
                       {session.clientName}
                     </p>
                     <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                      {fmtSessionDate(session.startAt.toISOString().slice(0, 10), today)} · {session.startAt.toISOString().slice(11, 16)}
+                      {fmtSessionDate(ymdInTz(session.startAt, timezone), today)} · {hhmInTz(session.startAt, timezone)}
                     </p>
                   </div>
                   <span className="shrink-0 text-xs" style={{ color: 'color-mix(in srgb, var(--fd-muted) 80%, transparent)' }}>
