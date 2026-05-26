@@ -100,3 +100,55 @@ describe('hhmInTz', () => {
     expect(hhmInTz(new Date('2026-05-27T00:00:00Z'), RIYADH)).toBe('03:00')
   })
 })
+
+// ─── Invalid timezone fallback (safeTimeZone guard) ───────────────────────────
+//
+// ERP Trainer Settings may contain a non-empty but unrecognised IANA value
+// (e.g. 'Beirut' instead of 'Asia/Beirut', or 'GMT+3'). All three helpers must
+// silently fall back to UTC rather than throw a RangeError.
+
+describe('invalid timezone fallback', () => {
+  // Anchor: UTC midnight on 2026-05-27 — a day boundary where UTC and UTC+3
+  // give different dates, making any accidental non-UTC behaviour detectable.
+  const MIDNIGHT_UTC = new Date('2026-05-27T00:00:00Z')
+  // Midday UTC — safe for hour/time tests with unambiguous UTC values.
+  const MIDDAY_UTC   = new Date('2026-05-27T14:00:00Z')
+
+  describe('ymdInTz', () => {
+    it('does not throw for an unrecognised timezone', () => {
+      expect(() => ymdInTz(MIDNIGHT_UTC, 'Not/A_Timezone')).not.toThrow()
+    })
+
+    it('falls back to UTC date for an unrecognised timezone', () => {
+      // UTC date at midnight is '2026-05-27'; Asia/Riyadh would give '2026-05-27'
+      // too (03:00 local), but any offset timezone would differ near midnight.
+      // The assertion intentionally matches UTC to confirm fallback behaviour.
+      expect(ymdInTz(MIDNIGHT_UTC, 'Not/A_Timezone')).toBe(ymdInTz(MIDNIGHT_UTC, 'UTC'))
+      expect(ymdInTz(MIDNIGHT_UTC, 'Beirut')).toBe(ymdInTz(MIDNIGHT_UTC, 'UTC'))
+    })
+  })
+
+  describe('hourInTz', () => {
+    it('does not throw for an unrecognised timezone', () => {
+      expect(() => hourInTz(MIDDAY_UTC, 'Not/A_Timezone')).not.toThrow()
+    })
+
+    it('falls back to UTC hour for an unrecognised timezone', () => {
+      // 14:00 UTC → UTC hour = 14
+      expect(hourInTz(MIDDAY_UTC, 'Not/A_Timezone')).toBe(hourInTz(MIDDAY_UTC, 'UTC'))
+      expect(hourInTz(MIDDAY_UTC, 'Beirut')).toBe(hourInTz(MIDDAY_UTC, 'UTC'))
+    })
+  })
+
+  describe('hhmInTz', () => {
+    it('does not throw for an unrecognised timezone', () => {
+      expect(() => hhmInTz(MIDDAY_UTC, 'Not/A_Timezone')).not.toThrow()
+    })
+
+    it('falls back to UTC time for an unrecognised timezone', () => {
+      // 14:00 UTC → '14:00'
+      expect(hhmInTz(MIDDAY_UTC, 'Not/A_Timezone')).toBe(hhmInTz(MIDDAY_UTC, 'UTC'))
+      expect(hhmInTz(MIDDAY_UTC, 'Beirut')).toBe(hhmInTz(MIDDAY_UTC, 'UTC'))
+    })
+  })
+})
