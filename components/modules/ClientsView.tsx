@@ -97,8 +97,8 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
       {/* Server-side fetch error */}
       {error && <ErrorState title="Could not load clients" message={error} inline />}
 
-      {/* Search — only shown when there are clients to search through */}
-      {clients.length > 2 && (
+      {/* Search — shown whenever there is at least one client */}
+      {clients.length > 0 && (
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
