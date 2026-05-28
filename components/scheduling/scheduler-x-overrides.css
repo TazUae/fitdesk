@@ -219,10 +219,42 @@
   outline-offset: 2px;
 }
 
-/* ── Mobile: hide native SX view-selector; the custom pill switcher takes over ── */
+/* ── Mobile: custom pill switcher owns view controls ────────────────────────── */
 @media (max-width: 767px) {
-  .fd-sx-wrap .sx__view-selection-selected-item,
-  .fd-sx-wrap .sx__view-selection-items {
+  /* Hide the entire native view-selection widget — wrapper, "View" label, button,
+     and dropdown.  The previous rule only hid the button/dropdown, leaving the
+     absolutely-positioned .sx__view-selection-label ("View" text) visible as a
+     floating artifact beside the Date control. Hiding the parent removes all of it. */
+  .fd-sx-wrap .sx__view-selection {
     display: none !important;
+  }
+
+  /* Compact the custom pill-switcher row (saves 4px vs Tailwind py-2 = 8px each side). */
+  .fd-sx-view-switcher {
+    padding-top:    6px;
+    padding-bottom: 6px;
+  }
+
+  /* Reduce calendar nav-header vertical padding on mobile.
+     With the view-selector hidden the row is shallower; tighter padding recovers
+     usable calendar height without affecting desktop layout. */
+  .fd-sx-wrap .sx__calendar-header {
+    padding: 6px 8px;
+  }
+
+  /* Compact the sticky day-name / date-number strip (saves ~16px vs 12px padding). */
+  .fd-sx-wrap .sx__week-grid__date {
+    padding: 4px 0;
+  }
+  .fd-sx-wrap .sx__week-grid__date-number {
+    font-size: 18px;
+  }
+
+  /* Reserve scroll clearance beneath the fixed mobile FAB.
+     The FAB is fixed bottom-6 (24px) + h-14 (56px) = ~80px from viewport bottom.
+     Adding padding-bottom to the scroll container lets users scroll the grid past
+     the covered area so event cards behind the button remain reachable. */
+  .fd-sx-wrap .sx__view-container {
+    padding-bottom: 80px;
   }
 }
