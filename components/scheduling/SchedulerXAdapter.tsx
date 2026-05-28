@@ -147,6 +147,7 @@ export function SchedulerXAdapter({
   const wasDragRef               = useRef(false)
   const onCalendarDateChangeRef  = useRef(onCalendarDateChange)
   const calendarDateRef          = useRef(calendarDate)
+  const wrapperRef               = useRef<HTMLDivElement>(null)
 
   useEffect(() => { sessionsRef.current            = sessions            }, [sessions])
   useEffect(() => { rawSessionsRef.current         = rawSessions         }, [rawSessions])
@@ -297,6 +298,58 @@ export function SchedulerXAdapter({
     calendarControlsPlugin.setDate(Temporal.PlainDate.from(incoming))
   }, [calendar, calendarDate, calendarControlsPlugin])
 
+  // Auto-scroll Day/Week views to "current time − 60 min" on intentional view entry.
+  // Runs when the calendar first initialises (calendar: null→obj) and on each user-
+  // driven view switch. Does not re-run on ordinary rerenders, so no snap-back after
+  // manual scrolling. Month view is skipped (overview; no time position needed).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!calendar || currentView === 'month-grid') return
+
+    // Week view: only scroll when today's date falls within the displayed week.
+    if (currentView === 'week') {
+      const today  = new Date()
+      const viewed = calendarDateRef.current
+      const diffMs = Math.abs(
+        new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
+        new Date(viewed.getFullYear(), viewed.getMonth(), viewed.getDate()).getTime(),
+      )
+      if (diffMs > 6 * 86400000) return
+    }
+
+    // Day view: only scroll when today is the displayed day.
+    if (currentView === 'day') {
+      const today  = new Date()
+      const viewed = calendarDateRef.current
+      if (
+        today.getFullYear() !== viewed.getFullYear() ||
+        today.getMonth()    !== viewed.getMonth()    ||
+        today.getDate()     !== viewed.getDate()
+      ) return
+    }
+
+    // Defer until Schedule-X has committed its view DOM update.
+    // Children's effects (ScheduleXCalendar.render) run before ours, so by the
+    // time this rAF fires the scroll container exists and has a real scrollHeight.
+    const raf = requestAnimationFrame(() => {
+      const container = wrapperRef.current?.querySelector<HTMLElement>('.sx__view-container')
+      if (!container || container.scrollHeight <= container.clientHeight) return
+
+      const now       = new Date()
+      const localMin  = now.getHours() * 60 + now.getMinutes()
+      const targetMin = Math.max(DAY_START_MIN, localMin - 60)
+      const fraction  = (targetMin - DAY_START_MIN) / DAY_DURATION_MIN
+      container.scrollTop = Math.min(
+        fraction * container.scrollHeight,
+        container.scrollHeight - container.clientHeight,
+      )
+    })
+
+    return () => cancelAnimationFrame(raf)
+  // calendar: null → obj fires once on init; currentView fires on each intentional switch.
+  // calendarDateRef is a ref — intentionally excluded from deps to avoid date-nav snap-back.
+  }, [calendar, currentView]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const sxCustomComponents = useMemo(
     () => ({ timeGridEvent: SessionCard }),
     [],
@@ -309,7 +362,7 @@ export function SchedulerXAdapter({
   }
 
   return (
-    <div className="fd-sx-wrap relative h-full min-w-0 w-full overflow-hidden">
+    <div ref={wrapperRef} className="fd-sx-wrap relative h-full min-w-0 w-full overflow-hidden">
       {/* Compact view switcher — mobile only (hidden at md+).
           The Schedule-X native header view-selector is hidden on mobile via CSS. */}
       <div className="fd-sx-view-switcher flex gap-1 border-b px-3 py-2 md:hidden"
