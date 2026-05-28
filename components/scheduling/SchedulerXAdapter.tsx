@@ -160,16 +160,13 @@ export function SchedulerXAdapter({
   useEffect(() => { onCalendarDateChangeRef.current = onCalendarDateChange }, [onCalendarDateChange])
   useEffect(() => { calendarDateRef.current         = calendarDate         }, [calendarDate])
 
-  // On first render, switch to Day view on mobile so the narrow grid is usable.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!window.matchMedia('(max-width: 767px)').matches) return
-    setCurrentView('day')
-    calendarControlsPlugin.setView('day')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally runs once on mount
-
-  const [currentView, setCurrentView] = useState<'week' | 'day' | 'month-grid'>('week')
+  // Initial view: Day on mobile (narrow grid), Week on desktop.
+  // Computed via lazy initializer so the calendar config receives the correct
+  // defaultView on first creation — no setView() call before plugin attachment.
+  const [currentView, setCurrentView] = useState<'week' | 'day' | 'month-grid'>(() => {
+    if (typeof window === 'undefined') return 'week'
+    return window.matchMedia('(max-width: 767px)').matches ? 'day' : 'week'
+  })
 
   const eventsService          = useMemo(() => createEventsServicePlugin(), [])
   const calendarControlsPlugin = useMemo(() => createCalendarControlsPlugin(), [])
@@ -177,7 +174,7 @@ export function SchedulerXAdapter({
   const calendar = useNextCalendarApp(
     {
       views:     [createViewWeek(), createViewDay(), createViewMonthGrid()],
-      defaultView: 'week',
+      defaultView: currentView,
       timezone,
       isDark:    false,
       calendars: STATUS_CALENDARS,
