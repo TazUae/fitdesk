@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Settings, HelpCircle, LogOut, X } from 'lucide-react'
+import { Settings, LogOut, X } from 'lucide-react'
 import { signOut } from '@/lib/auth-client'
 import { Avatar } from './Avatar'
 
@@ -164,16 +164,6 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
             >
               <Settings className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
               Account Settings
-            </Link>
-
-            <Link
-              href="/dashboard/help"
-              onClick={onClose}
-              className={itemBase}
-              style={{ color: 'var(--fd-text)' }}
-            >
-              <HelpCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
-              Help &amp; Support
             </Link>
 
             {/* Divider */}
