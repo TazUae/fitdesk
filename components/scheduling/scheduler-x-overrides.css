@@ -218,3 +218,11 @@
   outline: 2px solid #1A73E8;
   outline-offset: 2px;
 }
+
+/* ── Mobile: hide native SX view-selector; the custom pill switcher takes over ── */
+@media (max-width: 767px) {
+  .fd-sx-wrap .sx__view-selection-selected-item,
+  .fd-sx-wrap .sx__view-selection-items {
+    display: none !important;
+  }
+}

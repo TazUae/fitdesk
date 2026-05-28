@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import 'temporal-polyfill/global'
 import { ScheduleXCalendar, useNextCalendarApp } from '@schedule-x/react'
@@ -160,6 +160,17 @@ export function SchedulerXAdapter({
   useEffect(() => { onCalendarDateChangeRef.current = onCalendarDateChange }, [onCalendarDateChange])
   useEffect(() => { calendarDateRef.current         = calendarDate         }, [calendarDate])
 
+  // On first render, switch to Day view on mobile so the narrow grid is usable.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!window.matchMedia('(max-width: 767px)').matches) return
+    setCurrentView('day')
+    calendarControlsPlugin.setView('day')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally runs once on mount
+
+  const [currentView, setCurrentView] = useState<'week' | 'day' | 'month-grid'>('week')
+
   const eventsService          = useMemo(() => createEventsServicePlugin(), [])
   const calendarControlsPlugin = useMemo(() => createCalendarControlsPlugin(), [])
 
@@ -294,8 +305,37 @@ export function SchedulerXAdapter({
     [],
   )
 
+  const VIEW_LABELS: Record<'day' | 'week' | 'month-grid', string> = {
+    day:          'Day',
+    week:         'Week',
+    'month-grid': 'Month',
+  }
+
   return (
     <div className="fd-sx-wrap relative h-full min-w-0 w-full overflow-hidden">
+      {/* Compact view switcher — mobile only (hidden at md+).
+          The Schedule-X native header view-selector is hidden on mobile via CSS. */}
+      <div className="fd-sx-view-switcher flex gap-1 border-b px-3 py-2 md:hidden"
+        style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-surface)' }}
+      >
+        {(['day', 'week', 'month-grid'] as const).map(v => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => { calendarControlsPlugin.setView(v); setCurrentView(v) }}
+            className="flex-1 rounded-full px-3 py-1 text-sm font-medium transition-colors"
+            style={
+              currentView === v
+                ? { backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }
+                : { backgroundColor: 'transparent', color: 'var(--fd-muted)',
+                    border: '1px solid var(--fd-border)' }
+            }
+          >
+            {VIEW_LABELS[v]}
+          </button>
+        ))}
+      </div>
+
       <NowLine />
       <ScheduleXCalendar
         calendarApp={calendar}
