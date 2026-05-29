@@ -298,36 +298,78 @@ export function SchedulerXAdapter({
     calendarControlsPlugin.setDate(Temporal.PlainDate.from(incoming))
   }, [calendar, calendarDate, calendarControlsPlugin])
 
-  // Auto-scroll Day/Week views to "current time − 60 min" on intentional view entry.
-  // Runs when the calendar first initialises (calendar: null→obj) and on each user-
-  // driven view switch. Does not re-run on ordinary rerenders, so no snap-back after
-  // manual scrolling. Month view is skipped (overview; no time position needed).
+  // Track previous view/calendar so the effect below can distinguish a genuine
+  // view-entry (or calendar init) from a date-only navigation.
+  const prevViewRef     = useRef(currentView)
+  const prevCalendarRef = useRef<typeof calendar>(null)
+
+  // Auto-scroll time-grid views to the most relevant time on intentional entry.
+  //
+  //   Week (desktop full grid): unchanged — scroll near current local time − 60 min
+  //     only on view entry / calendar init, and only when today is in the displayed
+  //     week. Never reacts to date navigation.
+  //
+  //   Day (mobile): open where the trainer's work is —
+  //     • today                       → current local time − 60 min
+  //     • another day with sessions   → first appointment start − 60 min
+  //     • another day with no sessions→ no forced scroll (leave working-hours top)
+  //     Re-runs once on date navigation so a newly-selected day lands on its first
+  //     appointment; does not re-run on ordinary rerenders (no snap-back).
+  //
+  //   Agenda views (week-agenda / month-agenda) and month-grid are skipped.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    // Only scroll for time-grid views. Agenda views have their own layout.
+    const viewChangedOrInit =
+      prevViewRef.current !== currentView || prevCalendarRef.current !== calendar
+    prevViewRef.current     = currentView
+    prevCalendarRef.current = calendar
+
     if (!calendar || (currentView !== 'day' && currentView !== 'week')) return
 
-    // Week view: only scroll when today's date falls within the displayed week.
+    const today  = new Date()
+    const viewed = calendarDate
+    const isToday =
+      today.getFullYear() === viewed.getFullYear() &&
+      today.getMonth()    === viewed.getMonth()    &&
+      today.getDate()     === viewed.getDate()
+
+    // Minute-of-day to bring into view (top of viewport ≈ targetMin), or bail out.
+    let targetMin: number
+
     if (currentView === 'week') {
-      const today  = new Date()
-      const viewed = calendarDateRef.current
+      // Preserve existing Week behaviour: respond only to view entry / init,
+      // never to date navigation, and only when today is in the displayed week.
+      if (!viewChangedOrInit) return
       const diffMs = Math.abs(
         new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
         new Date(viewed.getFullYear(), viewed.getMonth(), viewed.getDate()).getTime(),
       )
       if (diffMs > 6 * 86400000) return
+      targetMin = today.getHours() * 60 + today.getMinutes() - 60
+    } else if (isToday) {
+      // Day, today: keep current behaviour — near current local time.
+      targetMin = today.getHours() * 60 + today.getMinutes() - 60
+    } else {
+      // Day, another date: scroll to the earliest appointment on that day, if any.
+      // Uses sessions already in the adapter; no fetch, no mutation of event order.
+      // Day-of-day comparison and minute-of-day use local getters, matching the
+      // today/now path above.
+      const earliestMin = sessionsRef.current.reduce<number | null>((min, s) => {
+        const d = s.start
+        if (
+          d.getFullYear() !== viewed.getFullYear() ||
+          d.getMonth()    !== viewed.getMonth()    ||
+          d.getDate()     !== viewed.getDate()
+        ) return min
+        const mins = d.getHours() * 60 + d.getMinutes()
+        return min === null || mins < min ? mins : min
+      }, null)
+      // No sessions that day → leave the default working-hours position untouched.
+      if (earliestMin === null) return
+      targetMin = earliestMin - 60
     }
 
-    // Day view: only scroll when today is the displayed day.
-    if (currentView === 'day') {
-      const today  = new Date()
-      const viewed = calendarDateRef.current
-      if (
-        today.getFullYear() !== viewed.getFullYear() ||
-        today.getMonth()    !== viewed.getMonth()    ||
-        today.getDate()     !== viewed.getDate()
-      ) return
-    }
+    targetMin = Math.max(DAY_START_MIN, targetMin)
 
     // Defer until Schedule-X has committed its view DOM update.
     // Children's effects (ScheduleXCalendar.render) run before ours, so by the
@@ -336,10 +378,7 @@ export function SchedulerXAdapter({
       const container = wrapperRef.current?.querySelector<HTMLElement>('.sx__view-container')
       if (!container || container.scrollHeight <= container.clientHeight) return
 
-      const now       = new Date()
-      const localMin  = now.getHours() * 60 + now.getMinutes()
-      const targetMin = Math.max(DAY_START_MIN, localMin - 60)
-      const fraction  = (targetMin - DAY_START_MIN) / DAY_DURATION_MIN
+      const fraction = (targetMin - DAY_START_MIN) / DAY_DURATION_MIN
       container.scrollTop = Math.min(
         fraction * container.scrollHeight,
         container.scrollHeight - container.clientHeight,
@@ -347,9 +386,9 @@ export function SchedulerXAdapter({
     })
 
     return () => cancelAnimationFrame(raf)
-  // calendar: null → obj fires once on init; currentView fires on each intentional switch.
-  // calendarDateRef is a ref — intentionally excluded from deps to avoid date-nav snap-back.
-  }, [calendar, currentView]) // eslint-disable-line react-hooks/exhaustive-deps
+  // calendar: null → obj fires once on init; currentView on each intentional switch;
+  // calendarDate on date navigation (Day re-scrolls; Week ignores via viewChangedOrInit).
+  }, [calendar, currentView, calendarDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sxCustomComponents = useMemo(
     () => ({ timeGridEvent: SessionCard }),
