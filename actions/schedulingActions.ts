@@ -33,6 +33,9 @@ import {
   markNoShow as svcMarkNoShow,
   VersionConflictError,
   ImmutableSessionError,
+  BillingNotConfiguredError,
+  SessionRateNotConfiguredError,
+  PackageCompletionNotReadyError,
 } from '@/lib/scheduling/sessionService'
 import type { BookingPlan, FDSession, TrainerConfig } from '@/types/scheduling'
 
@@ -49,6 +52,9 @@ export type SchedulingErrorCode =
   | 'VERSION_CONFLICT'
   | 'IMMUTABLE_STATUS'
   | 'EMPTY_PLAN'
+  | 'BILLING_NOT_CONFIGURED'
+  | 'SESSION_RATE_NOT_CONFIGURED'
+  | 'PACKAGE_NOT_READY'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -115,6 +121,27 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
     return {
       success: false,
       code: 'IMMUTABLE_STATUS',
+      message: err.message,
+    }
+  }
+  if (err instanceof BillingNotConfiguredError) {
+    return {
+      success: false,
+      code: 'BILLING_NOT_CONFIGURED',
+      message: err.message,
+    }
+  }
+  if (err instanceof SessionRateNotConfiguredError) {
+    return {
+      success: false,
+      code: 'SESSION_RATE_NOT_CONFIGURED',
+      message: err.message,
+    }
+  }
+  if (err instanceof PackageCompletionNotReadyError) {
+    return {
+      success: false,
+      code: 'PACKAGE_NOT_READY',
       message: err.message,
     }
   }

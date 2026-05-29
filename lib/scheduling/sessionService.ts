@@ -18,7 +18,7 @@ import {
   cancelSession as repositoryCancelSession,
 } from '@/lib/scheduling/sessionRepository'
 import { ConflictError, OutOfHoursError } from '@/lib/scheduling/bookingService'
-import { createInvoice } from '@/lib/erpnext/client'
+import { createInvoice, submitSalesInvoice, getClientById } from '@/lib/erpnext/client'
 import type {
   FDSession,
   FDSessionStatus,
@@ -46,6 +46,30 @@ export class ImmutableSessionError extends Error {
   constructor(id: string, public readonly status: FDSessionStatus) {
     super(`Session ${id} cannot be modified: status is '${status}'`)
     this.name = 'ImmutableSessionError'
+  }
+}
+
+/** Thrown when the client has no billing mode — set one before completing sessions. */
+export class BillingNotConfiguredError extends Error {
+  constructor(public readonly clientId: string) {
+    super(`Client ${clientId} has no billing mode configured — set a billing mode before completing sessions`)
+    this.name = 'BillingNotConfiguredError'
+  }
+}
+
+/** Thrown when the session rate is zero or missing (Pay Per Session only). */
+export class SessionRateNotConfiguredError extends Error {
+  constructor(public readonly sessionId: string) {
+    super(`Session ${sessionId} has no rate configured — set a session rate before completing`)
+    this.name = 'SessionRateNotConfiguredError'
+  }
+}
+
+/** Thrown when attempting to complete a Package session (not yet supported). */
+export class PackageCompletionNotReadyError extends Error {
+  constructor(public readonly clientId: string) {
+    super(`Package session completion is not yet supported for client ${clientId}`)
+    this.name = 'PackageCompletionNotReadyError'
   }
 }
 
@@ -210,20 +234,27 @@ export async function cancelSession(
 // ─── completeSession ──────────────────────────────────────────────────────────
 
 /**
- * Mark a session as completed and draft its Sales Invoice.
+ * Mark a session as completed, creating and submitting a collectible
+ * Sales Invoice when the client's billing mode requires it.
  *
- * Guards:
+ * Billing-mode dispatch:
+ *  - Pay Per Session: create a draft Invoice, submit it so it is payable,
+ *    then flip the session to 'completed'. Idempotent: if the session
+ *    already carries an invoiceId the existing invoice is reused and
+ *    submission is skipped (assumed already submitted).
+ *  - Trial: flip the session to 'completed' with no invoice — no charge.
+ *  - Package: throws PackageCompletionNotReadyError — package-balance
+ *    decrement is not yet implemented.
+ *
+ * Guards (applied before any side effects):
  *  1. Version check — rejects stale reads.
  *  2. Immutable-state check — only scheduled / confirmed may transition.
+ *  3. Billing-mode check — missing mode → BillingNotConfiguredError;
+ *     zero/missing rate (Pay Per Session) → SessionRateNotConfiguredError.
  *
- * Side effects (Phase B):
- *  - Creates a Draft Sales Invoice in ERPNext for the session's rate.
- *  - Stores the invoice docname on the session's invoice_id.
- *
- * Order matters: the invoice is created BEFORE the status flip so that a
- * failure in ERPNext leaves the session in its mutable state (retryable).
- * If the session already has an invoice_id (prior partial attempt), the
- * existing invoice is reused — no duplicate is drafted.
+ * Order matters: the invoice is created and submitted BEFORE the status
+ * flip so that a failure in ERPNext leaves the session in its mutable
+ * state (retryable).
  */
 export async function completeSession(
   id: string,
@@ -236,6 +267,27 @@ export async function completeSession(
   }
 
   assertMutable(current)
+
+  // Resolve the client's billing mode — drives the invoice path.
+  const client = await getClientById(current.clientId, current.trainerId)
+
+  if (!client.billingMode) {
+    throw new BillingNotConfiguredError(current.clientId)
+  }
+
+  if (client.billingMode === 'Package') {
+    throw new PackageCompletionNotReadyError(current.clientId)
+  }
+
+  if (client.billingMode === 'Trial') {
+    // Trial sessions carry no charge — complete without an invoice.
+    return updateSession(id, { status: 'completed' })
+  }
+
+  // Pay Per Session: validate rate, then create + submit so the invoice is collectible.
+  if (!current.rate || current.rate <= 0) {
+    throw new SessionRateNotConfiguredError(id)
+  }
 
   let invoiceId = current.invoiceId
   if (!invoiceId) {
@@ -253,6 +305,7 @@ export async function completeSession(
       remarks: `FitDesk session ${current.id}`,
     })
     invoiceId = invoice.id
+    await submitSalesInvoice(invoiceId)
   }
 
   return updateSession(id, { status: 'completed', invoiceId })

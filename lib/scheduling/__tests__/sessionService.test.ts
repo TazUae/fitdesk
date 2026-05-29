@@ -16,7 +16,9 @@ vi.mock('@/lib/scheduling/sessionRepository', () => ({
 }))
 
 vi.mock('@/lib/erpnext/client', () => ({
-  createInvoice: vi.fn(),
+  createInvoice:      vi.fn(),
+  submitSalesInvoice: vi.fn(),
+  getClientById:      vi.fn(),
 }))
 
 import {
@@ -26,12 +28,15 @@ import {
   markNoShow,
   VersionConflictError,
   ImmutableSessionError,
+  BillingNotConfiguredError,
+  SessionRateNotConfiguredError,
+  PackageCompletionNotReadyError,
 } from '@/lib/scheduling/sessionService'
 import { ConflictError, OutOfHoursError } from '@/lib/scheduling/bookingService'
 import * as repo from '@/lib/scheduling/sessionRepository'
 import * as erpClient from '@/lib/erpnext/client'
 import type { FDSession, TrainerConfig } from '@/types/scheduling'
-import type { Invoice } from '@/types'
+import type { Client, Invoice } from '@/types'
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -46,34 +51,38 @@ const CONFIG: TrainerConfig = {
 
 /** Mon 2026-01-05 09:00–10:00 Riyadh = 06:00–07:00 UTC */
 const BASE_SESSION: FDSession = {
-  id:              'fd-1',
-  tenantId:        '',
-  trainerId:       'trainer-1',
-  clientId:        'client-1',
-  clientName:      'John Doe',
-  seriesId:        null,
-  startAt:         new Date('2026-01-05T06:00:00.000Z'),
-  endAt:           new Date('2026-01-05T07:00:00.000Z'),
-  durationMinutes: 60,
-  timezone:        'Asia/Riyadh',
-  status:          'scheduled',
-  occurrenceKey:   null,
-  occurrenceIndex: null,
-  isOverride:      false,
-  rate:            100,
-  sessionType:     null,
-  notes:           null,
-  invoiceId:       null,
-  version:         1,
+  id:                     'fd-1',
+  tenantId:               '',
+  trainerId:              'trainer-1',
+  clientId:               'client-1',
+  clientName:             'John Doe',
+  seriesId:               null,
+  startAt:                new Date('2026-01-05T06:00:00.000Z'),
+  endAt:                  new Date('2026-01-05T07:00:00.000Z'),
+  durationMinutes:        60,
+  timezone:               'Asia/Riyadh',
+  status:                 'scheduled',
+  occurrenceKey:          null,
+  occurrenceIndex:        null,
+  isOverride:             false,
+  rate:                   100,
+  sessionType:            null,
+  notes:                  null,
+  invoiceId:              null,
+  version:                1,
+  isTrialSession:         false,
+  sessionConsumedPackage: false,
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const mockFindById      = vi.mocked(repo.findSessionById)
-const mockFindRange     = vi.mocked(repo.findSessionsInRange)
-const mockUpdate        = vi.mocked(repo.updateSession)
-const mockRepoCancel    = vi.mocked(repo.cancelSession)
-const mockCreateInvoice = vi.mocked(erpClient.createInvoice)
+const mockFindById           = vi.mocked(repo.findSessionById)
+const mockFindRange          = vi.mocked(repo.findSessionsInRange)
+const mockUpdate             = vi.mocked(repo.updateSession)
+const mockRepoCancel         = vi.mocked(repo.cancelSession)
+const mockCreateInvoice      = vi.mocked(erpClient.createInvoice)
+const mockSubmitSalesInvoice = vi.mocked(erpClient.submitSalesInvoice)
+const mockGetClientById      = vi.mocked(erpClient.getClientById)
 
 const MOCK_INVOICE: Invoice = {
   id:                'SINV-00001',
@@ -88,12 +97,16 @@ const MOCK_INVOICE: Invoice = {
   issuedAt:          '2026-01-05',
 }
 
+const MOCK_SUBMITTED_INVOICE: Invoice = { ...MOCK_INVOICE, status: 'sent' }
+
 function clearMocks() {
   mockFindById.mockReset()
   mockFindRange.mockReset()
   mockUpdate.mockReset()
   mockRepoCancel.mockReset()
   mockCreateInvoice.mockReset()
+  mockSubmitSalesInvoice.mockReset()
+  mockGetClientById.mockReset()
 }
 
 beforeEach(clearMocks)
@@ -334,14 +347,18 @@ describe('cancelSession', () => {
 // ─── completeSession ──────────────────────────────────────────────────────────
 
 describe('completeSession', () => {
-  it('happy path: creates invoice then updates status to completed', async () => {
+  it('happy path: creates invoice, submits it, then updates status to completed', async () => {
     mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
     const result = await completeSession('fd-1', 1)
 
     expect(mockCreateInvoice).toHaveBeenCalledOnce()
+    expect(mockSubmitSalesInvoice).toHaveBeenCalledOnce()
+    expect(mockSubmitSalesInvoice).toHaveBeenCalledWith(MOCK_INVOICE.id)
     expect(mockUpdate).toHaveBeenCalledWith('fd-1', {
       status:    'completed',
       invoiceId: MOCK_INVOICE.id,
@@ -350,14 +367,16 @@ describe('completeSession', () => {
     expect(result.invoiceId).toBe(MOCK_INVOICE.id)
   })
 
-  it('reuses existing invoiceId without creating a new invoice', async () => {
+  it('reuses existing invoiceId without creating or submitting a new invoice', async () => {
     const sessionWithInvoice = { ...BASE_SESSION, invoiceId: 'SINV-00001' }
     mockFindById.mockResolvedValue(sessionWithInvoice)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockUpdate.mockResolvedValue({ ...sessionWithInvoice, status: 'completed' as const })
 
     await completeSession('fd-1', 1)
 
     expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockSubmitSalesInvoice).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith('fd-1', {
       status:    'completed',
       invoiceId: 'SINV-00001',
@@ -388,7 +407,9 @@ describe('completeSession', () => {
   it('calls createInvoice with correct item code, rate, and client', async () => {
     const session = { ...BASE_SESSION, rate: 150, sessionType: 'Strength' }
     mockFindById.mockResolvedValue(session)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...session, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
     await completeSession('fd-1', 1)
@@ -402,7 +423,9 @@ describe('completeSession', () => {
 
   it('uses "Training session" as description when sessionType is null', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, sessionType: null })
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
     await completeSession('fd-1', 1)
@@ -415,7 +438,9 @@ describe('completeSession', () => {
     // BASE_SESSION is dated 2026-01-05 (a past session); the invoice payload
     // must still carry due_date >= posting_date so ERPNext does not reject it.
     mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockCreateInvoice.mockResolvedValue(MOCK_INVOICE)
+    mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
     await completeSession('fd-1', 1)
@@ -423,6 +448,45 @@ describe('completeSession', () => {
     const payload = mockCreateInvoice.mock.calls[0][0]
     expect(payload.posting_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(payload.due_date >= payload.posting_date).toBe(true)
+  })
+
+  it('throws BillingNotConfiguredError when client has no billing mode', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', createdAt: '' } as Client)
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(BillingNotConfiguredError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('throws PackageCompletionNotReadyError when billing mode is Package', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Package', createdAt: '' } as Client)
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('completes without invoice when billing mode is Trial', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Trial', createdAt: '' } as Client)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const })
+
+    const result = await completeSession('fd-1', 1)
+
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockSubmitSalesInvoice).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith('fd-1', { status: 'completed' })
+    expect(result.status).toBe('completed')
+  })
+
+  it('throws SessionRateNotConfiguredError when rate is 0 (Pay Per Session)', async () => {
+    mockFindById.mockResolvedValue({ ...BASE_SESSION, rate: 0 })
+    mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
+
+    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
   })
 })
 

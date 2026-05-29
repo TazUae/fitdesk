@@ -30,7 +30,18 @@ const errors = vi.hoisted(() => {
   }
   class VersionConflictError extends Error {}
   class ImmutableSessionError extends Error {}
-  return { ConflictError, OutOfHoursError, VersionConflictError, ImmutableSessionError }
+  class BillingNotConfiguredError extends Error {}
+  class SessionRateNotConfiguredError extends Error {}
+  class PackageCompletionNotReadyError extends Error {}
+  return {
+    ConflictError,
+    OutOfHoursError,
+    VersionConflictError,
+    ImmutableSessionError,
+    BillingNotConfiguredError,
+    SessionRateNotConfiguredError,
+    PackageCompletionNotReadyError,
+  }
 })
 
 vi.mock('@/lib/auth', () => ({
@@ -63,12 +74,15 @@ vi.mock('@/lib/scheduling/bookingService', () => ({
 }))
 
 vi.mock('@/lib/scheduling/sessionService', () => ({
-  rescheduleOne:        vi.fn(),
-  cancelSession:        vi.fn(),
-  completeSession:      vi.fn(),
-  markNoShow:           vi.fn(),
-  VersionConflictError: errors.VersionConflictError,
-  ImmutableSessionError: errors.ImmutableSessionError,
+  rescheduleOne:               vi.fn(),
+  cancelSession:               vi.fn(),
+  completeSession:             vi.fn(),
+  markNoShow:                  vi.fn(),
+  VersionConflictError:        errors.VersionConflictError,
+  ImmutableSessionError:       errors.ImmutableSessionError,
+  BillingNotConfiguredError:   errors.BillingNotConfiguredError,
+  SessionRateNotConfiguredError: errors.SessionRateNotConfiguredError,
+  PackageCompletionNotReadyError: errors.PackageCompletionNotReadyError,
 }))
 
 import * as authModule    from '@/lib/auth'
@@ -97,25 +111,27 @@ import type { FDSession } from '@/types/scheduling'
 const TRAINER_ID = 'trainer-abc'
 
 const MOCK_SESSION: FDSession = {
-  id:              'fd-1',
-  tenantId:        '',
-  trainerId:       TRAINER_ID,
-  clientId:        'client-1',
-  clientName:      'Jane Doe',
-  seriesId:        null,
-  startAt:         new Date('2026-01-05T06:00:00.000Z'),
-  endAt:           new Date('2026-01-05T07:00:00.000Z'),
-  durationMinutes: 60,
-  timezone:        'UTC',
-  status:          'scheduled',
-  occurrenceKey:   null,
-  occurrenceIndex: null,
-  isOverride:      false,
-  rate:            100,
-  sessionType:     null,
-  notes:           null,
-  invoiceId:       null,
-  version:         1,
+  id:                     'fd-1',
+  tenantId:               '',
+  trainerId:              TRAINER_ID,
+  clientId:               'client-1',
+  clientName:             'Jane Doe',
+  seriesId:               null,
+  startAt:                new Date('2026-01-05T06:00:00.000Z'),
+  endAt:                  new Date('2026-01-05T07:00:00.000Z'),
+  durationMinutes:        60,
+  timezone:               'UTC',
+  status:                 'scheduled',
+  occurrenceKey:          null,
+  occurrenceIndex:        null,
+  isOverride:             false,
+  rate:                   100,
+  sessionType:            null,
+  notes:                  null,
+  invoiceId:              null,
+  version:                1,
+  isTrialSession:         false,
+  sessionConsumedPackage: false,
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
