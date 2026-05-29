@@ -242,14 +242,6 @@
     padding: 6px 8px;
   }
 
-  /* Compact the sticky day-name / date-number strip (saves ~16px vs 12px padding). */
-  .fd-sx-wrap .sx__week-grid__date {
-    padding: 4px 0;
-  }
-  .fd-sx-wrap .sx__week-grid__date-number {
-    font-size: 18px;
-  }
-
   /* Reserve scroll clearance beneath the fixed mobile FAB.
      The FAB is fixed bottom-6 (24px) + h-14 (56px) = ~80px from viewport bottom.
      Adding padding-bottom to the scroll container lets users scroll the grid past

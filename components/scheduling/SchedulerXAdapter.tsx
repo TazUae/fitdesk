@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import 'temporal-polyfill/global'
 import { ScheduleXCalendar, useNextCalendarApp } from '@schedule-x/react'
-import { createViewWeek, createViewDay, createViewMonthGrid } from '@schedule-x/calendar'
+import { createViewWeek, createViewDay, createViewMonthGrid, createViewWeekAgenda, createViewMonthAgenda } from '@schedule-x/calendar'
 import type { BackgroundEvent, CalendarEvent, CalendarType } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import { createCalendarControlsPlugin } from '@schedule-x/calendar-controls'
@@ -164,7 +164,7 @@ export function SchedulerXAdapter({
   // Initial view: Day on mobile (narrow grid), Week on desktop.
   // Computed via lazy initializer so the calendar config receives the correct
   // defaultView on first creation — no setView() call before plugin attachment.
-  const [currentView, setCurrentView] = useState<'week' | 'day' | 'month-grid'>(() => {
+  const [currentView, setCurrentView] = useState<'week' | 'day' | 'month-grid' | 'week-agenda' | 'month-agenda'>(() => {
     if (typeof window === 'undefined') return 'week'
     return window.matchMedia('(max-width: 767px)').matches ? 'day' : 'week'
   })
@@ -174,7 +174,7 @@ export function SchedulerXAdapter({
 
   const calendar = useNextCalendarApp(
     {
-      views:     [createViewWeek(), createViewDay(), createViewMonthGrid()],
+      views:     [createViewWeek(), createViewDay(), createViewMonthGrid(), createViewWeekAgenda(), createViewMonthAgenda()],
       defaultView: currentView,
       timezone,
       isDark:    false,
@@ -304,7 +304,8 @@ export function SchedulerXAdapter({
   // manual scrolling. Month view is skipped (overview; no time position needed).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!calendar || currentView === 'month-grid') return
+    // Only scroll for time-grid views. Agenda views have their own layout.
+    if (!calendar || (currentView !== 'day' && currentView !== 'week')) return
 
     // Week view: only scroll when today's date falls within the displayed week.
     if (currentView === 'week') {
@@ -355,10 +356,10 @@ export function SchedulerXAdapter({
     [],
   )
 
-  const VIEW_LABELS: Record<'day' | 'week' | 'month-grid', string> = {
-    day:          'Day',
-    week:         'Week',
-    'month-grid': 'Month',
+  const VIEW_LABELS: Record<'day' | 'week-agenda' | 'month-agenda', string> = {
+    day:            'Day',
+    'week-agenda':  'Week',
+    'month-agenda': 'Month',
   }
 
   return (
@@ -368,7 +369,7 @@ export function SchedulerXAdapter({
       <div className="fd-sx-view-switcher flex gap-1 border-b px-3 py-2 md:hidden"
         style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-surface)' }}
       >
-        {(['day', 'week', 'month-grid'] as const).map(v => (
+        {(['day', 'week-agenda', 'month-agenda'] as const).map(v => (
           <button
             key={v}
             type="button"
