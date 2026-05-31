@@ -386,6 +386,22 @@ export async function getSessions(opts: {
 }
 
 /** Create a new scheduled session. */
+/**
+ * Fetch a single session by ERPNext docname.
+ * Throws ERPNextError(403) if the session's trainer field does not match trainerId.
+ * Mirrors getClientById — the ownership-gate primitive for by-id session mutations.
+ */
+export async function getSessionById(id: string, trainerId: string): Promise<Session> {
+  const res = await erpFetch<ERPDocResponse<ERPSession>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}/${encodeURIComponent(id)}`,
+  )
+  const session = normalizeSession(res.data)
+  if (session.trainerId !== trainerId) {
+    throw new ERPNextError(403, 'Forbidden', `/api/resource/${DOCTYPE.SESSION}/${id}`, 'Session does not belong to this trainer.')
+  }
+  return session
+}
+
 export async function createSession(payload: CreateSessionPayload): Promise<Session> {
   const res = await erpFetch<ERPDocResponse<ERPSession>>(
     `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}`,
