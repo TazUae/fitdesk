@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth'
 import {
   cancelSession as erpCancelSession,
   createSession,
+  getSessionById,
   getSessions,
   markSessionComplete,
 } from '@/lib/business-data/erp-adapter'
@@ -101,10 +102,12 @@ export async function completeSession(
   sessionId: string,
   notes?: string,
 ): Promise<ActionResult<Session>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
+    // Ownership gate: only the session's own trainer may complete it (intra-tenant IDOR).
+    await getSessionById(sessionId, resolved.trainerId)
     const data = await markSessionComplete(sessionId, notes)
     return { success: true, data }
   } catch (err) {
@@ -116,10 +119,12 @@ export async function completeSession(
  * Cancel a scheduled session.
  */
 export async function cancelSession(sessionId: string): Promise<ActionResult<Session>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
+    // Ownership gate: only the session's own trainer may cancel it (intra-tenant IDOR).
+    await getSessionById(sessionId, resolved.trainerId)
     const data = await erpCancelSession(sessionId)
     return { success: true, data }
   } catch (err) {
