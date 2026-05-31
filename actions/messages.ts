@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { getClientById, getInvoiceById } from '@/lib/business-data/erp-adapter'
+import { getClientById, getInvoiceByIdForTrainer } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { sendWhatsAppMessage } from '@/lib/evolution'
 import { generateMessage } from '@/lib/claude'
@@ -69,7 +69,7 @@ export async function generateDraftMessage(
 
     if (invoiceId) {
       try {
-        const invoice = await getInvoiceById(invoiceId)
+        const invoice = await getInvoiceByIdForTrainer(invoiceId, draftTrainerId)
         context.invoiceId = invoice.id
         context.amount    = invoice.amount
         context.currency  = invoice.currency
