@@ -1,5 +1,6 @@
 import { getClients, getInvoices } from '@/lib/business-data'
 import { InvoicesView }  from '@/components/modules/InvoicesView'
+import { PendingPaymentNotifications } from '@/components/modules/PendingPaymentNotifications'
 
 export default async function InvoicesPage() {
   const [invoicesResult, clientsResult] = await Promise.all([
@@ -12,10 +13,13 @@ export default async function InvoicesPage() {
     : []
 
   return (
-    <InvoicesView
-      invoices={invoicesResult.success ? invoicesResult.data : []}
-      clients={activeClients}
-      error={invoicesResult.success ? undefined : invoicesResult.error}
-    />
+    <>
+      <PendingPaymentNotifications />
+      <InvoicesView
+        invoices={invoicesResult.success ? invoicesResult.data : []}
+        clients={activeClients}
+        error={invoicesResult.success ? undefined : invoicesResult.error}
+      />
+    </>
   )
 }
