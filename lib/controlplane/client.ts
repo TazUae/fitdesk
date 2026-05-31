@@ -79,3 +79,12 @@ export async function getTenant(tenantId: string) {
 export async function listTenants() {
   return cpFetch("/tenants");
 }
+
+/**
+ * List a tenant's pending payment notifications (workflow state recorded from the
+ * ERP invoice-submitted webhook). Returns the raw Control Plane body; callers
+ * validate it before use.
+ */
+export async function listPendingPaymentNotifications(slug: string): Promise<unknown> {
+  return cpFetch(`/tenants/${encodeURIComponent(slug)}/pending-payment-notifications`);
+}
