@@ -532,6 +532,18 @@ export async function getInvoiceById(id: string): Promise<Invoice> {
   return normalizeInvoice(res.data)
 }
 
+/**
+ * Fetch a single invoice and verify it belongs to the trainer.
+ * The invoice's customer (`invoice.clientId`) is the Client docname, so ownership is
+ * verified via getClientById (which throws ERPNextError(403) on mismatch).
+ * Use this for all trainer-facing invoice-by-id reads/mutations.
+ */
+export async function getInvoiceByIdForTrainer(id: string, trainerId: string): Promise<Invoice> {
+  const invoice = await getInvoiceById(id)
+  await getClientById(invoice.clientId, trainerId)
+  return invoice
+}
+
 /** Create a new Sales Invoice in ERPNext. Returns the saved draft invoice. */
 export async function createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
   const res = await erpFetch<ERPDocResponse<ERPInvoice>>(

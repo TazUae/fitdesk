@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { createInvoice, getInvoiceById, getInvoices, markInvoicePaid } from '@/lib/business-data/erp-adapter'
+import { createInvoice, getInvoiceByIdForTrainer, getInvoices, markInvoicePaid } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import {
   generatePaymentLink,
@@ -67,11 +67,12 @@ export async function fetchInvoices(opts: {
 
 /** Fetch a single invoice by ERPNext docname. */
 export async function fetchInvoiceById(id: string): Promise<ActionResult<Invoice>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
-    const data = await getInvoiceById(id)
+    // Ownership gate: the invoice's customer must be one of this trainer's clients.
+    const data = await getInvoiceByIdForTrainer(id, resolved.trainerId)
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to fetch invoice' }
@@ -160,6 +161,8 @@ export async function recordPayment(opts: {
   if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
+    // Ownership gate: only the invoice's owning trainer may record a payment against it.
+    await getInvoiceByIdForTrainer(opts.invoiceId, resolved.trainerId)
     const data = await markInvoicePaid({
       invoiceId:     opts.invoiceId,
       clientId:      opts.clientId,
