@@ -41,8 +41,8 @@ export function SignOutConfirmSheet({ open, pending, onCancel, onConfirm }: Sign
       {/* ── Backdrop ─────────────────────────────────────────────────────── */}
       <div
         onClick={onCancel}
-        className="fixed inset-0 z-40"
-        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+        className="fixed inset-0 z-40 backdrop-blur-[2px]"
+        style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
         aria-hidden="true"
       />
 
@@ -51,7 +51,7 @@ export function SignOutConfirmSheet({ open, pending, onCancel, onConfirm }: Sign
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2 rounded-t-3xl border-t"
+        className="fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2 rounded-t-[28px] border-t"
         style={{
           backgroundColor: 'var(--fd-surface)',
           borderColor:     'var(--fd-border)',

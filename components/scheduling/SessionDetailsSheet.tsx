@@ -182,7 +182,7 @@ export function SessionDetailsSheet({
         aria-label="Session details"
         className={cn(
           'fixed bottom-0 left-1/2 z-[70] flex max-h-[min(88vh,640px)] w-full max-w-[480px] -translate-x-1/2 flex-col overflow-hidden',
-          'rounded-t-3xl border-t shadow-2xl transition-transform duration-200',
+          'rounded-t-[28px] border-t shadow-2xl transition-transform duration-200',
           'md:inset-y-0 md:right-0 md:left-auto md:bottom-0 md:max-h-none md:w-[520px] md:max-w-[92vw]',
           'md:translate-x-0 md:rounded-none md:rounded-l-2xl md:border-l md:border-t-0',
           isOpen ? 'translate-y-0' : 'translate-y-full',
@@ -204,7 +204,13 @@ export function SessionDetailsSheet({
               Session
             </h2>
           </div>
-          <button type="button" onClick={() => !isPending && onClose()} style={{ color: 'var(--fd-muted)' }} aria-label="Close">
+          <button
+            type="button"
+            onClick={() => !isPending && onClose()}
+            className="flex h-11 w-11 items-center justify-center rounded-full"
+            style={{ color: 'var(--fd-muted)' }}
+            aria-label="Close"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

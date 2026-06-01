@@ -68,9 +68,9 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
       {/* ── Backdrop ───────────────────────────────────────────────────────── */}
       <div
         onClick={onClose}
-        className="fixed inset-0 z-40 transition-opacity duration-300"
+        className="fixed inset-0 z-40 backdrop-blur-[2px] transition-opacity duration-300"
         style={{
-          backgroundColor: 'rgba(0,0,0,0.6)',
+          backgroundColor: 'rgba(15,23,42,0.55)',
           opacity:          open ? 1 : 0,
           pointerEvents:    open ? 'auto' : 'none',
         }}

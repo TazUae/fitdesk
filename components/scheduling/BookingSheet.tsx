@@ -456,7 +456,7 @@ export function BookingSheet(props: BookingSheetProps) {
             type="button"
             onClick={() => !isPending && onClose()}
             aria-label="Close"
-            className="flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-[var(--fd-card-hover)]"
+            className="flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-[var(--fd-card-hover)]"
             style={{ color: 'var(--fd-muted)' }}
           >
             <X className="h-5 w-5" />
