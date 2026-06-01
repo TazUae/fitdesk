@@ -413,7 +413,8 @@ export function BookingSheet(props: BookingSheetProps) {
     <>
       <div
         aria-hidden="true"
-        className="fixed inset-0 z-40 bg-black/40"
+        className="fixed inset-0 z-40 backdrop-blur-[2px] transition-opacity duration-300"
+        style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
         onClick={() => !isPending && onClose()}
       />
       <aside

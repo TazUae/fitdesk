@@ -170,9 +170,10 @@ export function SessionDetailsSheet({
       <div
         aria-hidden="true"
         className={cn(
-          'fixed inset-0 z-[60] bg-black/60 transition-opacity duration-200',
+          'fixed inset-0 z-[60] backdrop-blur-[2px] transition-opacity duration-200',
           isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
+        style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
         onClick={() => !isPending && onClose()}
       />
       <div
