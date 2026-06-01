@@ -82,7 +82,7 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
         role="dialog"
         aria-modal="true"
         aria-label="Account menu"
-        className="fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2 rounded-t-3xl border-t"
+        className="fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2 rounded-t-[28px] border-t"
         style={{
           backgroundColor: 'var(--fd-surface)',
           borderColor:     'var(--fd-border)',
@@ -98,7 +98,7 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full transition-opacity active:opacity-60"
+          className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full transition-opacity active:opacity-60"
           style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-muted)' }}
           aria-label="Close menu"
         >

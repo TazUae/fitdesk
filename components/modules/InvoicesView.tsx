@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -216,6 +216,14 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
 
   const today = new Date().toISOString().slice(0, 10)
 
+  // Lock body scroll while sheet is open (A8)
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+      return () => { document.body.style.overflow = '' }
+    }
+  }, [isOpen])
+
   // Reset state when a different invoice is opened
   function handleClose() {
     setError(null)
@@ -264,9 +272,10 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
       <div
         aria-hidden="true"
         className={cn(
-          'fixed inset-0 z-40 bg-black/60 transition-opacity duration-300',
+          'fixed inset-0 z-40 backdrop-blur-[2px] transition-opacity duration-300',
           isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
+        style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
         onClick={handleClose}
       />
 
@@ -277,7 +286,7 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
         aria-label="Record payment"
         className={cn(
           'fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-300',
+          'rounded-t-[28px] border-t transition-transform duration-300',
           isOpen ? 'translate-y-0' : 'translate-y-full',
         )}
         style={{
@@ -303,7 +312,12 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
               </p>
             )}
           </div>
-          <button type="button" onClick={handleClose} style={{ color: 'var(--fd-muted)' }}>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="flex h-11 w-11 items-center justify-center rounded-full"
+            style={{ color: 'var(--fd-muted)' }}
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

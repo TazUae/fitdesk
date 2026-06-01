@@ -119,7 +119,7 @@ export function DashboardClientShell({ children, banner }: Props) {
 
           <button
             onClick={() => setMenuOpen(true)}
-            className="transition-opacity active:opacity-60"
+            className="-mr-1 flex h-10 w-10 items-center justify-center rounded-full transition-opacity active:opacity-60"
             aria-label="Open account menu"
           >
             {userName ? (
