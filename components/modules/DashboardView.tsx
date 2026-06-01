@@ -272,13 +272,15 @@ function OverdueInvoiceCard({ invoice, today }: { invoice: Invoice; today: strin
       </div>
 
       <div className="flex gap-2">
-        <Link
-          href={`/dashboard/messages/${invoice.clientId}?type=reminder&invoiceId=${invoice.id}`}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-opacity active:opacity-60"
-          style={{ backgroundColor: 'rgba(232,92,106,0.15)', color: 'var(--fd-red)' }}
-        >
-          Send Reminder
-        </Link>
+        {invoice.clientId && (
+          <Link
+            href={`/dashboard/messages/${encodeURIComponent(invoice.clientId)}?type=reminder&invoiceId=${encodeURIComponent(invoice.id)}`}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-opacity active:opacity-60"
+            style={{ backgroundColor: 'rgba(232,92,106,0.15)', color: 'var(--fd-red)' }}
+          >
+            Send Reminder
+          </Link>
+        )}
         <Link
           href="/dashboard/invoices"
           className="flex items-center justify-center rounded-xl px-4 py-2 text-xs font-bold transition-opacity active:opacity-60"

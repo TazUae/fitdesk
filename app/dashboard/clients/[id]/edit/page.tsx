@@ -44,7 +44,7 @@ export default function EditClientPage({ params }: Props) {
 
       if (result.success) {
         toast.success('Client updated')
-        router.push(`/dashboard/clients/${params.id}`)
+        router.push(`/dashboard/clients/${encodeURIComponent(params.id)}`)
       } else {
         setSubmitError(result.error)
       }
@@ -78,7 +78,7 @@ export default function EditClientPage({ params }: Props) {
   return (
     <div className="p-4 space-y-5">
       <div className="flex items-center gap-3">
-        <Link href={`/dashboard/clients/${params.id}`} style={{ color: 'var(--fd-muted)' }}>
+        <Link href={`/dashboard/clients/${encodeURIComponent(params.id)}`} style={{ color: 'var(--fd-muted)' }}>
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <h1 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>

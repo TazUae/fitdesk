@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Dumbbell, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
+import { formatGoal } from '@/lib/format/goal'
 import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
@@ -71,7 +72,7 @@ export default async function ClientDetailPage({ params }: Props) {
         </Link>
         <span className="flex-1" />
         <Link
-          href={`/dashboard/clients/${params.id}/edit`}
+          href={`/dashboard/clients/${encodeURIComponent(params.id)}/edit`}
           className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold"
           style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
         >
@@ -108,10 +109,10 @@ export default async function ClientDetailPage({ params }: Props) {
               {client.mobile}
             </div>
           )}
-          {client.fitnessGoals && (
+          {client.fitnessGoals && formatGoal(client.fitnessGoals) && (
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Target className="h-3.5 w-3.5 shrink-0" />
-              {client.fitnessGoals}
+              {formatGoal(client.fitnessGoals)}
             </div>
           )}
           {client.remainingSessions !== undefined && client.remainingSessions > 0 && (
@@ -160,7 +161,7 @@ export default async function ClientDetailPage({ params }: Props) {
         {/* WhatsApp button */}
         {client.mobile && (
           <Link
-            href={`/dashboard/messages/${params.id}`}
+            href={`/dashboard/messages/${encodeURIComponent(params.id)}`}
             className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
             style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
           >
@@ -220,7 +221,7 @@ export default async function ClientDetailPage({ params }: Props) {
             )}
           </h3>
           <Link
-            href={`/dashboard/invoices/new?client=${params.id}`}
+            href={`/dashboard/invoices/new?client=${encodeURIComponent(params.id)}`}
             className="text-xs font-medium"
             style={{ color: 'var(--fd-accent)' }}
           >

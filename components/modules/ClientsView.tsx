@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Target, Users } from 'lucide-react'
+import { formatGoal } from '@/lib/format/goal'
 import { Avatar } from '@/components/modules/Avatar'
 import { EmptyState } from '@/components/modules/EmptyState'
 import { ErrorState } from '@/components/modules/ErrorState'
@@ -13,7 +14,7 @@ import type { Client } from '@/types'
 function ClientCard({ client }: { client: Client }) {
   return (
     <Link
-      href={`/dashboard/clients/${client.id}`}
+      href={`/dashboard/clients/${encodeURIComponent(client.id)}`}
       className="flex items-center gap-3 rounded-2xl border p-4 transition-opacity active:opacity-60"
       style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
     >
@@ -26,10 +27,10 @@ function ClientCard({ client }: { client: Client }) {
         <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
           {client.mobile || 'No phone number'}
         </p>
-        {client.fitnessGoals && (
+        {client.fitnessGoals && formatGoal(client.fitnessGoals) && (
           <p className="mt-0.5 flex items-center gap-1 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
             <Target className="h-3 w-3 shrink-0" />
-            {client.fitnessGoals}
+            {formatGoal(client.fitnessGoals)}
           </p>
         )}
       </div>
