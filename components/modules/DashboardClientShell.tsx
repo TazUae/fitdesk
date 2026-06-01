@@ -6,7 +6,6 @@ import { useState } from 'react'
 import {
   Calendar,
   LayoutDashboard,
-  MessageCircle,
   MoreHorizontal,
   Receipt,
   Users,
@@ -31,7 +30,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/clients',  label: 'Clients',  Icon: Users },
   { href: '/dashboard/schedule', label: 'Schedule', Icon: Calendar },
   { href: '/dashboard/invoices', label: 'Invoices', Icon: Receipt },
-  { href: '/dashboard/whatsapp', label: 'WhatsApp', Icon: MessageCircle },
 ]
 
 const ROUTE_TITLES: [string, string][] = [

@@ -310,28 +310,18 @@ export function DashboardView({
   const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisWeek } = stats
   const firstName = trainerName.split(' ')[0] ?? trainerName
 
-  const hasUpcoming = upcomingSessions.length > 0
-  const nextSession = todaySessions[0] ?? upcomingSessions[0] ?? null
-  const outstandingCount = overdueInvoices.length
-  const outstandingLabel = outstandingBalance !== null && outstandingBalance > 0
+  const hasTodaySessions  = todaySessions.length > 0
+  const hasUpcoming       = upcomingSessions.length > 0
+  const outstandingCount  = overdueInvoices.length
+  const outstandingLabel  = outstandingBalance !== null && outstandingBalance > 0
     ? `${fmtMoney(outstandingBalance, currency)} pending`
     : 'All caught up'
-  const followUpCount = todaySessions.length
-  const followUpLabel = followUpCount > 0
+  const followUpCount     = todaySessions.length
+  const followUpLabel     = followUpCount > 0
     ? `${followUpCount} session${followUpCount === 1 ? '' : 's'} to review`
     : 'All caught up'
-  const completedThisWeek = sessionsThisWeek ?? 0
-  const quickActionsProgress = `${completedThisWeek} of ${WEEKLY_SESSION_GOAL} sessions completed this week`
-  const nextSessionYmd = nextSession ? ymdInTz(nextSession.startAt, timezone) : ''
-  const nextSessionDateLabel = nextSession ? fmtSessionDate(nextSessionYmd, today) : ''
-  const nextSessionTimeLabel = nextSession ? hhmInTz(nextSession.startAt, timezone) : 'Time TBD'
-  const nextSessionRelative = nextSession
-    ? (nextSessionYmd === today
-      ? 'Today'
-      : nextSessionDateLabel === 'Tomorrow'
-        ? `Tomorrow at ${nextSessionTimeLabel}`
-        : `${nextSessionDateLabel} at ${nextSessionTimeLabel}`)
-    : ''
+  const completedThisWeek     = sessionsThisWeek ?? 0
+  const quickActionsProgress  = `${completedThisWeek} of ${WEEKLY_SESSION_GOAL} sessions completed this week`
 
   return (
     <div className="space-y-5 p-4 pb-24">
@@ -462,96 +452,122 @@ export function DashboardView({
       <QuickActions progressText={quickActionsProgress} />
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-[6px]">
-        <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
-          <StatCard
-            compact
-            className="rounded-xl [&_p]:leading-tight"
-            label="This Month"
-            value={fmtMoney(monthlyRevenue, currency)}
-          />
-        </Link>
+      {outstandingBalance !== null && outstandingBalance > 0 ? (
+        <div className="space-y-2">
+          {/* Outstanding — dominant when non-zero (calm urgency) */}
+          <Link href="/dashboard/invoices" className="block transition-opacity hover:opacity-90 active:opacity-70">
+            <StatCard
+              featured
+              accent="var(--fd-accent)"
+              label="To collect"
+              value={fmtMoney(outstandingBalance, currency)}
+              subtext={`${outstandingCount > 0 ? `${outstandingCount} overdue · ` : ''}Tap to send reminders`}
+            />
+          </Link>
 
-        <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
-          <StatCard
-            compact
-            className="rounded-xl [&_p]:leading-tight"
-            label="Outstanding"
-            value={fmtMoney(outstandingBalance, currency)}
-          />
-        </Link>
+          {/* Secondary row: monthly + clients */}
+          <div className="grid grid-cols-2 gap-2">
+            <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
+              <StatCard
+                compact
+                className="rounded-xl [&_p]:leading-tight"
+                label="This Month"
+                value={fmtMoney(monthlyRevenue, currency)}
+              />
+            </Link>
+            <Link href="/dashboard/clients" className="transition-opacity hover:opacity-90 active:opacity-70">
+              <StatCard
+                compact
+                className="rounded-xl [&_p]:leading-tight"
+                label="Clients"
+                value={fmtNum(activeClients)}
+              />
+            </Link>
+          </div>
+        </div>
+      ) : (
+        /* No outstanding — equal 3-column grid */
+        <div className="grid grid-cols-3 gap-[6px]">
+          <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
+            <StatCard
+              compact
+              className="rounded-xl [&_p]:leading-tight"
+              label="This Month"
+              value={fmtMoney(monthlyRevenue, currency)}
+            />
+          </Link>
 
-        <Link href="/dashboard/clients" className="transition-opacity hover:opacity-90 active:opacity-70">
-          <StatCard
-            compact
-            className="rounded-xl [&_p]:leading-tight"
-            label="Clients"
-            value={fmtNum(activeClients)}
-          />
-        </Link>
-      </div>
+          <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
+            <StatCard
+              compact
+              className="rounded-xl [&_p]:leading-tight"
+              label="Outstanding"
+              value={fmtMoney(outstandingBalance, currency)}
+            />
+          </Link>
 
-      {/* ── Next session ──────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          Next Session
-        </p>
+          <Link href="/dashboard/clients" className="transition-opacity hover:opacity-90 active:opacity-70">
+            <StatCard
+              compact
+              className="rounded-xl [&_p]:leading-tight"
+              label="Clients"
+              value={fmtNum(activeClients)}
+            />
+          </Link>
+        </div>
+      )}
 
-        <div
-          className="rounded-2xl border p-4"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          {nextSession ? (
-            <>
-              <div className="flex items-start gap-3">
-                <Avatar name={nextSession.clientName} size="md" />
+      {/* ── Today ─────────────────────────────────────────────────────────── */}
+      {hasTodaySessions && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+              Today
+              <span
+                className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                style={{ backgroundColor: 'rgba(232,197,71,0.15)', color: 'var(--fd-accent)' }}
+              >
+                {todaySessions.length}
+              </span>
+            </p>
+            <Link
+              href="/dashboard/schedule"
+              className="text-xs font-semibold transition-opacity active:opacity-70"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              See all ›
+            </Link>
+          </div>
+
+          <div className="space-y-2">
+            {todaySessions.map(session => (
+              <Link
+                key={session.id}
+                href="/dashboard/schedule"
+                className="flex items-center gap-3 rounded-2xl border p-4 transition-opacity active:opacity-70"
+                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+              >
+                <Avatar name={session.clientName} size="md" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                    {nextSession.clientName}
+                    {session.clientName}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    {nextSessionDateLabel} · {nextSessionTimeLabel}
-                  </p>
-                  <p className="mt-1 text-xs font-medium" style={{ color: 'color-mix(in srgb, var(--fd-muted) 88%, transparent)' }}>
-                    {nextSessionRelative}
+                    {hhmInTz(session.startAt, timezone)}
+                    {session.rate > 0 && ` · ${session.rate}`}
                   </p>
                 </div>
-              </div>
-
-              <div className="mt-4 flex gap-2">
-                <Link
-                  href="/dashboard/schedule"
-                  className="flex-1 rounded-xl border px-3 py-2 text-center text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-                  style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)' }}
-                >
-                  View
-                </Link>
-                <Link
-                  href="/dashboard/messages"
-                  className="flex-1 rounded-xl border px-3 py-2 text-center text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-                  style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-text)' }}
-                >
-                  Remind
-                </Link>
-              </div>
-            </>
-          ) : (
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                No upcoming sessions
-              </p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-                Create a new session
-              </p>
-            </div>
-          )}
+                <Badge variant="upcoming" label="Scheduled" />
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── Coming up ─────────────────────────────────────────────────────── */}
+      {/* ── Upcoming (from tomorrow) ───────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          Coming Up
+          {hasTodaySessions ? 'Upcoming' : 'Next Sessions'}
         </p>
 
         <div
@@ -564,7 +580,7 @@ export function DashboardView({
                 <Link
                   key={session.id}
                   href="/dashboard/schedule"
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition-colors transition-opacity hover:opacity-90 active:opacity-70"
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition-opacity hover:opacity-90 active:opacity-70"
                   style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 22%, transparent)' }}
                 >
                   <div className="min-w-0">
@@ -592,9 +608,16 @@ export function DashboardView({
               </div>
             </div>
           ) : (
-            <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-              No upcoming sessions
-            </p>
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+                No upcoming sessions
+              </p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+                <Link href="/dashboard/schedule" style={{ color: 'var(--fd-accent)' }}>
+                  Book a session
+                </Link>
+              </p>
+            </div>
           )}
         </div>
       </div>
