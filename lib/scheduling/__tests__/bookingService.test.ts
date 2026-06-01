@@ -187,6 +187,7 @@ describe('bookFromPlan — one-off', () => {
       durationMinutes: 60, timezone: 'Asia/Riyadh',
       status: 'scheduled', occurrenceKey: null, occurrenceIndex: null,
       rate: 100, sessionType: null, notes: null, invoiceId: null, version: 1,
+      isTrialSession: false, sessionConsumedPackage: false,
     }
     mockFindRange.mockResolvedValue([blocker])
 
@@ -204,6 +205,7 @@ describe('bookFromPlan — one-off', () => {
       durationMinutes: 50, timezone: 'Asia/Riyadh',
       status: 'scheduled', occurrenceKey: null, occurrenceIndex: null,
       rate: 100, sessionType: null, notes: null, invoiceId: null, version: 1,
+      isTrialSession: false, sessionConsumedPackage: false,
     }
     mockFindRange.mockResolvedValue([blocker])
 
@@ -302,6 +304,7 @@ describe('bookFromPlan — series', () => {
       durationMinutes: 60, timezone: 'Asia/Riyadh',
       status: 'scheduled', occurrenceKey: null, occurrenceIndex: null,
       rate: 100, sessionType: null, notes: null, invoiceId: null, version: 1,
+      isTrialSession: false, sessionConsumedPackage: false,
     }
     mockFindRange.mockResolvedValue([blocker])
 

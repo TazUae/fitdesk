@@ -32,8 +32,10 @@ function session(opts: Partial<FDSession>): FDSession {
     rate:            0,
     sessionType:     null,
     notes:           null,
-    invoiceId:       null,
-    version:         1,
+    invoiceId:              null,
+    version:                1,
+    isTrialSession:         false,
+    sessionConsumedPackage: false,
     ...opts,
   }
 }
