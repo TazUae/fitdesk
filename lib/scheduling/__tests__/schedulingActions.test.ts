@@ -33,6 +33,7 @@ const errors = vi.hoisted(() => {
   class BillingNotConfiguredError extends Error {}
   class SessionRateNotConfiguredError extends Error {}
   class PackageCompletionNotReadyError extends Error {}
+  class SessionOwnershipError extends Error {}
   return {
     ConflictError,
     OutOfHoursError,
@@ -41,6 +42,7 @@ const errors = vi.hoisted(() => {
     BillingNotConfiguredError,
     SessionRateNotConfiguredError,
     PackageCompletionNotReadyError,
+    SessionOwnershipError,
   }
 })
 
@@ -83,6 +85,7 @@ vi.mock('@/lib/scheduling/sessionService', () => ({
   BillingNotConfiguredError:   errors.BillingNotConfiguredError,
   SessionRateNotConfiguredError: errors.SessionRateNotConfiguredError,
   PackageCompletionNotReadyError: errors.PackageCompletionNotReadyError,
+  SessionOwnershipError:          errors.SessionOwnershipError,
 }))
 
 import * as authModule    from '@/lib/auth'

@@ -73,6 +73,19 @@ export class PackageCompletionNotReadyError extends Error {
   }
 }
 
+/**
+ * Thrown when a caller attempts to mutate a session they do not own.
+ * The status property mirrors the HTTP 403 Forbidden concept so callers
+ * can branch on it without string-parsing the message.
+ */
+export class SessionOwnershipError extends Error {
+  readonly status = 403
+  constructor(public readonly sessionId: string) {
+    super(`Session ${sessionId} does not belong to this trainer`)
+    this.name = 'SessionOwnershipError'
+  }
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 const MUTABLE_STATUSES: FDSessionStatus[] = ['scheduled', 'confirmed']
@@ -80,6 +93,18 @@ const MUTABLE_STATUSES: FDSessionStatus[] = ['scheduled', 'confirmed']
 function assertMutable(session: FDSession): void {
   if (!MUTABLE_STATUSES.includes(session.status)) {
     throw new ImmutableSessionError(session.id, session.status)
+  }
+}
+
+/**
+ * Ownership gate — throws SessionOwnershipError(403) if the session's
+ * trainerId does not match the authenticated caller's trainerId.
+ * Must be called before any version or mutable-state check so a
+ * non-owner learns nothing about the session's state.
+ */
+function assertOwnership(session: FDSession, callerTrainerId: string): void {
+  if (session.trainerId !== callerTrainerId) {
+    throw new SessionOwnershipError(session.id)
   }
 }
 
@@ -131,8 +156,11 @@ export async function rescheduleOne(
   },
   config: TrainerConfig,
 ): Promise<FDSession> {
-  // ── 1. Fetch + version guard ───────────────────────────────────────────────
+  // ── 1. Fetch + ownership + version guard ──────────────────────────────────
   const current = await findSessionById(id)
+
+  // Ownership is checked before version/mutable so a non-owner reveals nothing.
+  assertOwnership(current, config.trainerId)
 
   if (current.version !== input.expectedVersion) {
     throw new VersionConflictError(id)
@@ -219,8 +247,12 @@ export async function rescheduleOne(
 export async function cancelSession(
   id: string,
   expectedVersion: number,
+  callerTrainerId: string,
 ): Promise<FDSession> {
   const current = await findSessionById(id)
+
+  // Ownership is checked before version/mutable so a non-owner reveals nothing.
+  assertOwnership(current, callerTrainerId)
 
   if (current.version !== expectedVersion) {
     throw new VersionConflictError(id)
@@ -259,8 +291,12 @@ export async function cancelSession(
 export async function completeSession(
   id: string,
   expectedVersion: number,
+  callerTrainerId: string,
 ): Promise<FDSession> {
   const current = await findSessionById(id)
+
+  // Ownership is checked before version/mutable so a non-owner reveals nothing.
+  assertOwnership(current, callerTrainerId)
 
   if (current.version !== expectedVersion) {
     throw new VersionConflictError(id)
@@ -321,8 +357,12 @@ export async function completeSession(
 export async function markNoShow(
   id: string,
   expectedVersion: number,
+  callerTrainerId: string,
 ): Promise<FDSession> {
   const current = await findSessionById(id)
+
+  // Ownership is checked before version/mutable so a non-owner reveals nothing.
+  assertOwnership(current, callerTrainerId)
 
   if (current.version !== expectedVersion) {
     throw new VersionConflictError(id)

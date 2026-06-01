@@ -31,6 +31,7 @@ import {
   BillingNotConfiguredError,
   SessionRateNotConfiguredError,
   PackageCompletionNotReadyError,
+  SessionOwnershipError,
 } from '@/lib/scheduling/sessionService'
 import { ConflictError, OutOfHoursError } from '@/lib/scheduling/bookingService'
 import * as repo from '@/lib/scheduling/sessionRepository'
@@ -293,7 +294,7 @@ describe('cancelSession', () => {
     mockFindById.mockResolvedValue(BASE_SESSION)
     mockRepoCancel.mockResolvedValue(cancelled)
 
-    const result = await cancelSession('fd-1', 1)
+    const result = await cancelSession('fd-1', 1, 'trainer-1')
 
     expect(mockFindById).toHaveBeenCalledWith('fd-1')
     expect(mockRepoCancel).toHaveBeenCalledWith('fd-1')
@@ -303,27 +304,27 @@ describe('cancelSession', () => {
   it('throws VersionConflictError when version does not match', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 3 })
 
-    await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    await expect(cancelSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(VersionConflictError)
     expect(mockRepoCancel).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError when status = completed', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'completed' })
 
-    await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(cancelSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
     expect(mockRepoCancel).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError when status = cancelled (already cancelled)', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'cancelled' })
 
-    await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(cancelSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
   })
 
   it('throws ImmutableSessionError when status = skipped', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'skipped' })
 
-    await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(cancelSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
   })
 
   it('allows cancelling a confirmed session', async () => {
@@ -332,14 +333,14 @@ describe('cancelSession', () => {
     mockFindById.mockResolvedValue(confirmed)
     mockRepoCancel.mockResolvedValue(cancelled)
 
-    const result = await cancelSession('fd-1', 1)
+    const result = await cancelSession('fd-1', 1, 'trainer-1')
     expect(result.status).toBe('cancelled')
   })
 
   it('does not call repository cancelSession when version check fails', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 99 })
 
-    await expect(cancelSession('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    await expect(cancelSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(VersionConflictError)
     expect(mockRepoCancel).not.toHaveBeenCalled()
   })
 })
@@ -354,7 +355,7 @@ describe('completeSession', () => {
     mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
-    const result = await completeSession('fd-1', 1)
+    const result = await completeSession('fd-1', 1, 'trainer-1')
 
     expect(mockCreateInvoice).toHaveBeenCalledOnce()
     expect(mockSubmitSalesInvoice).toHaveBeenCalledOnce()
@@ -373,7 +374,7 @@ describe('completeSession', () => {
     mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
     mockUpdate.mockResolvedValue({ ...sessionWithInvoice, status: 'completed' as const })
 
-    await completeSession('fd-1', 1)
+    await completeSession('fd-1', 1, 'trainer-1')
 
     expect(mockCreateInvoice).not.toHaveBeenCalled()
     expect(mockSubmitSalesInvoice).not.toHaveBeenCalled()
@@ -386,21 +387,21 @@ describe('completeSession', () => {
   it('throws VersionConflictError when version does not match', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 2 })
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(VersionConflictError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError for status = completed', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'completed' })
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError for status = cancelled', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'cancelled' })
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
   })
 
@@ -412,7 +413,7 @@ describe('completeSession', () => {
     mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...session, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
-    await completeSession('fd-1', 1)
+    await completeSession('fd-1', 1, 'trainer-1')
 
     const payload = mockCreateInvoice.mock.calls[0][0]
     expect(payload.customer).toBe('client-1')
@@ -428,7 +429,7 @@ describe('completeSession', () => {
     mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
-    await completeSession('fd-1', 1)
+    await completeSession('fd-1', 1, 'trainer-1')
 
     const payload = mockCreateInvoice.mock.calls[0][0]
     expect(payload.items[0].description).toBe('Training session')
@@ -443,7 +444,7 @@ describe('completeSession', () => {
     mockSubmitSalesInvoice.mockResolvedValue(MOCK_SUBMITTED_INVOICE)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const, invoiceId: MOCK_INVOICE.id })
 
-    await completeSession('fd-1', 1)
+    await completeSession('fd-1', 1, 'trainer-1')
 
     const payload = mockCreateInvoice.mock.calls[0][0]
     expect(payload.posting_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
@@ -454,7 +455,7 @@ describe('completeSession', () => {
     mockFindById.mockResolvedValue(BASE_SESSION)
     mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', createdAt: '' } as Client)
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(BillingNotConfiguredError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(BillingNotConfiguredError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })
@@ -463,7 +464,7 @@ describe('completeSession', () => {
     mockFindById.mockResolvedValue(BASE_SESSION)
     mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Package', createdAt: '' } as Client)
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })
@@ -473,7 +474,7 @@ describe('completeSession', () => {
     mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Trial', createdAt: '' } as Client)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const })
 
-    const result = await completeSession('fd-1', 1)
+    const result = await completeSession('fd-1', 1, 'trainer-1')
 
     expect(mockCreateInvoice).not.toHaveBeenCalled()
     expect(mockSubmitSalesInvoice).not.toHaveBeenCalled()
@@ -485,7 +486,7 @@ describe('completeSession', () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, rate: 0 })
     mockGetClientById.mockResolvedValue({ id: 'client-1', name: 'John Doe', billingMode: 'Pay Per Session', createdAt: '' } as Client)
 
-    await expect(completeSession('fd-1', 1)).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+    await expect(completeSession('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
     expect(mockCreateInvoice).not.toHaveBeenCalled()
   })
 })
@@ -497,7 +498,7 @@ describe('markNoShow', () => {
     mockFindById.mockResolvedValue(BASE_SESSION)
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' as const })
 
-    const result = await markNoShow('fd-1', 1)
+    const result = await markNoShow('fd-1', 1, 'trainer-1')
 
     expect(mockUpdate).toHaveBeenCalledWith('fd-1', { status: 'no_show' })
     expect(result.status).toBe('no_show')
@@ -506,28 +507,106 @@ describe('markNoShow', () => {
   it('throws VersionConflictError when version does not match', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, version: 5 })
 
-    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(VersionConflictError)
+    await expect(markNoShow('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(VersionConflictError)
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError for status = no_show', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' })
 
-    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(markNoShow('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('throws ImmutableSessionError for status = completed', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'completed' })
 
-    await expect(markNoShow('fd-1', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+    await expect(markNoShow('fd-1', 1, 'trainer-1')).rejects.toBeInstanceOf(ImmutableSessionError)
   })
 
   it('allows marking as no_show when status = confirmed', async () => {
     mockFindById.mockResolvedValue({ ...BASE_SESSION, status: 'confirmed' })
     mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'no_show' as const })
 
-    const result = await markNoShow('fd-1', 1)
+    const result = await markNoShow('fd-1', 1, 'trainer-1')
     expect(result.status).toBe('no_show')
+  })
+})
+
+// ─── Session ownership guard ──────────────────────────────────────────────────
+//
+// Proves that all four mutation paths deny a caller whose trainerId does not
+// match the session's trainerId, and that the ERP/repo mutation is never
+// reached on denial.
+
+describe('session ownership guard', () => {
+  /** A session that belongs to a different trainer. */
+  const OTHER_SESSION: FDSession = { ...BASE_SESSION, trainerId: 'trainer-2' }
+
+  it('cancelSession: denies a non-owned session and never calls repo cancel', async () => {
+    mockFindById.mockResolvedValue(OTHER_SESSION)
+
+    await expect(cancelSession('fd-1', 1, 'trainer-1'))
+      .rejects.toBeInstanceOf(SessionOwnershipError)
+    expect(mockRepoCancel).not.toHaveBeenCalled()
+  })
+
+  it('cancelSession: allows the owning trainer to cancel', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockRepoCancel.mockResolvedValue({ ...BASE_SESSION, status: 'cancelled' as const })
+
+    const result = await cancelSession('fd-1', 1, 'trainer-1')
+    expect(result.status).toBe('cancelled')
+    expect(mockRepoCancel).toHaveBeenCalledWith('fd-1')
+  })
+
+  it('completeSession: denies a non-owned session and never calls createInvoice', async () => {
+    mockFindById.mockResolvedValue(OTHER_SESSION)
+
+    await expect(completeSession('fd-1', 1, 'trainer-1'))
+      .rejects.toBeInstanceOf(SessionOwnershipError)
+    expect(mockGetClientById).not.toHaveBeenCalled()
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('completeSession: allows the owning trainer to complete (Trial path)', async () => {
+    mockFindById.mockResolvedValue(BASE_SESSION)
+    mockGetClientById.mockResolvedValue({
+      id: 'client-1', name: 'John Doe', billingMode: 'Trial', createdAt: '',
+    } as Client)
+    mockUpdate.mockResolvedValue({ ...BASE_SESSION, status: 'completed' as const })
+
+    const result = await completeSession('fd-1', 1, 'trainer-1')
+    expect(result.status).toBe('completed')
+    expect(mockCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('rescheduleOne: denies a non-owned session and never calls updateSession', async () => {
+    mockFindById.mockResolvedValue(OTHER_SESSION)
+    // findSessionsInRange would only be called after ownership passes; mock defensively
+    mockFindRange.mockResolvedValue([])
+
+    await expect(
+      rescheduleOne('fd-1', { newDate: '2026-01-06', newTime: '10:00', expectedVersion: 1 }, CONFIG),
+    ).rejects.toBeInstanceOf(SessionOwnershipError)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('markNoShow: denies a non-owned session and never calls updateSession', async () => {
+    mockFindById.mockResolvedValue(OTHER_SESSION)
+
+    await expect(markNoShow('fd-1', 1, 'trainer-1'))
+      .rejects.toBeInstanceOf(SessionOwnershipError)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('ownership check runs before version check — non-owner learns nothing about version', async () => {
+    // Session belongs to trainer-2 AND has a different version than the caller expects.
+    // SessionOwnershipError must be thrown first — not VersionConflictError.
+    mockFindById.mockResolvedValue({ ...OTHER_SESSION, version: 99 })
+
+    await expect(cancelSession('fd-1', 1, 'trainer-1'))
+      .rejects.toBeInstanceOf(SessionOwnershipError)
   })
 })

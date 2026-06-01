@@ -36,6 +36,7 @@ import {
   BillingNotConfiguredError,
   SessionRateNotConfiguredError,
   PackageCompletionNotReadyError,
+  SessionOwnershipError,
 } from '@/lib/scheduling/sessionService'
 import type { BookingPlan, FDSession, TrainerConfig } from '@/types/scheduling'
 
@@ -55,6 +56,7 @@ export type SchedulingErrorCode =
   | 'BILLING_NOT_CONFIGURED'
   | 'SESSION_RATE_NOT_CONFIGURED'
   | 'PACKAGE_NOT_READY'
+  | 'FORBIDDEN'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -143,6 +145,13 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
       success: false,
       code: 'PACKAGE_NOT_READY',
       message: err.message,
+    }
+  }
+  if (err instanceof SessionOwnershipError) {
+    return {
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'You do not have permission to modify this session',
     }
   }
   return {
@@ -304,7 +313,7 @@ export async function cancelSessionAction(
   if (!trainer.ok) return trainer.result
 
   try {
-    const cancelled = await svcCancelSession(id, expectedVersion)
+    const cancelled = await svcCancelSession(id, expectedVersion, trainer.trainerId)
     return { success: true, data: cancelled }
   } catch (err) {
     return mapError(err)
@@ -327,7 +336,7 @@ export async function completeSessionAction(
   if (!trainer.ok) return trainer.result
 
   try {
-    const updated = await svcCompleteSession(id, expectedVersion)
+    const updated = await svcCompleteSession(id, expectedVersion, trainer.trainerId)
     return { success: true, data: updated }
   } catch (err) {
     return mapError(err)
@@ -348,7 +357,7 @@ export async function markNoShowAction(
   if (!trainer.ok) return trainer.result
 
   try {
-    const updated = await svcMarkNoShow(id, expectedVersion)
+    const updated = await svcMarkNoShow(id, expectedVersion, trainer.trainerId)
     return { success: true, data: updated }
   } catch (err) {
     return mapError(err)
