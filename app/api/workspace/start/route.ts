@@ -2,7 +2,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { createTenant } from '@/lib/controlplane/client'
+import { createTenant, cpFetch } from '@/lib/controlplane/client'
 import { db } from '@/lib/db'
 import { workspaceProvisioning } from '@/lib/db/schema'
 import type { CreateTenantResponse } from '@/types/controlplane'
@@ -41,7 +41,10 @@ export async function POST(req: Request) {
 
   const { id: userId, name, email } = session.user
 
-  // Idempotency: bail out if there is already an active or completed job
+  // Idempotency: bail out if there is already an active or completed job.
+  // For 'completed' records also verify the tenant still exists in CP —
+  // if CP returns 404 the record is stale (volume wipe / deletion) and we
+  // should fall through and create a fresh provisioning job.
   const existing = await db.query.workspaceProvisioning.findFirst({
     where: and(
       eq(workspaceProvisioning.userId, userId),
@@ -51,7 +54,31 @@ export async function POST(req: Request) {
   })
 
   if (existing) {
-    return NextResponse.json({ jobId: existing.jobId, status: existing.status })
+    if (existing.status === 'completed' && existing.tenantId) {
+      try {
+        await cpFetch(`/tenants/${existing.tenantId}`)
+        return NextResponse.json({ jobId: existing.jobId, status: existing.status })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('404') || msg.includes('not found')) {
+          // Stale record — mark it failed and fall through to re-provision
+          await db
+            .update(workspaceProvisioning)
+            .set({
+              status: 'failed',
+              failureReason: 'Workspace no longer found on server. Please set up your workspace again.',
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(workspaceProvisioning.id, existing.id))
+          // fall through to create a new provisioning job
+        } else {
+          // CP unreachable — return cached status rather than re-provisioning
+          return NextResponse.json({ jobId: existing.jobId, status: existing.status })
+        }
+      }
+    } else {
+      return NextResponse.json({ jobId: existing.jobId, status: existing.status })
+    }
   }
 
   // Read onboarding form data from request body
