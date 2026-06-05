@@ -305,7 +305,7 @@ function WorkspaceStep({
       <StepHeader
         step={2}
         title="Preparing your workspace"
-        subtitle={`We're setting up FitDesk${profile.businessName ? ` for "${profile.businessName}"` : ''}. This usually takes 1–2 minutes.`}
+        subtitle={`We're setting up FitDesk${profile.businessName ? ` for "${profile.businessName}"` : ''}. This usually takes about 5–8 minutes.`}
       />
       {startError ? (
         <div

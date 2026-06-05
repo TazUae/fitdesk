@@ -9,9 +9,19 @@ export type ProvisioningStep =
   | "site_created"
   | "erp_installed"
   | "scheduler_enabled"
-  | "domain_registered"
+  | "locale_configured"
+  | "company_created"
+  | "fiscal_year_created"
+  | "global_defaults_set"
+  | "setup_completed"
+  | "regional_setup"
+  | "domains_activated"
+  | "fitdesk_configured"
+  | "app_installed_fitdesk"
   | "api_keys_generated"
   | "warmup_completed"
+  | "smoke_test_passed"
+  | "domain_registered"
   | "completed";
 
 export type CreateTenantInput = {
