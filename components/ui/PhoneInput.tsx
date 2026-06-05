@@ -214,7 +214,7 @@ function CountryDropdown({ selected, onSelect, disabled }: CountryDropdownProps)
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(v => !v)}
-        className="flex h-full items-center gap-1 px-3 py-3 text-sm transition-opacity active:opacity-70"
+        className="flex h-full items-center gap-1 px-3 py-3 text-sm transition-opacity active:opacity-70 rounded-l-xl"
         style={{
           borderRight:    '1px solid var(--fd-border)',
           backgroundColor: open ? 'rgba(255,255,255,0.04)' : 'transparent',
@@ -517,7 +517,7 @@ export function PhoneInput({
 
       {/* Input row: [country picker] [phone input] */}
       <div
-        className="flex items-stretch overflow-hidden rounded-xl border transition-colors"
+        className="flex items-stretch rounded-xl border transition-colors"
         style={{
           borderColor:     'var(--fd-border)',
           backgroundColor: 'var(--fd-card)',
@@ -539,7 +539,7 @@ export function PhoneInput({
           onPaste={handlePaste}
           placeholder={placeholder}
           disabled={disabled}
-          className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm outline-none"
+          className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm outline-none rounded-r-xl"
           style={{ color: 'var(--fd-text)', fontSize: '1rem' }}
           aria-label="Phone number"
         />
