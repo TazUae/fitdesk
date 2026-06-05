@@ -213,6 +213,13 @@ export function BookingSheet(props: BookingSheetProps) {
       }
       const remaining = result.data.remainingSessions
       setSelectedClientBillingMode(result.data.billingMode ?? null)
+      // Auto-fill session fee from client's default rate if not already set
+      setDraft(d => {
+        if (d.fee == null && result.data.defaultSessionRate != null && result.data.defaultSessionRate > 0) {
+          return { ...d, fee: result.data.defaultSessionRate }
+        }
+        return d
+      })
       setPkgBalance(prev => ({
         remainingSessions: remaining ?? null,
         willConsume:       prev?.willConsume ?? 0,
