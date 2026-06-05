@@ -42,9 +42,9 @@ describe('buildSetupChecklist', () => {
     expect(items.find(i => i.id === 'first-session')?.href).toBeDefined()
   })
 
-  it('uses the Cash-default copy on the payments item', () => {
+  it('payments item describes cash and bank transfer as ready', () => {
     const payments = buildSetupChecklist(ZERO_FACTS).find(i => i.id === 'payments')!
-    expect(payments.description).toMatch(/Cash is enabled by default/i)
+    expect(payments.description).toMatch(/Cash and bank transfer are ready/i)
   })
 
   it('whatsapp item is optional but linkable when disconnected', () => {

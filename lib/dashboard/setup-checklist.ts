@@ -76,10 +76,13 @@ export function buildSetupChecklist(facts: ChecklistFacts): ChecklistItem[] {
     },
     {
       id:          'payments',
-      label:       'Set up payment methods',
-      description: 'Cash is enabled by default. You can add digital payment methods later.',
+      label:       'Payment methods',
+      description: facts.paymentsAcknowledged
+        ? 'Cash and bank transfer are ready. OMT / Whish digital payments are coming soon.'
+        : 'Cash and bank transfer are ready. OMT / Whish digital payments are coming soon.',
       done:        facts.paymentsAcknowledged,
-      href:        '/dashboard/settings',
+      // No href — Cash/Bank Transfer require no trainer action.
+      // Wire href back here when OMT/Whish onboarding flow is built.
     },
   ]
 }

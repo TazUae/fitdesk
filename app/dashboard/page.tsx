@@ -97,10 +97,11 @@ export default async function DashboardPage() {
     hasFirstClient:        (clients?.length ?? 0) > 0,
     hasFirstSession:       (sessions?.length ?? 0) > 0,
     whatsappConnected,
-    // Cash is on by default; we don't auto-tick this — the trainer can
-    // open Settings to enable extra providers later. Future work: persist
-    // a per-trainer "payments-ack" flag once a method beyond Cash is added.
-    paymentsAcknowledged:  false,
+    // Cash and Bank Transfer require no trainer setup — always acknowledged.
+    // When OMT / Whish onboarding is added, wire this to a real per-trainer
+    // flag (e.g. stored in FitDesk Trainer Settings or SQLite) so the
+    // checklist item reflects whether the trainer has configured a provider.
+    paymentsAcknowledged:  true,
   })
 
   // ── Derived values ──────────────────────────────────────────────────────────
