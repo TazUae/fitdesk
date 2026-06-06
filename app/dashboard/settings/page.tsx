@@ -115,7 +115,24 @@ export default async function SettingsPage() {
             </span>
             <div>
               <p className="text-sm font-medium" style={{ color: "var(--fd-text)" }}>Cash</p>
-              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>Ready to use. Record manually when received.</p>
+              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>Manual recording supported</p>
+            </div>
+          </div>
+
+          {/* Digital Wallet Transfer */}
+          <div
+            className="flex items-center gap-3 rounded-xl border px-3 py-2.5"
+            style={{ borderColor: "var(--fd-border)", backgroundColor: "var(--fd-card)" }}
+          >
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs"
+              style={{ backgroundColor: "rgba(88,205,126,0.15)", color: "#58CD7E" }}
+            >
+              ✓
+            </span>
+            <div>
+              <p className="text-sm font-medium" style={{ color: "var(--fd-text)" }}>Digital Wallet Transfer</p>
+              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>Manual recording supported</p>
             </div>
           </div>
 
@@ -132,28 +149,7 @@ export default async function SettingsPage() {
             </span>
             <div>
               <p className="text-sm font-medium" style={{ color: "var(--fd-text)" }}>Bank Transfer</p>
-              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>Ready to use. Record manually when received.</p>
-            </div>
-          </div>
-
-          {/* Digital payment links — coming soon */}
-          <div
-            className="flex items-center gap-3 rounded-xl border px-3 py-2.5"
-            style={{ borderColor: "var(--fd-border)", backgroundColor: "var(--fd-card)", opacity: 0.6 }}
-          >
-            <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs"
-              style={{ backgroundColor: "var(--fd-border)", color: "var(--fd-muted)" }}
-            >
-              ○
-            </span>
-            <div>
-              <p className="text-sm font-medium" style={{ color: "var(--fd-muted)" }}>
-                Digital Payment Links
-              </p>
-              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>
-                OMT / Whish — coming soon.
-              </p>
+              <p className="text-xs" style={{ color: "var(--fd-muted)" }}>Manual recording supported</p>
             </div>
           </div>
         </div>

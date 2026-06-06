@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   Loader2,
   MessageCircle,
+  BellRing,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   connectWhatsApp,
@@ -254,6 +256,40 @@ export function WhatsAppView({ initial }: WhatsAppViewProps) {
             {conn.lastError}
           </p>
         )}
+      </div>
+
+      {/* Reminders & safety — read-only status for MVP */}
+      <div
+        className="rounded-2xl border p-4 space-y-3"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--fd-muted)' }}>
+          Reminders
+        </p>
+
+        <div className="flex items-start gap-3">
+          <BellRing className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+              Session reminders
+            </p>
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Coming soon — you&apos;ll be able to set up session reminders here.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--fd-green)' }} />
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+              Trainer approval required
+            </p>
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Always on. FitDesk never sends a message without your confirmation.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* QR panel — shown while pairing */}

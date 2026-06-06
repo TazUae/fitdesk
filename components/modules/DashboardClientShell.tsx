@@ -37,8 +37,9 @@ const ROUTE_TITLES: [string, string][] = [
   ['/dashboard/schedule', 'Schedule'],
   ['/dashboard/invoices', 'Invoices'],
   ['/dashboard/messages', 'Messages'],
-  ['/dashboard/whatsapp', 'WhatsApp'],
-  ['/dashboard/account',  'Account Settings'],
+  ['/dashboard/whatsapp', 'WhatsApp & Reminders'],
+  ['/dashboard/settings', 'Workspace Settings'],
+  ['/dashboard/account',  'Profile'],
   ['/dashboard/help',     'Help & Support'],
   ['/dashboard',          'Home'],
 ]
