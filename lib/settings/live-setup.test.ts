@@ -125,6 +125,34 @@ describe("live setup summary helpers", () => {
     expect(normalized.items[0].standardBillingItem).toBeNull();
   });
 
+  it("extracts buffer_minutes as a number", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      buffer_minutes: 30,
+    });
+    expect(normalized.bufferMinutes).toBe(30);
+  });
+
+  it("extracts buffer_minutes from a numeric string", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+      buffer_minutes: "30",
+    });
+    expect(normalized.bufferMinutes).toBe(30);
+  });
+
+  it("returns null bufferMinutes when field is missing", () => {
+    const normalized = normalizeTrainerSettings({
+      name: "FitDesk Trainer Settings",
+    });
+    expect(normalized.bufferMinutes).toBeNull();
+  });
+
+  it("returns null bufferMinutes when doc is null", () => {
+    const normalized = normalizeTrainerSettings(null);
+    expect(normalized.bufferMinutes).toBeNull();
+  });
+
   it("scrubs secrets from upstream errors", () => {
     const message = toSafeSetupError(
       "ERP proxy failed with Authorization Bearer token and api_key value",

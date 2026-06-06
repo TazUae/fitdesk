@@ -1,5 +1,6 @@
 import { getLiveSetupSummary } from "@/lib/settings/live-setup";
 import { BusinessHoursEditor } from "@/components/modules/BusinessHoursEditor";
+import { BufferTimeEditor } from "@/components/modules/BufferTimeEditor";
 
 type Weekday = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
 const DAY_SET: ReadonlySet<Weekday> = new Set([
@@ -55,6 +56,34 @@ export default async function SettingsPage() {
           >
             {setup.trainerSettings.status === "error"
               ? "Unable to load your working hours right now. Try refreshing the page."
+              : "Your workspace is still setting up. Check back in a moment."}
+          </p>
+        )}
+      </section>
+
+      {/* ── Buffer Time ───────────────────────────────────────────────────── */}
+      <section
+        className="rounded-2xl border p-4"
+        style={{ backgroundColor: "var(--fd-surface)", borderColor: "var(--fd-border)" }}
+      >
+        <div>
+          <p className="text-sm font-semibold" style={{ color: "var(--fd-text)" }}>
+            Buffer time
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--fd-muted)" }}>
+            Add a gap between sessions so you have time to reset, prepare, or message clients.
+          </p>
+        </div>
+
+        {hoursAvailable ? (
+          <BufferTimeEditor initialBuffer={setup.trainerSettings.bufferMinutes} />
+        ) : (
+          <p
+            className="mt-3 text-sm"
+            style={{ color: "var(--fd-muted)" }}
+          >
+            {setup.trainerSettings.status === "error"
+              ? "Unable to load your buffer setting right now. Try refreshing the page."
               : "Your workspace is still setting up. Check back in a moment."}
           </p>
         )}

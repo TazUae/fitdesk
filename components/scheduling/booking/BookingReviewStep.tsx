@@ -11,12 +11,13 @@ import type { Client } from '@/types'
 const SESSION_TYPES = ['Strength', 'Cardio', 'Rehab', 'Mobility', 'Flexibility'] as const
 
 interface BookingReviewStepProps {
-  plan:            BookingPlan
-  client:          Client | null
-  packageBalance:  PackageBalanceState | null
-  sessionType:     string | null
-  fee:             number | null
-  notes:           string | null
+  plan:             BookingPlan
+  client:           Client | null
+  packageBalance:   PackageBalanceState | null
+  sessionType:      string | null
+  fee:              number | null
+  notes:            string | null
+  bufferMinutes?:   number
   onChange: (next: {
     sessionType?: string | null
     fee?:         number | null
@@ -47,6 +48,7 @@ export function BookingReviewStep({
   sessionType,
   fee,
   notes,
+  bufferMinutes,
   onChange,
   onSelectDifferentTime,
 }: BookingReviewStepProps) {
@@ -100,7 +102,7 @@ export function BookingReviewStep({
       {packageBalance && <PackageBalanceGate state={packageBalance} />}
 
       {(plan.conflicts.length > 0 || plan.outOfHours.length > 0) && (
-        <ConflictBanner plan={plan} onSelectDifferentTime={onSelectDifferentTime} />
+        <ConflictBanner plan={plan} bufferMinutes={bufferMinutes} onSelectDifferentTime={onSelectDifferentTime} />
       )}
 
       {/* Schedule preview */}

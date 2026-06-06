@@ -74,6 +74,39 @@ export async function updateWorkingDays(
 }
 
 /**
+ * Update the trainer's minimum gap between sessions (buffer time).
+ *
+ * Validates that the value is an integer in 0–120. Rejects out-of-range
+ * values rather than silently clamping so the UI can surface the error.
+ */
+export async function updateBufferMinutes(
+  minutes: number,
+): Promise<ActionResult<{ bufferMinutes: number }>> {
+  const session = await auth.api.getSession({ headers: headers() })
+  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 120) {
+    return { success: false, error: 'Buffer must be a whole number between 0 and 120 minutes.' }
+  }
+
+  try {
+    await updateTrainerSettingsDoc({ buffer_minutes: minutes })
+
+    revalidatePath('/dashboard/settings')
+    revalidatePath('/dashboard/schedule')
+
+    return { success: true, data: { bufferMinutes: minutes } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error
+        ? `Couldn't save your buffer time. ${err.message}`
+        : "Couldn't save your buffer time. Please try again.",
+    }
+  }
+}
+
+/**
  * Update both the enabled working days AND the shared start/end times for
  * all 7 weekday rows. Used by the Settings → Business Hours editor.
  *

@@ -28,6 +28,7 @@ export function ctaLabel(validity: BookingValidity): string {
       case 'NO_TIME':    return 'Pick a time to continue'
       case 'NO_PATTERN': return 'Pick a pattern to continue'
       case 'EMPTY_PLAN': return 'Pick a time inside working hours'
+      case 'NO_FEE':     return 'Enter session fee to continue'
     }
   }
   switch (validity.reason) {

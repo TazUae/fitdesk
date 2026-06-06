@@ -32,6 +32,11 @@ describe('mapTrainerSettings', () => {
     expect(mapTrainerSettings({ buffer_minutes: NaN }, TRAINER_ID).bufferMinutes).toBe(15)
   })
 
+  it('parses buffer_minutes from a valid numeric string', () => {
+    expect(mapTrainerSettings({ buffer_minutes: '30' as never }, TRAINER_ID).bufferMinutes).toBe(30)
+    expect(mapTrainerSettings({ buffer_minutes: '0' as never }, TRAINER_ID).bufferMinutes).toBe(0)
+  })
+
   it('extracts enabled weekdays only', () => {
     const cfg = mapTrainerSettings({
       working_days: [

@@ -4,7 +4,9 @@ import { AlertTriangle } from 'lucide-react'
 import type { BookingPlan } from '@/types/scheduling'
 
 interface ConflictBannerProps {
-  plan:        BookingPlan
+  plan:             BookingPlan
+  /** Trainer's buffer in minutes — shown in the conflict detail line. */
+  bufferMinutes?:   number
   /** Routes the user back to the time/pattern step to choose alternatives. */
   onSelectDifferentTime?: () => void
 }
@@ -16,7 +18,7 @@ interface ConflictBannerProps {
  * different time" button routes the BookingSheet back to the pattern step
  * (Phase 5.2 will add "skip this one" + engine onConflict='skip').
  */
-export function ConflictBanner({ plan, onSelectDifferentTime }: ConflictBannerProps) {
+export function ConflictBanner({ plan, bufferMinutes, onSelectDifferentTime }: ConflictBannerProps) {
   const conflictCount = plan.conflicts.length
   const outCount      = plan.outOfHours.length
   if (conflictCount === 0 && outCount === 0) return null
@@ -31,7 +33,9 @@ export function ConflictBanner({ plan, onSelectDifferentTime }: ConflictBannerPr
       ? 'Booking blocked: one occurrence conflicts'
       : `Booking blocked: ${conflictCount} occurrences conflict`
     detail = firstConflict?.kind === 'buffer'
-      ? 'Too close to an existing session (less than the trainer buffer).'
+      ? bufferMinutes !== undefined
+        ? `Too close to another session. Your buffer is ${bufferMinutes} min.`
+        : 'Too close to another session (less than your buffer).'
       : 'Overlaps an existing session.'
   } else if (outCount > 0) {
     title = outCount === 1
@@ -39,6 +43,8 @@ export function ConflictBanner({ plan, onSelectDifferentTime }: ConflictBannerPr
       : `Booking blocked: ${outCount} occurrences outside working hours`
     detail = firstOOH?.reason ?? 'One occurrence falls outside the trainer\'s working window.'
   }
+
+  const showBufferHint = conflictCount > 0 && plan.conflicts[0]?.kind === 'buffer'
 
   return (
     <div
@@ -56,6 +62,11 @@ export function ConflictBanner({ plan, onSelectDifferentTime }: ConflictBannerPr
         <p className="mt-0.5 text-xs" style={{ color: 'color-mix(in srgb, var(--fd-red) 80%, var(--fd-text))' }}>
           {detail}
         </p>
+        {showBufferHint && (
+          <p className="mt-0.5 text-xs" style={{ color: 'color-mix(in srgb, var(--fd-red) 60%, var(--fd-text))' }}>
+            Choose a later time or update your buffer in Settings.
+          </p>
+        )}
         {onSelectDifferentTime && (
           <button
             type="button"

@@ -828,4 +828,40 @@ describe('buildBookingPlan', () => {
     expect(plan.trainerId).toBe('trainer-xyz')
     expect(plan.clientId).toBe('client-abc')
   })
+
+  // ── Non-default buffer ────────────────────────────────────────────────────
+
+  it('flags a 20-min gap as buffer conflict when bufferMinutes = 30', () => {
+    // New session: Mon 10:30–11:30 Riyadh (07:30–08:30 UTC)
+    // Existing ends at 10:10 Riyadh (07:10 UTC) — gap = 20 min < 30 min buffer
+    const existingEnd   = new Date('2026-01-05T07:10:00.000Z')
+    const existingStart = new Date('2026-01-05T06:10:00.000Z')
+    const config30: TrainerConfig = { ...DEFAULT_CONFIG, bufferMinutes: 30 }
+    const plan = buildBookingPlan({
+      ...BASE,
+      config: config30,
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '10:30' }],
+      recurrenceWeeks:  null,
+      existingSessions: [{ startAt: existingStart, endAt: existingEnd }],
+    })
+    expect(plan.conflicts).toHaveLength(1)
+    expect(plan.conflicts[0].kind).toBe('buffer')
+    expect(plan.valid).toBe(false)
+  })
+
+  it('allows adjacent sessions when bufferMinutes = 0', () => {
+    // New session: Mon 10:00–11:00 Riyadh; existing ends exactly at 10:00 — gap = 0
+    const existingEnd   = new Date('2026-01-05T07:00:00.000Z') // 10:00 Riyadh
+    const existingStart = new Date('2026-01-05T06:00:00.000Z') // 09:00 Riyadh
+    const config0: TrainerConfig = { ...DEFAULT_CONFIG, bufferMinutes: 0 }
+    const plan = buildBookingPlan({
+      ...BASE,
+      config: config0,
+      selectedSlots:    [{ localDate: '2026-01-05', localTime: '10:00' }],
+      recurrenceWeeks:  null,
+      existingSessions: [{ startAt: existingStart, endAt: existingEnd }],
+    })
+    expect(plan.conflicts).toHaveLength(0)
+    expect(plan.valid).toBe(true)
+  })
 })

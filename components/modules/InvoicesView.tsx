@@ -22,7 +22,7 @@ import type { Client, Invoice, InvoiceStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FilterTab = 'outstanding' | 'preparing' | 'paid' | 'all'
+type FilterTab = 'outstanding' | 'paid' | 'all'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,15 +44,13 @@ function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
     // Overdue first
     return [...list].sort((a, b) => (a.status === 'overdue' ? -1 : b.status === 'overdue' ? 1 : 0))
   }
-  if (tab === 'preparing') return invoices.filter(i => i.status === 'draft')
-  if (tab === 'paid')      return invoices.filter(i => i.status === 'paid')
+  if (tab === 'paid') return invoices.filter(i => i.status === 'paid')
   return invoices
 }
 
 function tabCount(invoices: Invoice[], tab: FilterTab): number {
   if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
-  if (tab === 'preparing')   return invoices.filter(i => i.status === 'draft').length
-  if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
+  if (tab === 'paid') return invoices.filter(i => i.status === 'paid').length
   return invoices.length
 }
 
@@ -453,7 +451,6 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
 
 const TABS: { id: FilterTab; label: string }[] = [
   { id: 'outstanding', label: 'To collect' },
-  { id: 'preparing',   label: 'Preparing'  },
   { id: 'paid',        label: 'Paid'       },
   { id: 'all',         label: 'All'        },
 ]
@@ -471,8 +468,7 @@ export function InvoicesView({ invoices, clients: _clients, error }: InvoicesVie
   const [activeTab, setActiveTab]         = useState<FilterTab>('outstanding')
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null)
 
-  const displayed  = filterInvoices(invoices, activeTab)
-  const hasDrafts  = invoices.some(i => i.status === 'draft')
+  const displayed = filterInvoices(invoices, activeTab)
 
   function handlePaid() {
     setPayingInvoice(null)
@@ -539,15 +535,9 @@ export function InvoicesView({ invoices, clients: _clients, error }: InvoicesVie
                 Nothing to collect right now.
               </p>
               <p className="mt-1.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
-                {hasDrafts
-                  ? 'You have invoices still preparing. Open Preparing to review them.'
-                  : 'Invoices will appear automatically after package sales or completed pay-per-session sessions.'}
+                Invoices will appear automatically after package sales or completed pay-per-session sessions.
               </p>
             </>
-          ) : activeTab === 'preparing' ? (
-            <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-              No invoices preparing.
-            </p>
           ) : activeTab === 'paid' ? (
             <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
               No paid invoices yet.

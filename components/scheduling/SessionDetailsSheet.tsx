@@ -10,6 +10,7 @@ import {
   completeSessionAction,
   markNoShowAction,
 } from '@/actions/schedulingActions'
+import { fetchClientById } from '@/actions/clients'
 import { cn } from '@/lib/utils'
 import type { FDSession } from '@/types/scheduling'
 
@@ -62,8 +63,23 @@ export function SessionDetailsSheet({
     const local = fdLocalDateTime(session)
     setDate(local.date)
     setTime(local.time)
-    setRate(session.rate > 0 ? String(session.rate) : '')
     setError(null)
+
+    if (session.rate > 0) {
+      setRate(String(session.rate))
+      return
+    }
+
+    // Session was booked without a rate — try to pre-fill from the client's default rate
+    setRate('')
+    let cancelled = false
+    fetchClientById(session.clientId).then(result => {
+      if (cancelled) return
+      if (result.success && result.data.defaultSessionRate && result.data.defaultSessionRate > 0) {
+        setRate(String(result.data.defaultSessionRate))
+      }
+    })
+    return () => { cancelled = true }
   }, [session])
 
   const clientName  = session?.clientName ?? ''

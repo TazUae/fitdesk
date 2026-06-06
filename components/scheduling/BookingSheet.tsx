@@ -276,6 +276,9 @@ export function BookingSheet(props: BookingSheetProps) {
     if (isPackageClient && pkgBalance?.status === 'overdraw') {
       return { kind: 'blocked', reason: 'PACKAGE_OVERDRAW', details: `Will consume ${pkgBalance.willConsume} of ${pkgBalance.remainingSessions ?? 0}` }
     }
+    if (selectedClientBillingMode === 'Pay Per Session' && (draft.fee == null || draft.fee <= 0)) {
+      return { kind: 'invalid', reason: 'NO_FEE' }
+    }
     return { kind: 'ready', plan: previewPlan, total: previewPlan.occurrences.length }
   }, [draft, previewPlan, pkgBalance, isPackageClient])
 
@@ -369,7 +372,7 @@ export function BookingSheet(props: BookingSheetProps) {
         const outOfHrs = planResult.data.outOfHours[0]
         setError(
           conflict
-            ? `Booking blocked: ${conflict.kind === 'buffer' ? 'violates buffer' : 'overlaps existing session'}`
+            ? `Booking blocked: ${conflict.kind === 'buffer' ? `too close to another session (buffer ${trainerConfig.bufferMinutes} min)` : 'overlaps existing session'}`
             : outOfHrs
               ? outOfHrs.reason
               : 'Plan has no valid sessions',
@@ -513,6 +516,7 @@ export function BookingSheet(props: BookingSheetProps) {
               sessionType={draft.sessionType}
               fee={draft.fee}
               notes={draft.notes}
+              bufferMinutes={trainerConfig.bufferMinutes}
               onChange={patch => updateDraft(patch)}
               onSelectDifferentTime={() => setStep(hidePattern ? 'datetime' : 'pattern')}
             />

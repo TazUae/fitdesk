@@ -247,7 +247,7 @@ export interface BookingDraft {
  * and the per-step error surface.
  */
 export type BookingValidity =
-  | { kind: 'invalid'; reason: 'NO_CLIENT' | 'NO_TIME' | 'EMPTY_PLAN' | 'NO_PATTERN' }
+  | { kind: 'invalid'; reason: 'NO_CLIENT' | 'NO_TIME' | 'EMPTY_PLAN' | 'NO_PATTERN' | 'NO_FEE' }
   | { kind: 'blocked'; reason: 'CONFLICT' | 'OUT_OF_HOURS' | 'PACKAGE_OVERDRAW'; details: string }
   | { kind: 'ready';   plan: BookingPlan; total: number }
 

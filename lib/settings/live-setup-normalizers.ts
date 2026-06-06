@@ -25,6 +25,8 @@ export type TrainerSettingsSummary = {
   /** True once availability has been confirmed (FitDesk Trainer Settings.initialized == 1). */
   initialized: boolean;
   standardBillingItem: string | null;
+  /** Minimum gap between sessions in minutes, or null if unavailable. */
+  bufferMinutes: number | null;
 };
 
 export type SessionTypesSummary = {
@@ -121,6 +123,7 @@ export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSetting
       sharedEndTime: null,
       initialized: false,
       standardBillingItem: null,
+      bufferMinutes: null,
     };
   }
 
@@ -165,6 +168,7 @@ export function normalizeTrainerSettings(doc: GenericDoc | null): TrainerSetting
       toStringOrNull(doc.standard_billing_item) ??
       toStringOrNull(doc.default_billing_item) ??
       toStringOrNull(doc.billing_item),
+    bufferMinutes: toNumber(doc.buffer_minutes),
   };
 }
 
