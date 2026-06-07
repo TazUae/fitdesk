@@ -534,13 +534,24 @@ export async function getInvoiceById(id: string): Promise<Invoice> {
 
 /**
  * Fetch a single invoice and verify it belongs to the trainer.
- * The invoice's customer (`invoice.clientId`) is the Client docname, so ownership is
- * verified via getClientById (which throws ERPNextError(403) on mismatch).
- * Use this for all trainer-facing invoice-by-id reads/mutations.
+ * The invoice's customer (`invoice.clientId`) is the Client docname; ownership
+ * is verified via the client's trainer field.
+ *
+ * The explicit check below is intentionally self-contained: it must NOT rely
+ * solely on getClientById throwing, because the V3/base client does not enforce
+ * ownership inside getClientById (_trainerId is unused there). This gate must
+ * survive the future client.ts reconciliation.
  */
 export async function getInvoiceByIdForTrainer(id: string, trainerId: string): Promise<Invoice> {
   const invoice = await getInvoiceById(id)
-  await getClientById(invoice.clientId, trainerId)
+  const client  = await getClientById(invoice.clientId, trainerId)
+  if (client.trainerId !== trainerId) {
+    throw new ERPNextError(
+      403, 'Forbidden',
+      `/api/resource/${DOCTYPE.INVOICE}/${id}`,
+      'Invoice does not belong to this trainer.',
+    )
+  }
   return invoice
 }
 
