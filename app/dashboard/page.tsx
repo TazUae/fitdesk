@@ -2,13 +2,22 @@ import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
 import { ymdInTz, hourInTz } from '@/lib/date'
 import { getClients, getInvoices, getSessions } from '@/lib/business-data'
-import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { DashboardView } from '@/components/modules/DashboardView'
 import {
   countActiveClients,
   countSessionsCompletedThisWeek,
   findLowBalanceClients,
 } from '@/lib/dashboard/metrics'
+import {
+  getDashboardActionItems,
+  getTodayTimelineSections,
+  getMoneySnapshot,
+  getYesterdayRecap,
+  buildTodayHeroSentence,
+  getTodayCounts,
+  buildHeaderStatus,
+  resolveNextUp,
+} from '@/lib/dashboard/derive'
 import { buildSetupChecklist } from '@/lib/dashboard/setup-checklist'
 import { getTrainerSettingsDoc } from '@/lib/erpnext/client'
 import { getTrainerWhatsAppConnection } from '@/lib/evolution'
@@ -44,7 +53,6 @@ export default async function DashboardPage() {
   ])
 
   // ── Dates (resolved in the trainer's configured timezone) ───────────────────
-  // Fallback to 'UTC' when settings are unavailable — identical to prior behaviour.
   const tz =
     trainerSettingsResult.status === 'fulfilled' &&
     typeof trainerSettingsResult.value?.timezone === 'string' &&
@@ -55,6 +63,7 @@ export default async function DashboardPage() {
   const today      = ymdInTz(now, tz)
   const greeting   = timeGreeting(hourInTz(now, tz))
   const monthStart = today.slice(0, 8) + '01'
+  const nowMs      = now.getTime()
 
   const clients: Client[] | null =
     clientsResult.status  === 'fulfilled' && clientsResult.value.success
@@ -76,8 +85,16 @@ export default async function DashboardPage() {
       ? trainerSettingsResult.value?.initialized === 1
       : false
 
-  // WhatsApp status is best-effort — a missing mapping or Evolution outage
-  // must never blank the dashboard. Default to "not connected".
+  // Backend health for the dev-only warning. Derived purely from the
+  // allSettled results above — no extra fetches, no change to the graceful
+  // empty-state behavior. The banner itself is gated to non-production.
+  const backendDegraded =
+    clients  === null ||
+    sessions === null ||
+    invoices === null ||
+    trainerSettingsResult.status === 'rejected'
+
+  // WhatsApp status — best-effort, never blanks the dashboard
   let whatsappConnected = false
   if (session?.user?.id) {
     try {
@@ -91,97 +108,107 @@ export default async function DashboardPage() {
     }
   }
 
+  // ── Setup checklist ─────────────────────────────────────────────────────────
   const setupChecklist = buildSetupChecklist({
-    workspaceReady:        true, // middleware only lets users in once provisioning is complete
+    workspaceReady:        true,
     availabilityConfirmed,
     hasFirstClient:        (clients?.length ?? 0) > 0,
     hasFirstSession:       (sessions?.length ?? 0) > 0,
     whatsappConnected,
-    // Cash and Bank Transfer require no trainer setup — always acknowledged.
-    // When OMT / Whish onboarding is added, wire this to a real per-trainer
-    // flag (e.g. stored in FitDesk Trainer Settings or SQLite) so the
-    // checklist item reflects whether the trainer has configured a provider.
     paymentsAcknowledged:  true,
   })
 
   // ── Derived values ──────────────────────────────────────────────────────────
+  const allSessions  = sessions ?? []
+  const allInvoices  = invoices ?? []
+  const allClients   = clients  ?? []
 
-  // Customer DocType has no trainer-link field today, so we can't filter active
-  // clients at the ERP query. Derive "active" from the trainer's session list:
-  // any client with an upcoming session or a completion in the last 30 days.
-  const totalClients  = clients?.length ?? null
-  const activeClients = sessions === null
-    ? null
-    : countActiveClients(sessions, now.getTime())
+  const lowBalanceClients: Client[] = findLowBalanceClients(allClients)
 
-  const sessionYmd = (s: FDSession) => ymdInTz(s.startAt, tz)
-  const isActive   = (s: FDSession) => s.status === 'scheduled' || s.status === 'confirmed'
+  const money = getMoneySnapshot(allInvoices, monthStart)
 
-  const todaySessions: FDSession[] =
-    sessions
-      ?.filter(s => sessionYmd(s) === today && isActive(s))
-      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
-    ?? []
+  const actionItems = getDashboardActionItems({
+    sessions:          allSessions,
+    invoices:          allInvoices,
+    lowBalanceClients,
+    clients:           allClients,
+    nowMs,
+    tz,
+    todayYmd:          today,
+    whatsappConnected,
+  })
 
+  const timeline = getTodayTimelineSections(allSessions, nowMs, tz, today)
+
+  const todayTotal = allSessions.filter(s => ymdInTz(s.startAt, tz) === today).length
+
+  // Upcoming: active sessions from tomorrow onwards, sorted, capped at 5
   const upcomingSessions: FDSession[] =
-    sessions
-      ?.filter(s => sessionYmd(s) > today && isActive(s))
+    allSessions
+      .filter(
+        s =>
+          (s.status === 'scheduled' || s.status === 'confirmed') &&
+          ymdInTz(s.startAt, tz) > today,
+      )
       .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
-      .slice(0, 3)
-    ?? []
+      .slice(0, 5)
 
-  const sessionsThisMonth: number | null =
-    sessions === null
-      ? null
-      : sessions.filter(s => s.status === 'completed' && sessionYmd(s) >= monthStart).length
+  // Empty-day context — reuses already-fetched sessions, no new data source.
+  const nextSession: FDSession | null = upcomingSessions[0] ?? null
+  const { completedYesterday } = getYesterdayRecap(allSessions, tz, today)
+
+  const todayCounts   = getTodayCounts(allSessions, tz, today)
+  const headerStatus  = buildHeaderStatus(todayCounts)
+  const nextUp        = resolveNextUp({
+    inProgress:       timeline.inProgress,
+    nextToday:        timeline.next,
+    remainingToday:   timeline.remainingToday,
+    recentlyFinished: timeline.recentlyFinished,
+    nextFuture:       nextSession,
+    clients:          allClients,
+    todayTotal:       todayCounts.total,
+  })
+
+  const todayHeroSentence = buildTodayHeroSentence({
+    actionItems,
+    todayTotal,
+    money,
+    inProgress: timeline.inProgress,
+    nextSession,
+    completedYesterday,
+    tz,
+    todayYmd: today,
+  })
+
+  const activeClients: number | null =
+    sessions === null ? null : countActiveClients(sessions, nowMs)
 
   const sessionsThisWeek: number | null =
-    sessions === null ? null : countSessionsCompletedThisWeek(sessions, now.getTime())
-
-  const overdueInvoices: Invoice[] =
-    invoices?.filter(i => i.status === 'overdue') ?? []
-
-  const lowBalanceClients: Client[] = clients ? findLowBalanceClients(clients) : []
-
-  const outstandingBalance: number | null =
-    invoices === null
-      ? null
-      : invoices
-          .filter(i => isOutstandingInvoiceStatus(i.status))
-          .reduce((sum, i) => sum + i.outstandingAmount, 0)
-
-  const monthlyRevenue: number | null =
-    invoices === null
-      ? null
-      : invoices
-          .filter(i => i.status === 'paid' && i.issuedAt >= monthStart)
-          .reduce((sum, i) => sum + i.amount, 0)
-
-  const currency =
-    invoices?.find(i => i.currency)?.currency ?? 'USD'
+    sessions === null ? null : countSessionsCompletedThisWeek(sessions, nowMs)
 
   // ── Render ──────────────────────────────────────────────────────────────────
-
   return (
     <DashboardView
       trainerName={trainerName}
       greeting={greeting}
       today={today}
       timezone={tz}
-      stats={{
-        activeClients,
-        totalClients,
-        outstandingBalance,
-        currency,
-        monthlyRevenue,
-        sessionsThisMonth,
-        sessionsThisWeek,
-      }}
-      todaySessions={todaySessions}
+      actionItems={actionItems}
+      todayHeroSentence={todayHeroSentence}
+      todayTotal={todayTotal}
+      timeline={timeline}
+      money={money}
       upcomingSessions={upcomingSessions}
-      overdueInvoices={overdueInvoices}
-      lowBalanceClients={lowBalanceClients}
+      nextSession={nextSession}
+      completedYesterday={completedYesterday}
+      activeClients={activeClients}
+      sessionsThisWeek={sessionsThisWeek}
+      whatsappConnected={whatsappConnected}
       setupChecklist={setupChecklist}
+      backendDegraded={backendDegraded}
+      headerStatus={headerStatus}
+      todayCounts={todayCounts}
+      nextUp={nextUp}
     />
   )
 }

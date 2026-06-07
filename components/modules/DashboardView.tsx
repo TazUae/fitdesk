@@ -2,626 +2,164 @@
  * DashboardView — pure presenter, no client hooks.
  *
  * All data is pre-computed by the server component (app/dashboard/page.tsx)
- * and passed as props. This component only formats, lays out, and links.
+ * and passed as props. This component only lays out and composes sub-sections.
  *
  * Do NOT add 'use client'. It renders in the server component tree.
+ *
+ * Desktop layout:
+ *   compact header (full width)
+ *   top row:    NextUpCard (left) | MoneySnapshot (right)
+ *   full width: ActionCenter — only when actions > 0
+ *   second row: Today+Upcoming (left) | QuickActions (right)
+ *
+ * Mobile layout: single column in source order.
  */
 
-import Link from 'next/link'
-import {
-  Users,
-  Calendar,
-  CalendarPlus,
-  TrendingUp,
-  DollarSign,
-  AlertTriangle,
-  ChevronRight,
-  FileText,
-  UserPlus,
-} from 'lucide-react'
-import { ymdInTz, hhmInTz } from '@/lib/date'
-import { StatCard } from './StatCard'
-import { Avatar }   from './Avatar'
-import { Badge }    from './Badge'
+import { TodayHero }     from '@/components/modules/dashboard/TodayHero'
+import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
+import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
+import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
+import { MoneySnapshot } from '@/components/modules/dashboard/MoneySnapshot'
+import { QuickActions }  from '@/components/modules/dashboard/QuickActions'
+import { UpcomingList }  from '@/components/modules/dashboard/UpcomingList'
 import { SetupChecklist, type ChecklistItem } from '@/components/dashboard/SetupChecklist'
-import { WEEKLY_SESSION_GOAL } from '@/lib/dashboard/constants'
-import type { Client, Invoice } from '@/types'
+import { LocalBackendWarning } from '@/components/dev/LocalBackendWarning'
+import type {
+  DashboardActionItem,
+  TodayTimelineSections,
+  MoneySnapshot as MoneySnapshotData,
+  TodayCounts,
+  NextUpData,
+} from '@/lib/dashboard/derive'
 import type { FDSession } from '@/types/scheduling'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface DashboardViewProps {
-  trainerName: string
-  greeting:    string
-  today:       string
-  /** IANA timezone for session date/time display (e.g. 'Asia/Riyadh'). */
-  timezone:    string
+  trainerName:       string
+  greeting:          string
+  today:             string
+  timezone:          string
 
-  stats: {
-    activeClients:      number | null
-    totalClients:       number | null
-    outstandingBalance: number | null
-    currency:           string
-    monthlyRevenue:     number | null
-    sessionsThisMonth:  number | null
-    sessionsThisWeek:   number | null
-  }
-
-  todaySessions:     FDSession[]
+  actionItems:       DashboardActionItem[]
+  todayHeroSentence: string
+  todayTotal:        number
+  timeline:          TodayTimelineSections
+  money:             MoneySnapshotData
   upcomingSessions:  FDSession[]
-  overdueInvoices:   Invoice[]
-  lowBalanceClients: Client[]
+  /** First upcoming session (tomorrow onwards), or null. */
+  nextSession:        FDSession | null
+  /** Count of sessions completed on the trainer's previous local day. */
+  completedYesterday: number
+
+  activeClients:     number | null
+  sessionsThisWeek:  number | null
+  whatsappConnected: boolean
+
   setupChecklist?:   ChecklistItem[]
+
+  /** True when a dashboard backend fetch failed. */
+  backendDegraded?:  boolean
+
+  /** New: compact header status line. */
+  headerStatus:      string
+  /** New: cleaned today session counts. */
+  todayCounts:       TodayCounts
+  /** New: resolved next-up data. */
+  nextUp:            NextUpData
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtMoney(n: number | null, currency = 'USD'): string {
-  if (n === null) return '—'
-  if (n === 0)    return '$0'
-  return new Intl.NumberFormat('en-US', {
-    style:                'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(n)
-}
-
-function fmtNum(n: number | null): string {
-  return n === null ? '—' : String(n)
-}
-
-function parseUTCDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d))
-}
-
-function fmtSessionDate(dateStr: string, today: string): string {
-  if (dateStr === today) return 'Today'
-  const tomorrow = new Date(parseUTCDate(today).getTime() + 86_400_000)
-    .toISOString()
-    .slice(0, 10)
-  if (dateStr === tomorrow) return 'Tomorrow'
-  return parseUTCDate(dateStr).toLocaleDateString('en-US', {
-    timeZone: 'UTC',
-    weekday:  'short',
-    month:    'short',
-    day:      'numeric',
-  })
-}
-
-function fmtDueDate(dateStr: string): string {
-  return parseUTCDate(dateStr).toLocaleDateString('en-US', {
-    timeZone: 'UTC',
-    month:    'short',
-    day:      'numeric',
-  })
-}
-
-function daysOverdue(dueDate: string, today: string): number {
-  return Math.max(
-    0,
-    Math.floor(
-      (parseUTCDate(today).getTime() - parseUTCDate(dueDate).getTime()) / 86_400_000,
-    ),
-  )
-}
-
-function formatTodayLabel(todayStr: string): string {
-  return parseUTCDate(todayStr).toLocaleDateString('en-US', {
-    timeZone: 'UTC',
-    weekday:  'long',
-    month:    'long',
-    day:      'numeric',
-  })
-}
-
-// ─── Section header ───────────────────────────────────────────────────────────
-
-function SectionHeader({
-  title,
-  count,
-  href,
-}: {
-  title: string
-  count?: number
-  href?:  string
-}) {
-  const right = href ? (
-    <Link
-      href={href}
-      className="flex items-center gap-0.5 text-xs font-semibold transition-opacity active:opacity-60"
-      style={{ color: 'var(--fd-accent)' }}
-    >
-      See all <ChevronRight className="h-3.5 w-3.5" />
-    </Link>
-  ) : null
-
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          {title}
-        </p>
-        {count !== undefined && count > 0 && (
-          <span
-            className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
-            style={{ backgroundColor: 'rgba(232,197,71,0.15)', color: 'var(--fd-accent)' }}
-          >
-            {count}
-          </span>
-        )}
-      </div>
-      {right}
-    </div>
-  )
-}
-
-// ─── Quick actions ────────────────────────────────────────────────────────────
-
-function QuickActions({ progressText }: { progressText: string }) {
-  const actions = [
-    { href: '/dashboard/schedule', Icon: CalendarPlus, label: 'Schedule' },
-    { href: '/dashboard/clients/new',  Icon: UserPlus,     label: 'Add Client' },
-    { href: '/dashboard/invoices',     Icon: FileText,     label: 'Send Reminder', subtext: 'Pending follow-up' },
-  ]
-
-  return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
-        {actions.map(({ href, Icon, label, subtext }) => (
-          <Link
-            key={href}
-            href={href}
-            className="flex min-h-[92px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-center transition-opacity hover:opacity-90 active:opacity-70"
-            style={{
-              backgroundColor: 'var(--fd-surface)',
-              borderColor: 'color-mix(in srgb, var(--fd-border) 60%, transparent)',
-            }}
-          >
-            <Icon className="h-5 w-5" style={{ color: 'var(--fd-accent)' }} />
-            <span className="text-sm font-semibold leading-snug" style={{ color: 'var(--fd-text)' }}>
-              {label}
-            </span>
-            {subtext && (
-              <span className="text-xs leading-snug" style={{ color: 'var(--fd-muted)' }}>
-                {subtext}
-              </span>
-            )}
-          </Link>
-        ))}
-      </div>
-
-      <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
-        {progressText}
-      </p>
-    </div>
-  )
-}
-
-// ─── Session card (today + upcoming) ─────────────────────────────────────────
-
-function SessionCard({
-  session,
-  today,
-  timezone,
-  compact = false,
-}: {
-  session:  FDSession
-  today:    string
-  timezone: string
-  compact?: boolean
-}) {
-  const dateLabel = fmtSessionDate(ymdInTz(session.startAt, timezone), today)
-
-  return (
-    <Link
-      href="/dashboard/schedule"
-      className="flex items-center gap-3 rounded-2xl border p-4 transition-opacity active:opacity-70"
-      style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-    >
-      <Avatar name={session.clientName} size={compact ? 'sm' : 'md'} />
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          {session.clientName}
-        </p>
-        <p className="flex items-center gap-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-          {dateLabel}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Badge variant="upcoming" label="Scheduled" />
-        {session.rate > 0 && (
-          <p className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-            {session.rate}
-          </p>
-        )}
-      </div>
-    </Link>
-  )
-}
-
-// ─── Overdue invoice card ─────────────────────────────────────────────────────
-
-function OverdueInvoiceCard({ invoice, today }: { invoice: Invoice; today: string }) {
-  const days = daysOverdue(invoice.dueDate, today)
-  const overdueLine = days > 0 ? `${days}d overdue` : `Due ${fmtDueDate(invoice.dueDate)}`
-
-  return (
-    <div
-      className="rounded-2xl border p-4 space-y-3"
-      style={{ backgroundColor: 'rgba(232,92,106,0.06)', borderColor: 'rgba(232,92,106,0.2)' }}
-    >
-      <div className="flex items-center gap-3">
-        <Avatar name={invoice.clientName} size="md" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            {invoice.clientName}
-          </p>
-          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {invoice.id} · {overdueLine}
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-base font-bold" style={{ color: 'var(--fd-red)' }}>
-            {invoice.currency} {invoice.outstandingAmount.toLocaleString()}
-          </p>
-          <Badge variant="overdue" />
-        </div>
-      </div>
-
-      <div className="flex gap-2">
-        {invoice.clientId && (
-          <Link
-            href={`/dashboard/messages/${encodeURIComponent(invoice.clientId)}?type=reminder&invoiceId=${encodeURIComponent(invoice.id)}`}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-opacity active:opacity-60"
-            style={{ backgroundColor: 'rgba(232,92,106,0.15)', color: 'var(--fd-red)' }}
-          >
-            Send Reminder
-          </Link>
-        )}
-        <Link
-          href="/dashboard/invoices"
-          className="flex items-center justify-center rounded-xl px-4 py-2 text-xs font-bold transition-opacity active:opacity-60"
-          style={{ backgroundColor: 'rgba(138,143,168,0.10)', color: 'var(--fd-muted)' }}
-        >
-          View
-        </Link>
-      </div>
-    </div>
-  )
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function DashboardView({
   trainerName,
   greeting,
   today,
   timezone,
-  stats,
-  todaySessions,
+  actionItems,
+  timeline,
+  money,
   upcomingSessions,
-  overdueInvoices,
-  lowBalanceClients,
+  completedYesterday,
+  whatsappConnected,
   setupChecklist,
+  backendDegraded,
+  headerStatus,
+  nextUp,
 }: DashboardViewProps) {
-  const { activeClients, outstandingBalance, currency, monthlyRevenue, sessionsThisWeek } = stats
   const firstName = trainerName.split(' ')[0] ?? trainerName
 
-  const hasTodaySessions  = todaySessions.length > 0
-  const hasUpcoming       = upcomingSessions.length > 0
-  const outstandingCount  = overdueInvoices.length
-  const outstandingLabel  = outstandingBalance !== null && outstandingBalance > 0
-    ? `${fmtMoney(outstandingBalance, currency)} pending`
-    : 'All caught up'
-  const followUpCount     = todaySessions.length
-  const followUpLabel     = followUpCount > 0
-    ? `${followUpCount} session${followUpCount === 1 ? '' : 's'} to review`
-    : 'All caught up'
-  const completedThisWeek     = sessionsThisWeek ?? 0
-  const quickActionsProgress  = `${completedThisWeek} of ${WEEKLY_SESSION_GOAL} sessions completed this week`
+  // TodayTimeline only renders when it has real content.
+  const hasTodayContent = !!(
+    timeline.inProgress ||
+    timeline.next ||
+    timeline.remainingToday.length > 0 ||
+    timeline.recentlyFinished.length > 0
+  )
 
   return (
-    <div className="space-y-5 p-4 pb-24">
+    <div className="mx-auto w-full max-w-[1180px] px-4 pt-4 pb-28 lg:px-8 lg:pt-6 lg:pb-12">
 
-      {/* ── Greeting ─────────────────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xl font-bold" style={{ color: 'var(--fd-text)' }}>
-          {greeting}, {firstName}
-        </h2>
-        <p className="mt-1 text-sm" style={{ color: 'var(--fd-muted)' }}>
-          {formatTodayLabel(today)}
-        </p>
-      </div>
+      {/* ── Dev/local-only backend warning ─────────────────────────────── */}
+      <LocalBackendWarning degraded={!!backendDegraded} />
 
-      {/* ── Setup checklist ─────────────────────────────────────────────── */}
+      {/* ── Setup checklist (while incomplete) ─────────────────────────── */}
       {setupChecklist && setupChecklist.length > 0 && (
-        <SetupChecklist items={setupChecklist} hideWhenAllDone />
+        <div className="mb-4">
+          <SetupChecklist items={setupChecklist} hideWhenAllDone />
+        </div>
       )}
 
-      {/* ── Revenue hero ───────────────────────────────────────────────────── */}
-      <div
-        className="rounded-2xl border p-6"
-        style={{
-          backgroundColor: 'var(--fd-surface)',
-          borderColor: 'var(--fd-border)',
-          boxShadow: '0 1px 2px rgba(60,64,67,0.08), 0 1px 3px rgba(60,64,67,0.12)',
-        }}
-      >
-        <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--fd-muted)' }}>
-          This Month
-        </p>
-        <p className="mt-1 text-3xl font-bold leading-none tracking-tight" style={{ color: 'var(--fd-text)' }}>
-          {fmtMoney(monthlyRevenue, currency)}
-        </p>
-        <p className="mt-2 text-sm leading-snug" style={{ color: 'var(--fd-muted)' }}>
-          You&apos;re on track this month.
-        </p>
-        <Link
-          href="/dashboard/invoices"
-          className="mt-5 flex w-full items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold tracking-wide transition-colors"
-          style={{
-            backgroundColor: 'var(--fd-blue)',
-            color: 'var(--fd-text-on-primary)',
-          }}
-        >
-          View Payments
-        </Link>
+      {/* ── Compact header ─────────────────────────────────────────────── */}
+      <div className="mb-5">
+        <TodayHero
+          greeting={greeting}
+          firstName={firstName}
+          status={headerStatus}
+          today={today}
+        />
       </div>
 
-      {/* ── Needs attention ─────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          Needs Attention
-        </p>
+      {/* ── Top row: Next up | Money ────────────────────────────────────── */}
+      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
+        <NextUpCard nextUp={nextUp} today={today} timezone={timezone} />
+        <MoneySnapshot money={money} />
+      </div>
 
-        <div
-          className="divide-y divide-border rounded-xl border p-3"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <div
-            className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 24%, transparent)' }}
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                Outstanding payments
-              </p>
-              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                {outstandingCount > 0 ? `${outstandingCount} invoice${outstandingCount === 1 ? '' : 's'} · ${outstandingLabel}` : outstandingLabel}
-              </p>
-            </div>
-            <Link
-              href="/dashboard/invoices"
-              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-              style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-            >
-              Send Reminders
-            </Link>
-          </div>
+      {/* ── Action Center — full width, only when there are real actions ── */}
+      {actionItems.length > 0 && (
+        <div className="mb-5">
+          <ActionCenter items={actionItems} />
+        </div>
+      )}
 
-          <div
-            className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 24%, transparent)' }}
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                Follow-ups needed
-              </p>
-              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                {followUpLabel}
-              </p>
-            </div>
-            <Link
-              href="/dashboard/messages"
-              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-              style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-            >
-              Follow Up
-            </Link>
-          </div>
+      {/* ── Second row: Today+Upcoming | QuickActions ──────────────────── */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,62fr)_minmax(0,38fr)] lg:gap-8 lg:items-start">
 
-          {lowBalanceClients.length > 0 && (
-            <div
-              className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 24%, transparent)' }}
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                  Packages running low
-                </p>
-                <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                  {lowBalanceClients.length} client{lowBalanceClients.length === 1 ? '' : 's'} ≤ 3 sessions left
-                </p>
-              </div>
-              <Link
-                href="/dashboard/clients"
-                className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-              >
-                Review
-              </Link>
-            </div>
+        {/* LEFT: Today timeline (only when active) then Upcoming */}
+        <div className="space-y-5">
+          {hasTodayContent && (
+            <TodayTimeline
+              timeline={timeline}
+              timezone={timezone}
+              nextSession={null}
+              completedYesterday={completedYesterday}
+              today={today}
+            />
           )}
+          <UpcomingList
+            sessions={upcomingSessions}
+            today={today}
+            timezone={timezone}
+          />
         </div>
+
+        {/* RIGHT: Quick actions */}
+        <aside className="space-y-5 lg:sticky lg:top-[5rem]">
+          <QuickActions whatsappConnected={whatsappConnected} />
+        </aside>
+
       </div>
-
-      {/* ── Quick actions ─────────────────────────────────────────────────── */}
-      <QuickActions progressText={quickActionsProgress} />
-
-      {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      {outstandingBalance !== null && outstandingBalance > 0 ? (
-        <div className="space-y-2">
-          {/* Outstanding — dominant when non-zero (calm urgency) */}
-          <Link href="/dashboard/invoices" className="block transition-opacity hover:opacity-90 active:opacity-70">
-            <StatCard
-              featured
-              accent="var(--fd-accent)"
-              label="To collect"
-              value={fmtMoney(outstandingBalance, currency)}
-              subtext={`${outstandingCount > 0 ? `${outstandingCount} overdue · ` : ''}Tap to send reminders`}
-            />
-          </Link>
-
-          {/* Secondary row: monthly + clients */}
-          <div className="grid grid-cols-2 gap-2">
-            <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
-              <StatCard
-                compact
-                className="rounded-xl [&_p]:leading-tight"
-                label="This Month"
-                value={fmtMoney(monthlyRevenue, currency)}
-              />
-            </Link>
-            <Link href="/dashboard/clients" className="transition-opacity hover:opacity-90 active:opacity-70">
-              <StatCard
-                compact
-                className="rounded-xl [&_p]:leading-tight"
-                label="Clients"
-                value={fmtNum(activeClients)}
-              />
-            </Link>
-          </div>
-        </div>
-      ) : (
-        /* No outstanding — equal 3-column grid */
-        <div className="grid grid-cols-3 gap-[6px]">
-          <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
-            <StatCard
-              compact
-              className="rounded-xl [&_p]:leading-tight"
-              label="This Month"
-              value={fmtMoney(monthlyRevenue, currency)}
-            />
-          </Link>
-
-          <Link href="/dashboard/invoices" className="transition-opacity hover:opacity-90 active:opacity-70">
-            <StatCard
-              compact
-              className="rounded-xl [&_p]:leading-tight"
-              label="Outstanding"
-              value={fmtMoney(outstandingBalance, currency)}
-            />
-          </Link>
-
-          <Link href="/dashboard/clients" className="transition-opacity hover:opacity-90 active:opacity-70">
-            <StatCard
-              compact
-              className="rounded-xl [&_p]:leading-tight"
-              label="Clients"
-              value={fmtNum(activeClients)}
-            />
-          </Link>
-        </div>
-      )}
-
-      {/* ── Today ─────────────────────────────────────────────────────────── */}
-      {hasTodaySessions && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Today
-              <span
-                className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                style={{ backgroundColor: 'rgba(232,197,71,0.15)', color: 'var(--fd-accent)' }}
-              >
-                {todaySessions.length}
-              </span>
-            </p>
-            <Link
-              href="/dashboard/schedule"
-              className="text-xs font-semibold transition-opacity active:opacity-70"
-              style={{ color: 'var(--fd-accent)' }}
-            >
-              See all ›
-            </Link>
-          </div>
-
-          <div className="space-y-2">
-            {todaySessions.map(session => (
-              <Link
-                key={session.id}
-                href="/dashboard/schedule"
-                className="flex items-center gap-3 rounded-2xl border p-4 transition-opacity active:opacity-70"
-                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-              >
-                <Avatar name={session.clientName} size="md" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                    {session.clientName}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    {hhmInTz(session.startAt, timezone)}
-                    {session.rate > 0 && ` · ${session.rate}`}
-                  </p>
-                </div>
-                <Badge variant="upcoming" label="Scheduled" />
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Upcoming (from tomorrow) ───────────────────────────────────────── */}
-      <div className="space-y-2">
-        <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          {hasTodaySessions ? 'Upcoming' : 'Next Sessions'}
-        </p>
-
-        <div
-          className="rounded-xl border p-3"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          {hasUpcoming ? (
-            <div className="space-y-2">
-              {upcomingSessions.slice(0, 3).map(session => (
-                <Link
-                  key={session.id}
-                  href="/dashboard/schedule"
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition-opacity hover:opacity-90 active:opacity-70"
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--fd-card) 22%, transparent)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                      {session.clientName}
-                    </p>
-                    <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                      {fmtSessionDate(ymdInTz(session.startAt, timezone), today)} · {hhmInTz(session.startAt, timezone)}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-xs" style={{ color: 'color-mix(in srgb, var(--fd-muted) 80%, transparent)' }}>
-                    ›
-                  </span>
-                </Link>
-              ))}
-
-              <div className="flex justify-end pt-1">
-                <Link
-                  href="/dashboard/schedule"
-                  className="text-xs font-semibold transition-opacity hover:opacity-90 active:opacity-70"
-                  style={{ color: 'var(--fd-muted)' }}
-                >
-                  See All ›
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                No upcoming sessions
-              </p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-                <Link href="/dashboard/schedule" style={{ color: 'var(--fd-accent)' }}>
-                  Book a session
-                </Link>
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
     </div>
   )
 }
