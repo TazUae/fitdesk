@@ -4,6 +4,7 @@
 
 # Build artefacts — not needed in build context
 .next
+.next-verify
 out
 build
 
