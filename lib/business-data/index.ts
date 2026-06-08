@@ -3,6 +3,7 @@
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
 import { bookSession as createSessionBooking, fetchSessions } from '@/actions/sessions'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import type { ActionResult, Client, Invoice, Payment, RecordPaymentResult, Session } from '@/types'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
@@ -90,7 +91,7 @@ export async function getDashboardMetrics() {
     sessionsThisMonth: sessions.filter((s) => s.status === 'completed' && s.date >= monthStart).length,
     overdueInvoices: invoices.filter((i) => i.status === 'overdue').length,
     outstandingBalance: invoices
-      .filter((i) => i.status === 'overdue' || i.status === 'sent')
+      .filter((i) => isOutstandingInvoiceStatus(i.status))
       .reduce((sum, i) => sum + i.outstandingAmount, 0),
     monthlyRevenue: invoices
       .filter((i) => i.status === 'paid' && i.issuedAt >= monthStart)

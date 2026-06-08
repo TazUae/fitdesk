@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
@@ -40,7 +41,7 @@ function invoiceVariant(s: InvoiceStatus): BadgeVariant {
 
 function outstandingBalance(invoices: Invoice[]): number {
   return invoices
-    .filter(i => i.status === 'overdue' || i.status === 'sent')
+    .filter(i => isOutstandingInvoiceStatus(i.status))
     .reduce((sum, i) => sum + i.outstandingAmount, 0)
 }
 

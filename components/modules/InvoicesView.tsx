@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
 import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -44,7 +45,7 @@ function statusVariant(s: InvoiceStatus): BadgeVariant {
 
 function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
   if (tab === 'outstanding') {
-    const list = invoices.filter(i => i.status === 'overdue' || i.status === 'sent')
+    const list = invoices.filter(i => isOutstandingInvoiceStatus(i.status))
     // Overdue first
     return [...list].sort((a, b) => (a.status === 'overdue' ? -1 : b.status === 'overdue' ? 1 : 0))
   }
@@ -53,7 +54,7 @@ function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
 }
 
 function tabCount(invoices: Invoice[], tab: FilterTab): number {
-  if (tab === 'outstanding') return invoices.filter(i => i.status === 'overdue' || i.status === 'sent').length
+  if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
   if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
   return invoices.length
 }
@@ -66,7 +67,7 @@ function fmtMoney(n: number, currency = 'USD'): string {
 
 function SummaryCards({ invoices }: { invoices: Invoice[] }) {
   const outstanding = invoices
-    .filter(i => i.status === 'overdue' || i.status === 'sent')
+    .filter(i => isOutstandingInvoiceStatus(i.status))
     .reduce((s, i) => s + i.outstandingAmount, 0)
 
   const collected = invoices
