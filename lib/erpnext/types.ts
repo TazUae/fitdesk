@@ -92,6 +92,12 @@ export interface ERPInvoice {
   currency: string
   status: 'Draft' | 'Submitted' | 'Paid' | 'Overdue' | 'Cancelled'
   remarks?: string
+  /**
+   * When 0/absent, ERPNext re-stamps posting_date to the server date on
+   * submit. Set to 1 to make ERPNext honor the stored posting_date.
+   */
+  set_posting_time?: 0 | 1
+  company?: string
   creation: string
   modified: string
 }

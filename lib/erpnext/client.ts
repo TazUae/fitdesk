@@ -610,3 +610,186 @@ export async function markInvoicePaid(opts: {
   )
   return normalizePayment(res.data, opts.invoiceId)
 }
+
+// ── ERP write primitives (V3) ─────────────────────────────────────────────────
+
+/**
+ * Clamp due_date to be >= posting_date.
+ *
+ * Prevents ERPNext validation errors when a draft invoice carries a stale
+ * due_date that is earlier than its posting_date (can happen under
+ * UTC/UTC+ timezone drift between creation time and submit time).
+ */
+export function clampDueDate(postingDate: string, dueDate: string): string {
+  return dueDate < postingDate ? postingDate : dueDate
+}
+
+/**
+ * Submit a draft Sales Invoice so it becomes payable.
+ *
+ * A REST POST creates a Sales Invoice as draft (docstatus 0). A draft invoice
+ * cannot receive a Payment Entry. Submitting transitions it to docstatus 1,
+ * after which ERPNext computes its Unpaid / Overdue status.
+ *
+ * Submission uses the whitelisted `frappe.client.submit` method, which expects
+ * the full document — so the draft is fetched first (no `fields` filter, so
+ * every field and child table is included) and passed back verbatim.
+ *
+ * @returns the invoice re-fetched through getInvoiceById — its post-submit
+ *          state, not the submit echo.
+ */
+export async function submitSalesInvoice(invoiceId: string): Promise<Invoice> {
+  const docRes = await erpFetch<ERPDocResponse<ERPInvoice>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(invoiceId)}`,
+  )
+
+  // Normalize dates before submit. An old draft may carry set_posting_time = 0;
+  // ERPNext would then re-stamp posting_date to the server date on submit while
+  // leaving due_date untouched, producing due_date < posting_date. Setting
+  // set_posting_time = 1 makes ERPNext honor the stored posting_date; the clamp
+  // guarantees due_date >= posting_date. Amounts/party/items are untouched.
+  const doc = docRes.data
+  doc.set_posting_time = 1
+  doc.due_date = clampDueDate(doc.posting_date, doc.due_date)
+
+  const res = await erpFetch<{ message?: ERPInvoice }>(
+    '/api/method/frappe.client.submit',
+    { method: 'POST', body: { doc } },
+  )
+  if (!res.message) {
+    throw new ERPNextError(
+      502, 'Bad Gateway', '/api/method/frappe.client.submit',
+      `Submit returned no document for Sales Invoice ${invoiceId}.`,
+    )
+  }
+
+  return getInvoiceById(invoiceId)
+}
+
+/** Fetch the full raw Payment Entry document by docname. */
+export async function getPaymentEntry(paymentEntryId: string): Promise<ERPPaymentEntry> {
+  const res = await erpFetch<ERPDocResponse<ERPPaymentEntry>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.PAYMENT)}/${encodeURIComponent(paymentEntryId)}`,
+  )
+  return res.data
+}
+
+/**
+ * Submit a draft Payment Entry so ERPNext reconciles it against its linked
+ * Sales Invoice.
+ *
+ * A plain REST POST only ever creates a draft (docstatus 0); the invoice
+ * outstanding amount is NOT reduced until the entry is submitted. Submitting
+ * uses the whitelisted `frappe.client.submit` method, which expects the full
+ * document — so the draft is fetched first and passed back verbatim.
+ */
+export async function submitPaymentEntry(paymentEntryId: string): Promise<ERPPaymentEntry> {
+  const doc = await getPaymentEntry(paymentEntryId)
+  const res = await erpFetch<{ message?: ERPPaymentEntry }>(
+    '/api/method/frappe.client.submit',
+    { method: 'POST', body: { doc } },
+  )
+  if (!res.message) {
+    throw new ERPNextError(
+      502, 'Bad Gateway', '/api/method/frappe.client.submit',
+      `Submit returned no document for Payment Entry ${paymentEntryId}.`,
+    )
+  }
+  return res.message
+}
+
+/**
+ * Record a payment for an invoice: create a Payment Entry, submit it so
+ * ERPNext reconciles the Sales Invoice, then re-fetch the invoice.
+ *
+ * Creating the Payment Entry alone is NOT success — a draft entry has no
+ * accounting effect. The re-fetched invoice is returned so the caller can
+ * verify the outstanding amount actually decreased before reporting success.
+ *
+ * @param invoiceId     - Sales Invoice docname (e.g. "SINV-00001")
+ * @param clientId      - Customer/Client docname
+ * @param amount        - Amount being paid (may be partial)
+ * @param modeOfPayment - ERPNext Mode of Payment name (e.g. "Cash", "Whish Money")
+ * @param date          - Payment date as YYYY-MM-DD
+ * @param reference     - External transaction ID (Whish ref, bank ref, etc.)
+ * @returns the submitted Payment Entry normalised as Payment, and the re-fetched Invoice
+ */
+export async function createAndSubmitPaymentEntry(opts: {
+  invoiceId:     string
+  clientId:      string
+  amount:        number
+  modeOfPayment: string
+  date:          string
+  reference?:    string
+  note?:         string
+}): Promise<{ payment: Payment; invoice: Invoice }> {
+  // Step 1: fetch invoice to get the company (required by Frappe Payment Entry).
+  const invRes = await erpFetch<ERPDocResponse<{ company?: string }>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(opts.invoiceId)}`,
+    { params: { fields: JSON.stringify(['company']) } },
+  )
+  const company = invRes.data.company ?? ''
+
+  // Step 2: resolve paid_to account from the Mode of Payment's accounts table.
+  // Frappe requires paid_to explicitly via REST — it does not auto-populate it.
+  let paidTo: string | undefined
+  try {
+    const mopRes = await erpFetch<ERPDocResponse<{
+      accounts?: Array<{ company?: string; default_account?: string }>
+    }>>(
+      `/api/resource/Mode%20of%20Payment/${encodeURIComponent(opts.modeOfPayment)}`,
+    )
+    const accounts = mopRes.data.accounts ?? []
+    const match = accounts.find(a => a.company === company) ?? accounts[0]
+    paidTo = match?.default_account
+  } catch {
+    // MoP not found / no accounts table — handled by the explicit check below.
+  }
+  if (!paidTo) {
+    throw new ERPNextError(
+      503, 'Payment Account Missing',
+      `/api/resource/Mode of Payment/${opts.modeOfPayment}`,
+      `No deposit account is configured for payment method "${opts.modeOfPayment}". `
+        + 'Set its account in ERPNext before recording payments.',
+    )
+  }
+
+  // Step 3: create the Payment Entry. A REST POST always creates a draft.
+  const payload: CreatePaymentEntryPayload & {
+    company:          string
+    received_amount:  number
+    paid_to:          string
+  } = {
+    payment_type:    'Receive',
+    party_type:      'Customer',
+    party:            opts.clientId,
+    company,
+    paid_amount:      opts.amount,
+    received_amount:  opts.amount,
+    payment_date:     opts.date,
+    mode_of_payment:  opts.modeOfPayment,
+    paid_to:          paidTo,
+    reference_no:     opts.reference,
+    remarks:          opts.note,
+    references: [
+      {
+        reference_doctype: 'Sales Invoice',
+        reference_name:    opts.invoiceId,
+        allocated_amount:  opts.amount,
+      },
+    ],
+  }
+  const createRes = await erpFetch<ERPDocResponse<ERPPaymentEntry>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.PAYMENT)}`,
+    { method: 'POST', body: payload },
+  )
+
+  // Step 4: submit the Payment Entry so ERPNext reconciles the invoice.
+  const submitted = await submitPaymentEntry(createRes.data.name)
+
+  // Step 5: re-fetch the Sales Invoice — its post-submit state is the only
+  // trustworthy signal that the payment was applied.
+  const invoice = await getInvoiceById(opts.invoiceId)
+
+  return { payment: normalizePayment(submitted, opts.invoiceId), invoice }
+}
