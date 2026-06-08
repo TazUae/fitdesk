@@ -3,8 +3,9 @@
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
 import { bookSession as createSessionBooking, fetchSessions } from '@/actions/sessions'
-import type { ActionResult, Client, Invoice, Payment, Session } from '@/types'
+import type { ActionResult, Client, Invoice, Payment, RecordPaymentResult, Session } from '@/types'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
+import type { PaymentMethod } from '@/lib/payments/methods'
 import type { BookSessionInput } from '@/actions/sessions'
 import { editClient, fetchClientById } from '@/actions/clients'
 import { fetchInvoiceById } from '@/actions/invoices'
@@ -56,14 +57,15 @@ export async function createInvoice(input: CreateInvoicePayload): Promise<Action
 }
 
 export async function recordPayment(input: {
-  invoiceId: string
-  clientId: string
-  amount: number
-  modeOfPayment: string
-  date: string
+  invoiceId:  string
+  clientId:   string
+  amount:     number
+  /** Internal payment method — never a raw ERPNext mode string. */
+  method:     PaymentMethod
+  date:       string
   reference?: string
-  note?: string
-}): Promise<ActionResult<Payment>> {
+  note?:      string
+}): Promise<ActionResult<RecordPaymentResult>> {
   return recordInvoicePayment(input)
 }
 
