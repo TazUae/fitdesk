@@ -441,6 +441,15 @@ export async function cancelSession(sessionId: string): Promise<Session> {
   return normalizeSession(res.data)
 }
 
+/** Mark a session as missed (client did not attend). */
+export async function markSessionMissed(sessionId: string): Promise<Session> {
+  const res = await erpFetch<ERPDocResponse<ERPSession>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.SESSION)}/${encodeURIComponent(sessionId)}`,
+    { method: 'PUT', body: { status: 'Missed' } },
+  )
+  return normalizeSession(res.data)
+}
+
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
 /**
