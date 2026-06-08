@@ -2,7 +2,13 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { createInvoice, getInvoiceByIdForTrainer, getInvoices, markInvoicePaid } from '@/lib/business-data/erp-adapter'
+import {
+  createAndSubmitPaymentEntry,
+  createInvoice,
+  getInvoiceByIdForTrainer,
+  getInvoices,
+  submitSalesInvoice,
+} from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 import {
   generatePaymentLink,
@@ -10,7 +16,9 @@ import {
   PAYMENT_PROVIDERS,
   type PaymentProvider,
 } from '@/lib/whish'
-import type { ActionResult, Invoice, Payment } from '@/types'
+import { isEnabledPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
+import type { ActionResult, Invoice, IssueInvoiceResult, RecordPaymentResult } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,38 +153,100 @@ export async function getPaymentLink(opts: {
 /**
  * Record a payment for an invoice.
  *
- * Creates a Payment Entry in ERPNext and updates the invoice outstanding amount.
+ * Validates the request against a freshly-fetched invoice (ownership-gated),
+ * creates AND submits an ERPNext Payment Entry, then re-fetches the invoice
+ * to confirm ERPNext actually reduced the outstanding amount. Success is
+ * reported only after that confirmation — a created-but-unreconciled payment
+ * is a failure, never a false success.
+ *
  * Always call this AFTER the trainer has confirmed receipt.
  */
 export async function recordPayment(opts: {
-  invoiceId:     string
-  clientId:      string
-  amount:        number
-  modeOfPayment: string
-  date:          string
-  reference?:    string
-  note?:         string
-}): Promise<ActionResult<Payment>> {
+  invoiceId:  string
+  clientId:   string
+  amount:     number
+  /** Internal payment method — never a raw ERPNext mode string. */
+  method:     PaymentMethod
+  date:       string
+  reference?: string
+  note?:      string
+}): Promise<ActionResult<RecordPaymentResult>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
+  // Validate the payment method server-side. Only enabled MVP methods
+  // (Cash, Whish Money) are accepted; a disabled method such as OMT is
+  // rejected even if a client sends its value directly. The ERPNext Mode of
+  // Payment name is resolved server-side — never trusted from the client.
+  if (!isEnabledPaymentMethod(opts.method)) {
+    return { success: false, error: 'That payment method is not available.' }
+  }
+  const modeOfPayment = paymentMethodToErpMode(opts.method)
+
+  // Validate the amount before any ERP call.
+  if (!Number.isFinite(opts.amount)) {
+    return { success: false, error: 'Enter a valid payment amount.' }
+  }
+  if (opts.amount <= 0) {
+    return { success: false, error: 'Payment amount must be greater than zero.' }
+  }
+
+  // Ownership gate: only the invoice's owning trainer may record a payment
+  // against it. Also fetches the freshest state so validations below are
+  // current, not stale.
+  let invoice: Invoice
   try {
-    // Ownership gate: only the invoice's owning trainer may record a payment against it.
-    await getInvoiceByIdForTrainer(opts.invoiceId, resolved.trainerId)
-    const data = await markInvoicePaid({
+    invoice = await getInvoiceByIdForTrainer(opts.invoiceId, resolved.trainerId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (!isOutstandingInvoiceStatus(invoice.status)) {
+    return {
+      success: false,
+      error: 'This invoice is not open for payment. Only sent, overdue, or partly-paid invoices can be paid.',
+    }
+  }
+
+  const oldOutstanding = invoice.outstandingAmount
+  if (oldOutstanding <= 0) {
+    return { success: false, error: 'This invoice has no outstanding balance to pay.' }
+  }
+  if (opts.amount > oldOutstanding) {
+    return {
+      success: false,
+      error: `Amount exceeds the outstanding balance (${invoice.currency} ${oldOutstanding.toLocaleString()}).`,
+    }
+  }
+
+  // Create + submit the Payment Entry, then re-fetch the invoice.
+  try {
+    const { payment, invoice: refreshed } = await createAndSubmitPaymentEntry({
       invoiceId:     opts.invoiceId,
       clientId:      opts.clientId,
       amount:        opts.amount,
-      modeOfPayment: opts.modeOfPayment,
+      modeOfPayment,
       date:          opts.date,
       reference:     opts.reference,
       note:          opts.note,
     })
 
+    const newOutstanding = refreshed.outstandingAmount
+
+    // ERPNext must have reduced the outstanding amount. If it did not, the
+    // Payment Entry was created but not reconciled — report failure so the
+    // trainer is never told a payment landed when it did not.
+    if (newOutstanding >= oldOutstanding) {
+      return {
+        success: false,
+        error: 'Payment was created but ERPNext did not apply it to the invoice. Check the invoice in ERPNext before retrying.',
+      }
+    }
+
     logPaymentEvent({
       trainerId:  resolved.trainerId,
       invoiceId:  opts.invoiceId,
-      provider:   modeToProvider(opts.modeOfPayment),
+      provider:   modeToProvider(modeOfPayment),
       eventType:  'payment_recorded',
       amount:     opts.amount,
       reference:  opts.reference,
@@ -184,8 +254,183 @@ export async function recordPayment(opts: {
       timestamp:  new Date().toISOString(),
     })
 
-    return { success: true, data }
+    // Treat a sub-cent residual as fully paid: ERPNext rounds outstanding to
+    // currency precision, so anything below a cent is float dust.
+    const fullyPaid = newOutstanding < 0.01
+    return {
+      success: true,
+      data: {
+        payment,
+        invoice:         refreshed,
+        fullyPaid,
+        remainingAmount: fullyPaid ? 0 : newOutstanding,
+      },
+    }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to record payment' }
+  }
+}
+
+/**
+ * Finalize a draft (Preparing) invoice so it becomes payable.
+ *
+ * Fetches the invoice fresh (ownership-gated), confirms it is still a draft,
+ * submits the Sales Invoice in ERPNext, then confirms — via the re-fetched
+ * invoice — that it actually left draft state. Success is reported only after
+ * that confirmation.
+ *
+ * Payment recording is unaffected: this only transitions an invoice from
+ * draft to payable; it never records a payment.
+ */
+export async function finalizeInvoice(invoiceId: string): Promise<ActionResult<Invoice>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Ownership gate + fresh state read. Idempotent: a second call sees a
+  // non-draft status and is rejected here before touching ERPNext.
+  let invoice: Invoice
+  try {
+    invoice = await getInvoiceByIdForTrainer(invoiceId, resolved.trainerId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (invoice.status !== 'draft') {
+    return {
+      success: false,
+      error: invoice.status === 'cancelled'
+        ? 'A cancelled invoice cannot be finalized.'
+        : 'This invoice is already finalized.',
+    }
+  }
+
+  // Submit in ERPNext, then verify the invoice actually left draft state.
+  try {
+    const refreshed = await submitSalesInvoice(invoiceId)
+
+    if (refreshed.status === 'draft') {
+      return {
+        success: false,
+        error: 'Invoice was submitted but ERPNext still reports it as a draft. Check the invoice in ERPNext before retrying.',
+      }
+    }
+
+    return { success: true, data: refreshed }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to finalize invoice' }
+  }
+}
+
+/**
+ * Collect a payment for an invoice — finalizing it first if it is still a
+ * draft (Preparing).
+ *
+ * The trainer presses one action ("Record payment"); this composes the two
+ * existing steps so the ERPNext draft/submit lifecycle stays invisible:
+ *   - draft                          → finalizeInvoice, then recordPayment
+ *   - sent / overdue / partially_paid → recordPayment directly
+ *   - paid / cancelled                → rejected
+ *
+ * Composition only: recordPayment and finalizeInvoice keep their existing
+ * behavior — the payment accounting path is unchanged. Returns the same
+ * RecordPaymentResult shape as recordPayment.
+ */
+export async function collectPayment(opts: {
+  invoiceId:  string
+  clientId:   string
+  amount:     number
+  method:     PaymentMethod
+  date:       string
+  reference?: string
+  note?:      string
+}): Promise<ActionResult<RecordPaymentResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Cheap validation before any ERPNext write, so a bad request can never
+  // finalize an invoice and then fail on the payment.
+  if (!isEnabledPaymentMethod(opts.method)) {
+    return { success: false, error: 'That payment method is not available.' }
+  }
+  if (!Number.isFinite(opts.amount)) {
+    return { success: false, error: 'Enter a valid payment amount.' }
+  }
+  if (opts.amount <= 0) {
+    return { success: false, error: 'Payment amount must be greater than zero.' }
+  }
+
+  // Ownership gate + status check. Fetch fresh to decide whether a finalize
+  // step is needed.
+  let invoice: Invoice
+  try {
+    invoice = await getInvoiceByIdForTrainer(opts.invoiceId, resolved.trainerId)
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load invoice' }
+  }
+
+  if (invoice.status === 'paid') {
+    return { success: false, error: 'This invoice is already paid.' }
+  }
+  if (invoice.status === 'cancelled') {
+    return { success: false, error: 'A cancelled invoice cannot take a payment.' }
+  }
+
+  // A draft invoice must be finalized before it can receive a payment.
+  if (invoice.status === 'draft') {
+    const finalized = await finalizeInvoice(opts.invoiceId)
+    if (!finalized.success) {
+      return { success: false, error: finalized.error }
+    }
+
+    const paid = await recordPayment(opts)
+    if (!paid.success) {
+      // The invoice is finalized (now payable) but the payment did not land.
+      // A safe, recoverable state — the trainer can simply retry the payment.
+      return {
+        success: false,
+        error: "Invoice was issued, but the payment didn't go through. Please try Record payment again.",
+      }
+    }
+    return paid
+  }
+
+  // Already payable (sent / overdue / partially_paid) — record directly.
+  return recordPayment(opts)
+}
+
+/**
+ * Issue an invoice: create the Sales Invoice, then finalize it so it is
+ * immediately payable ("To collect") — the trainer never has to deal with a
+ * Preparing draft on the normal path.
+ *
+ * Composition only — addInvoice and finalizeInvoice keep their behavior. If
+ * creation succeeds but finalization fails, the invoice still exists as a
+ * draft: success is returned with an issueWarning so the trainer recovers it
+ * from the All tab instead of creating a duplicate.
+ */
+export async function issueInvoice(
+  payload: CreateInvoicePayload,
+): Promise<ActionResult<IssueInvoiceResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Reject a zero/negative (or non-numeric) invoice before any ERPNext write.
+  const total = payload.items.reduce((sum, item) => sum + item.qty * item.rate, 0)
+  if (!(total > 0)) {
+    return { success: false, error: 'Invoice amount must be greater than 0.' }
+  }
+
+  const created = await addInvoice(payload)
+  if (!created.success) return created
+
+  const finalized = await finalizeInvoice(created.data.id)
+  if (finalized.success) {
+    return { success: true, data: { invoice: finalized.data } }
+  }
+
+  // Created but not finalized — recoverable as a Preparing draft in All.
+  return {
+    success: true,
+    data: { invoice: created.data, issueWarning: finalized.error },
   }
 }

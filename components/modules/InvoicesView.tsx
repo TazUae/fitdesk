@@ -17,6 +17,8 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
+import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -31,18 +33,19 @@ type FilterTab = 'outstanding' | 'paid' | 'all'
 
 function statusVariant(s: InvoiceStatus): BadgeVariant {
   const map: Record<InvoiceStatus, BadgeVariant> = {
-    draft:     'draft',
-    sent:      'pending',
-    paid:      'paid',
-    overdue:   'overdue',
-    cancelled: 'cancelled',
+    draft:          'draft',
+    sent:           'pending',
+    partially_paid: 'pending',
+    paid:           'paid',
+    overdue:        'overdue',
+    cancelled:      'cancelled',
   }
   return map[s]
 }
 
 function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
   if (tab === 'outstanding') {
-    const list = invoices.filter(i => i.status === 'overdue' || i.status === 'sent')
+    const list = invoices.filter(i => isOutstandingInvoiceStatus(i.status))
     // Overdue first
     return [...list].sort((a, b) => (a.status === 'overdue' ? -1 : b.status === 'overdue' ? 1 : 0))
   }
@@ -51,7 +54,7 @@ function filterInvoices(invoices: Invoice[], tab: FilterTab): Invoice[] {
 }
 
 function tabCount(invoices: Invoice[], tab: FilterTab): number {
-  if (tab === 'outstanding') return invoices.filter(i => i.status === 'overdue' || i.status === 'sent').length
+  if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
   if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
   return invoices.length
 }
@@ -64,7 +67,7 @@ function fmtMoney(n: number, currency = 'USD'): string {
 
 function SummaryCards({ invoices }: { invoices: Invoice[] }) {
   const outstanding = invoices
-    .filter(i => i.status === 'overdue' || i.status === 'sent')
+    .filter(i => isOutstandingInvoiceStatus(i.status))
     .reduce((s, i) => s + i.outstandingAmount, 0)
 
   const collected = invoices
@@ -207,8 +210,12 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   const [isPending, startTransition]        = useTransition()
   const [isLinkPending, startLinkTransition] = useTransition()
   const [error, setError]                   = useState<string | null>(null)
-  const [provider, setProvider]             = useState<PaymentProvider>('cash')
-  const [generatedLink, setGeneratedLink]   = useState<string | null>(null)
+  // `method` is the internal PaymentMethod passed to recordPayment (server validates it).
+  // `provider` is the PaymentProvider kept separately for getPaymentLink and the
+  // supportsLink check — never sent to recordPayment.
+  const [method, setMethod]               = useState<PaymentMethod>('cash')
+  const [provider, setProvider]           = useState<PaymentProvider>('cash')
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -218,13 +225,16 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   function handleClose() {
     setError(null)
     setGeneratedLink(null)
+    setMethod('cash')
     setProvider('cash')
     onClose()
   }
 
-  function handleProviderChange(p: PaymentProvider) {
-    setProvider(p)
-    setGeneratedLink(null) // reset any previously generated link
+  function handleMethodChange(m: PaymentMethod) {
+    setMethod(m)
+    // Derive the PaymentProvider counterpart so getPaymentLink still works.
+    setProvider(m === 'whish_money' ? 'whish' : 'cash')
+    setGeneratedLink(null)
   }
 
   function handleGenerateLink() {
@@ -268,15 +278,13 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
 
     startTransition(async () => {
       const result = await recordPayment({
-        invoiceId:     invoice.id,
-        clientId:      invoice.clientId,
+        invoiceId: invoice.id,
+        clientId:  invoice.clientId,
         amount,
-        modeOfPayment: provider === 'cash'          ? 'Cash'
-                     : provider === 'bank_transfer'  ? 'Bank Transfer'
-                     : 'Whish',
-        date:          fd.get('payment_date') as string,
-        reference:     (fd.get('reference') as string) || generatedLink?.split('/').pop() || undefined,
-        note:          (fd.get('note') as string) || undefined,
+        method,
+        date:      fd.get('payment_date') as string,
+        reference: (fd.get('reference') as string) || generatedLink?.split('/').pop() || undefined,
+        note:      (fd.get('note') as string) || undefined,
       })
 
       if (result.success) {
@@ -369,20 +377,20 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
                     Payment method
                   </label>
                   <div className="flex gap-2">
-                    {PAYMENT_PROVIDERS.map(p => (
+                    {enabledPaymentMethods().map(m => (
                       <button
-                        key={p.provider}
+                        key={m.value}
                         type="button"
-                        onClick={() => handleProviderChange(p.provider)}
+                        onClick={() => handleMethodChange(m.value)}
                         className="flex-1 rounded-xl py-2 text-xs font-semibold transition-colors"
                         style={{
                           backgroundColor:
-                            provider === p.provider ? 'var(--fd-accent)' : 'var(--fd-card)',
+                            method === m.value ? 'var(--fd-accent)' : 'var(--fd-card)',
                           color:
-                            provider === p.provider ? 'var(--fd-bg)' : 'var(--fd-muted)',
+                            method === m.value ? 'var(--fd-bg)' : 'var(--fd-muted)',
                         }}
                       >
-                        {p.label}
+                        {m.label}
                       </button>
                     ))}
                   </div>

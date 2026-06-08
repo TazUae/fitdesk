@@ -29,7 +29,7 @@ function cuidLike(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function normalizePhone(phone: string): string {
+export function normalizePhone(phone: string): string {
   let digits = phone.replace(/\D/g, '')
   if (digits.startsWith('0')) digits = `961${digits.slice(1)}`
   if (digits.length < 10) digits = `961${digits}`

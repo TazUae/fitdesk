@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { recordPayment } from '@/lib/business-data'
+import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
 import type { Invoice } from '@/types'
 
 interface RecordPaymentFormProps {
@@ -29,12 +30,12 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
     startTransition(async () => {
       const result = await recordPayment({
         invoiceId: invoice.id,
-        clientId: invoice.clientId,
+        clientId:  invoice.clientId,
         amount,
-        modeOfPayment: fd.get('mode_of_payment') as string,
-        date: fd.get('payment_date') as string,
+        method:    fd.get('method') as PaymentMethod,
+        date:      fd.get('payment_date') as string,
         reference: (fd.get('reference') as string) || undefined,
-        note: (fd.get('note') as string) || undefined,
+        note:      (fd.get('note') as string) || undefined,
       })
 
       if (result.success) {
@@ -101,10 +102,10 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
             Payment method *
           </label>
-          <select name="mode_of_payment" className="input-base" required>
-            <option value="Cash">Cash</option>
-            <option value="Bank Transfer">Bank Transfer</option>
-            <option value="Whish">Whish</option>
+          <select name="method" className="input-base" required>
+            {enabledPaymentMethods().map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
           </select>
         </div>
 
