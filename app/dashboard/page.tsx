@@ -1,8 +1,15 @@
 import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
-import { getClients, getInvoices, getSessions } from '@/lib/business-data'
+import { getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
-import type { Client, Session, Invoice } from '@/types'
+import {
+  getNextUp,
+  getTodaySections,
+  getMoneySnapshot,
+  getUpcoming,
+  getAttentionItems,
+} from '@/lib/dashboard/derive'
+import type { Session, Invoice } from '@/types'
 
 // ─── Greeting ────────────────────────────────────────────────────────────────
 
@@ -25,93 +32,46 @@ export default async function DashboardPage() {
   const greeting   = timeGreeting(now.getUTCHours())
   const monthStart = today.slice(0, 8) + '01'
 
+  // ── Local backend warning ───────────────────────────────────────────────────
+  const isLocalBackend =
+    (process.env.NEXT_PUBLIC_FRAPPE_URL ?? '').includes('localhost')
+
   // ── Parallel data fetch ─────────────────────────────────────────────────────
-  // Actions resolve the trainer ID from the auth session internally.
-  // Promise.allSettled so a single ERP failure doesn't blank the whole dashboard.
-  const [clientsResult, sessionsResult, invoicesResult] = await Promise.allSettled([
-    getClients(),
+  // Promise.allSettled — a single ERP failure must not blank the whole dashboard.
+  const [sessionsResult, invoicesResult] = await Promise.allSettled([
     getSessions(),
     getInvoices(),
   ])
 
-  const clients: Client[] | null =
-    clientsResult.status  === 'fulfilled' && clientsResult.value.success
-      ? clientsResult.value.data
-      : null
-
-  const sessions: Session[] | null =
+  const sessions: Session[] =
     sessionsResult.status === 'fulfilled' && sessionsResult.value.success
       ? sessionsResult.value.data
-      : null
+      : []
 
-  const invoices: Invoice[] | null =
+  const invoices: Invoice[] =
     invoicesResult.status === 'fulfilled' && invoicesResult.value.success
       ? invoicesResult.value.data
-      : null
+      : []
 
   // ── Derived values ──────────────────────────────────────────────────────────
-
-  const activeClients = clients?.filter(c => c.status === 'active').length ?? null
-  const totalClients  = clients?.length ?? null
-
-  const todaySessions: Session[] =
-    sessions
-      ?.filter(s => s.date === today && s.status === 'scheduled')
-      .sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
-    ?? []
-
-  const upcomingSessions: Session[] =
-    sessions
-      ?.filter(s => s.date > today && s.status === 'scheduled')
-      .sort((a, b) =>
-        a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''),
-      )
-      .slice(0, 3)
-    ?? []
-
-  const sessionsThisMonth: number | null =
-    sessions === null
-      ? null
-      : sessions.filter(s => s.status === 'completed' && s.date >= monthStart).length
-
-  const overdueInvoices: Invoice[] =
-    invoices?.filter(i => i.status === 'overdue') ?? []
-
-  const outstandingBalance: number | null =
-    invoices === null
-      ? null
-      : invoices
-          .filter(i => i.status === 'overdue' || i.status === 'sent')
-          .reduce((sum, i) => sum + i.outstandingAmount, 0)
-
-  const monthlyRevenue: number | null =
-    invoices === null
-      ? null
-      : invoices
-          .filter(i => i.status === 'paid' && i.issuedAt >= monthStart)
-          .reduce((sum, i) => sum + i.amount, 0)
-
-  const currency =
-    invoices?.find(i => i.currency)?.currency ?? 'USD'
+  const nextUp         = getNextUp(sessions, today)
+  const todaySection   = getTodaySections(sessions, today)
+  const moneySnapshot  = getMoneySnapshot(invoices, monthStart)
+  const upcoming       = getUpcoming(sessions, today)
+  const attentionItems = getAttentionItems(invoices)
 
   // ── Render ──────────────────────────────────────────────────────────────────
-
   return (
     <DashboardView
       trainerName={trainerName}
       greeting={greeting}
       today={today}
-      stats={{
-        activeClients,
-        totalClients,
-        outstandingBalance,
-        currency,
-        monthlyRevenue,
-        sessionsThisMonth,
-      }}
-      todaySessions={todaySessions}
-      upcomingSessions={upcomingSessions}
-      overdueInvoices={overdueInvoices}
+      nextUp={nextUp}
+      todaySection={todaySection}
+      moneySnapshot={moneySnapshot}
+      upcoming={upcoming}
+      attentionItems={attentionItems}
+      isLocalBackend={isLocalBackend}
     />
   )
 }
