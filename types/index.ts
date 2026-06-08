@@ -15,7 +15,9 @@ export type ClientStatus = 'active' | 'inactive' | 'paused'
 
 export type SessionStatus = 'scheduled' | 'completed' | 'missed' | 'cancelled'
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
+// `sent` represents a submitted, unpaid (to-collect) invoice.
+// `partially_paid` represents a submitted invoice with a partial payment recorded.
+export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
 export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 
@@ -128,6 +130,38 @@ export interface Payment {
   reference?: string
   note?: string
   paidAt: string
+}
+
+/**
+ * Result of a verified Record Payment action.
+ *
+ * Returned only after ERPNext has submitted the Payment Entry and the
+ * Sales Invoice has been re-fetched — `invoice` reflects the reconciled
+ * state, never an optimistic guess.
+ */
+export interface RecordPaymentResult {
+  /** The submitted ERPNext Payment Entry. */
+  payment: Payment
+  /** The Sales Invoice re-fetched after ERPNext reconciled the payment. */
+  invoice: Invoice
+  /** True when the invoice's outstanding balance reached zero. */
+  fullyPaid: boolean
+  /** Outstanding balance still owed after this payment (0 when fully paid). */
+  remainingAmount: number
+}
+
+/**
+ * Result of issuing an invoice — creating the Sales Invoice and finalizing it.
+ */
+export interface IssueInvoiceResult {
+  /** The created invoice — finalized ("To collect") when issued cleanly. */
+  invoice: Invoice
+  /**
+   * Set when the invoice was created but could not be finalized: it remains
+   * a draft (Preparing) and is recoverable from the All tab. Carries the
+   * finalize error so it is surfaced, not hidden.
+   */
+  issueWarning?: string
 }
 
 /**

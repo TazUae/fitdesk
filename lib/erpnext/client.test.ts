@@ -13,6 +13,7 @@ import {
   ERPNextError,
   clampDueDate,
   createAndSubmitPaymentEntry,
+  getInvoiceById,
   getInvoiceByIdForTrainer,
   getPaymentEntry,
   submitPaymentEntry,
@@ -351,5 +352,37 @@ describe('createAndSubmitPaymentEntry', () => {
     fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
 
     await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(ERPNextError)
+  })
+})
+
+// ─── mapInvoiceStatus (via getInvoiceById round-trip) ────────────────────────
+// These two assertions guard the B1 latent fix: ERPNext returns 'Unpaid' (not
+// 'Submitted') for a submitted-but-unpaid invoice, and 'Partly Paid' for a
+// partially collected one. Both previously fell through to the 'draft' default.
+
+describe('mapInvoiceStatus — ERPNext status → app InvoiceStatus', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('maps ERPNext "Unpaid" to app status "sent"', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ ...rawInvoice(), status: 'Unpaid' }))
+    const invoice = await getInvoiceById(INVOICE_ID)
+    expect(invoice.status).toBe('sent')
+  })
+
+  it('maps ERPNext "Partly Paid" to app status "partially_paid"', async () => {
+    fetchMock.mockResolvedValueOnce(
+      erpOk({ ...rawInvoice(), status: 'Partly Paid', outstanding_amount: 40, paid_amount: 60 }),
+    )
+    const invoice = await getInvoiceById(INVOICE_ID)
+    expect(invoice.status).toBe('partially_paid')
   })
 })

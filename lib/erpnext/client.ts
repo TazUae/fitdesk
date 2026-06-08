@@ -164,11 +164,15 @@ function mapSessionStatus(s: string): SessionStatus {
 
 function mapInvoiceStatus(s: string): InvoiceStatus {
   const map: Record<string, InvoiceStatus> = {
-    Draft:     'draft',
-    Submitted: 'sent',
-    Paid:      'paid',
-    Overdue:   'overdue',
-    Cancelled: 'cancelled',
+    Draft:                'draft',
+    Unpaid:               'sent',
+    Submitted:            'sent',
+    Overdue:              'overdue',
+    'Partly Paid':        'partially_paid',
+    Paid:                 'paid',
+    Cancelled:            'cancelled',
+    Return:               'cancelled',
+    'Credit Note Issued': 'cancelled',
   }
   return map[s] ?? 'draft'
 }
