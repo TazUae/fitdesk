@@ -9,6 +9,7 @@ import { bookSession, cancelSession, completeSession } from '@/actions/sessions'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { Client, Session, SessionStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -416,12 +417,23 @@ export function ScheduleView({ sessions, clients, error }: ScheduleViewProps) {
 
       {/* Fetch error */}
       {error && (
-        <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
-        >
-          {error}
-        </p>
+        isErpUnavailableError(error) ? (
+          <div className="py-8 text-center">
+            <p className="text-sm font-medium" style={{ color: 'var(--fd-muted)' }}>
+              Schedule data is still connecting
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Your sessions will appear here once your workspace data connection is ready.
+            </p>
+          </div>
+        ) : (
+          <p
+            className="rounded-xl border p-3 text-sm"
+            style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
+          >
+            {error}
+          </p>
+        )
       )}
 
       {/* Filter tabs */}
@@ -457,7 +469,7 @@ export function ScheduleView({ sessions, clients, error }: ScheduleViewProps) {
       </div>
 
       {/* Session list */}
-      {displayed.length === 0 ? (
+      {displayed.length === 0 && !isErpUnavailableError(error ?? '') ? (
         <EmptyState tab={activeTab} onBook={() => setIsBooking(true)} />
       ) : (
         <div className="space-y-3">

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createInvoice, getClients } from '@/lib/business-data'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { Client } from '@/types'
 
 interface LineItem {
@@ -22,6 +23,7 @@ function NewInvoiceForm() {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [clients, setClients] = useState<Client[]>([])
+  const [clientsUnavailable, setClientsUnavailable] = useState(false)
   const [items, setItems] = useState<LineItem[]>([
     { description: 'PT Sessions', qty: 1, rate: 0 },
   ])
@@ -32,6 +34,7 @@ function NewInvoiceForm() {
   useEffect(() => {
     getClients().then(res => {
       if (res.success) setClients(res.data)
+      else if (isErpUnavailableError(res.error)) setClientsUnavailable(true)
     })
   }, [])
 
@@ -104,15 +107,23 @@ function NewInvoiceForm() {
             name="client_id"
             defaultValue={preselectedClientId}
             required
-            className="input-base"
+            disabled={clientsUnavailable}
+            className="input-base disabled:opacity-50"
           >
-            <option value="">Select client…</option>
+            <option value="">
+              {clientsUnavailable ? 'Clients temporarily unavailable…' : 'Select client…'}
+            </option>
             {clients.map(c => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          {clientsUnavailable && (
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Clients are temporarily unavailable while workspace data is connecting.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">

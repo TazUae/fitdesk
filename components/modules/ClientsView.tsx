@@ -10,6 +10,7 @@ import { addClient } from '@/actions/clients'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { Client, ClientStatus } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -274,12 +275,23 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
 
       {/* Server-side fetch error */}
       {error && (
-        <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
-        >
-          {error}
-        </p>
+        isErpUnavailableError(error) ? (
+          <div className="py-8 text-center">
+            <p className="text-sm font-medium" style={{ color: 'var(--fd-muted)' }}>
+              Workspace data is still connecting
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Clients will appear here once your workspace data connection is ready.
+            </p>
+          </div>
+        ) : (
+          <p
+            className="rounded-xl border p-3 text-sm"
+            style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
+          >
+            {error}
+          </p>
+        )
       )}
 
       {/* Search — only shown when there are clients to search through */}

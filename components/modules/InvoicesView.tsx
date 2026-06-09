@@ -22,6 +22,7 @@ import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { Client, Invoice, InvoiceStatus } from '@/types'
 import type { PaymentProvider } from '@/lib/whish'
 
@@ -809,83 +810,97 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
         </button>
       </div>
 
-      {/* Fetch error */}
-      {error && (
-        <p
-          className="rounded-xl border p-3 text-sm"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
-        >
-          {error}
-        </p>
-      )}
-
-      {/* Summary */}
-      <SummaryCards invoices={invoices} />
-
-      {/* Filter tabs */}
-      <div className="flex gap-2">
-        {TABS.map(tab => {
-          const count    = tabCount(invoices, tab.id)
-          const isActive = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
-              style={{
-                backgroundColor: isActive ? 'var(--fd-accent)' : 'var(--fd-card)',
-                color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
-              }}
+      {/* ERP unavailable — calm connecting message replaces list entirely */}
+      {error && isErpUnavailableError(error) ? (
+        <div className="py-8 text-center">
+          <p className="text-sm font-medium" style={{ color: 'var(--fd-muted)' }}>
+            Invoice list is still connecting
+          </p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+            Invoices will appear here once your workspace data connection is ready.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Real (non-ERP-unavailable) fetch error */}
+          {error && (
+            <p
+              className="rounded-xl border p-3 text-sm"
+              style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-red)' }}
             >
-              {tab.label}
-              {count > 0 && (
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
+              {error}
+            </p>
+          )}
+
+          {/* Summary */}
+          <SummaryCards invoices={invoices} />
+
+          {/* Filter tabs */}
+          <div className="flex gap-2">
+            {TABS.map(tab => {
+              const count    = tabCount(invoices, tab.id)
+              const isActive = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
                   style={{
-                    backgroundColor: isActive ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.07)',
+                    backgroundColor: isActive ? 'var(--fd-accent)' : 'var(--fd-card)',
                     color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
                   }}
                 >
-                  {count}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+                  {tab.label}
+                  {count > 0 && (
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
+                      style={{
+                        backgroundColor: isActive ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.07)',
+                        color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
+                      }}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
 
-      {/* Invoice list */}
-      {displayed.length === 0 ? (
-        <div className="py-10 text-center">
-          <ReceiptText
-            className="mx-auto mb-3 h-8 w-8"
-            style={{ color: 'var(--fd-muted)' }}
-          />
-          <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            {activeTab === 'outstanding' ? 'No outstanding invoices.' :
-             activeTab === 'paid'        ? 'No paid invoices yet.'    :
-             'No invoices yet.'}
-          </p>
-          {activeTab !== 'paid' && (
-            <button
-              onClick={() => setIsCreating(true)}
-              className="mt-3 text-sm font-semibold"
-              style={{ color: 'var(--fd-accent)' }}
-            >
-              Create an invoice →
-            </button>
+          {/* Invoice list */}
+          {displayed.length === 0 ? (
+            <div className="py-10 text-center">
+              <ReceiptText
+                className="mx-auto mb-3 h-8 w-8"
+                style={{ color: 'var(--fd-muted)' }}
+              />
+              <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                {activeTab === 'outstanding' ? 'No outstanding invoices.' :
+                 activeTab === 'paid'        ? 'No paid invoices yet.'    :
+                 'No invoices yet.'}
+              </p>
+              {activeTab !== 'paid' && (
+                <button
+                  onClick={() => setIsCreating(true)}
+                  className="mt-3 text-sm font-semibold"
+                  style={{ color: 'var(--fd-accent)' }}
+                >
+                  Create an invoice →
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {displayed.map(invoice => (
+                <InvoiceCard
+                  key={invoice.id}
+                  invoice={invoice}
+                  onMarkPaid={setPayingInvoice}
+                />
+              ))}
+            </div>
           )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {displayed.map(invoice => (
-            <InvoiceCard
-              key={invoice.id}
-              invoice={invoice}
-              onMarkPaid={setPayingInvoice}
-            />
-          ))}
-        </div>
+        </>
       )}
 
       {/* Sheets */}
