@@ -17,6 +17,11 @@
   --fd-green:   #4ECBA0;
   --fd-red:     #E85C6A;
   --fd-blue:    #5B9CF6;
+
+  /* Subtle tints — used by Badge variants */
+  --fd-blue-subtle:  rgba(91, 156, 246, 0.12);  /* blue at 12% opacity */
+  --fd-card-hover:   #2A2E45;                    /* slightly lighter than --fd-card */
+  --fd-warning:      #E37400;                    /* amber for pending/overdue states */
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

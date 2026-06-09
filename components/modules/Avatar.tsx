@@ -40,6 +40,7 @@ const SIZE_CLASSES = {
   sm: 'h-8 w-8 text-[11px]',
   md: 'h-10 w-10 text-xs',
   lg: 'h-12 w-12 text-sm',
+  xl: 'h-20 w-20 text-2xl',
 } as const
 
 // ─── Component ────────────────────────────────────────────────────────────────
