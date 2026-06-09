@@ -1,12 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Set ERP env vars before the module is evaluated — these constants are captured
-// at module load time (const BASE_URL = process.env.ERPNEXT_BASE_URL), so they
-// must be populated before the static import below is resolved.
+// Mock tenant context before module load — erpFetch calls getTenantContext().
+vi.mock('@/lib/tenant/context', () => ({
+  getTenantContext: vi.fn().mockResolvedValue({
+    tenantId: 'test-tenant-id',
+    userId:   'test-user-id',
+    slug:     'test',
+    provisioningStatus: 'provisioned',
+    lastSyncedAt: null,
+  }),
+}))
+
+// Set proxy env vars before the module is evaluated.
 vi.hoisted(() => {
-  process.env.ERPNEXT_BASE_URL   = 'http://erp.test'
-  process.env.ERPNEXT_API_KEY    = 'test-api-key'
-  process.env.ERPNEXT_API_SECRET = 'test-api-secret'
+  process.env.CONTROL_PLANE_URL   = 'http://cp-api.test:4000'
+  process.env.FITDESK_JWT_SECRET  = 'test-jwt-secret-min-32-chars-xxxxxxxxxxxx'
 })
 
 import {
@@ -22,19 +30,14 @@ import {
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-const TRAINER_ID       = 'trainer-1'
-const OTHER_TRAINER_ID = 'trainer-2'
-const INVOICE_ID       = 'SINV-00001'
-const CLIENT_ID        = 'CLIENT-00001'
+const TRAINER_ID = 'trainer-1'
+const INVOICE_ID = 'SINV-00001'
+const CLIENT_ID  = 'CUST-00001'
 
 function erpOk(data: unknown) {
   return { ok: true, json: async () => ({ data }) }
 }
 
-/**
- * Mock for `frappe.client.submit` and other Frappe method endpoints that return
- * `{ message: <doc> }` directly — NOT wrapped in an ERPNext `{ data: ... }` envelope.
- */
 function frappeMethodOk(message: unknown) {
   return { ok: true, json: async () => ({ message }) }
 }
@@ -58,21 +61,6 @@ function rawInvoice(clientId = CLIENT_ID) {
   }
 }
 
-function rawClient(trainerId: string) {
-  return {
-    name:         CLIENT_ID,
-    first_name:   'Test',
-    last_name:    'Client',
-    full_name:    'Test Client',
-    email_id:     'test@example.com',
-    mobile_no:    '+1234567890',
-    status:       'Active',
-    trainer:      trainerId,
-    total_sessions: 0,
-    creation:     '2026-01-01',
-  }
-}
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('getInvoiceByIdForTrainer', () => {
@@ -87,31 +75,16 @@ describe('getInvoiceByIdForTrainer', () => {
     vi.unstubAllGlobals()
   })
 
-  it('returns the invoice when the client belongs to the requesting trainer', async () => {
-    fetchMock
-      .mockResolvedValueOnce(erpOk(rawInvoice()))
-      .mockResolvedValueOnce(erpOk(rawClient(TRAINER_ID)))
+  it('returns the invoice for the requesting trainer', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawInvoice()))
 
     const invoice = await getInvoiceByIdForTrainer(INVOICE_ID, TRAINER_ID)
 
     expect(invoice.id).toBe(INVOICE_ID)
     expect(invoice.clientId).toBe(CLIENT_ID)
-    // Both the invoice GET and the client ownership GET must have been issued.
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // In single-tenant proxy mode only one fetch is needed (the invoice).
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toContain(INVOICE_ID)
-    expect(fetchMock.mock.calls[1][0]).toContain(CLIENT_ID)
-  })
-
-  it('throws ERPNextError(403) when the client belongs to a different trainer', async () => {
-    fetchMock
-      .mockResolvedValueOnce(erpOk(rawInvoice()))
-      .mockResolvedValueOnce(erpOk(rawClient(OTHER_TRAINER_ID)))
-
-    await expect(
-      getInvoiceByIdForTrainer(INVOICE_ID, TRAINER_ID),
-    ).rejects.toSatisfy(
-      (e: unknown) => e instanceof ERPNextError && e.status === 403,
-    )
   })
 
   it('propagates the underlying ERPNextError when the invoice does not exist', async () => {
@@ -146,14 +119,14 @@ const PAYMENT_ENTRY_ID = 'PE-00001'
 function rawPaymentEntry(name = PAYMENT_ENTRY_ID) {
   return {
     name,
-    payment_type:    'Receive' as const,
-    party_type:      'Customer' as const,
-    party:            CLIENT_ID,
-    paid_amount:      100,
-    currency:         'USD',
-    payment_date:     '2026-01-15',
-    mode_of_payment:  'Cash',
-    creation:         '2026-01-15',
+    payment_type:   'Receive' as const,
+    party_type:     'Customer' as const,
+    party:           CLIENT_ID,
+    paid_amount:     100,
+    currency:        'USD',
+    payment_date:    '2026-01-15',
+    mode_of_payment: 'Cash',
+    creation:        '2026-01-15',
   }
 }
 
@@ -189,7 +162,6 @@ describe('submitSalesInvoice', () => {
 
   it('throws ERPNextError(502) when submit returns no message', async () => {
     fetchMock.mockResolvedValueOnce(erpOk(rawInvoice()))
-    // Submit response has no message
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) })
 
     await expect(submitSalesInvoice(INVOICE_ID)).rejects.toSatisfy(
@@ -356,9 +328,6 @@ describe('createAndSubmitPaymentEntry', () => {
 })
 
 // ─── mapInvoiceStatus (via getInvoiceById round-trip) ────────────────────────
-// These two assertions guard the B1 latent fix: ERPNext returns 'Unpaid' (not
-// 'Submitted') for a submitted-but-unpaid invoice, and 'Partly Paid' for a
-// partially collected one. Both previously fell through to the 'draft' default.
 
 describe('mapInvoiceStatus — ERPNext status → app InvoiceStatus', () => {
   let fetchMock: ReturnType<typeof vi.fn>

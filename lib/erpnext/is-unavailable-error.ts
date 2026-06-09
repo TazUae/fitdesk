@@ -3,6 +3,8 @@ const MARKERS = [
   'ERPNEXT_BASE_URL',
   'ERPNEXT_API_KEY',
   'ERPNEXT_API_SECRET',
+  'CONTROL_PLANE_URL',
+  'No Tenant',
 ]
 
 export function isErpUnavailableError(error: unknown): boolean {
