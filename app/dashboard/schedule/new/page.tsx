@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { bookSession, getClients } from '@/lib/business-data'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { Client } from '@/types'
 
 function NewSessionForm() {
@@ -16,12 +17,14 @@ function NewSessionForm() {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [clients, setClients] = useState<Client[]>([])
+  const [clientsUnavailable, setClientsUnavailable] = useState(false)
 
   const today = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
     getClients().then(res => {
       if (res.success) setClients(res.data)
+      else if (isErpUnavailableError(res.error)) setClientsUnavailable(true)
     })
   }, [])
 
@@ -76,15 +79,23 @@ function NewSessionForm() {
             name="client_id"
             defaultValue={preselectedClientId}
             required
-            className="input-base"
+            disabled={clientsUnavailable}
+            className="input-base disabled:opacity-50"
           >
-            <option value="">Select client…</option>
+            <option value="">
+              {clientsUnavailable ? 'Clients temporarily unavailable…' : 'Select client…'}
+            </option>
             {clients.map(c => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          {clientsUnavailable && (
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Clients are temporarily unavailable while workspace data is connecting.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

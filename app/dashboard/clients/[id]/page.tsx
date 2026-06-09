@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
+import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
@@ -56,7 +57,38 @@ export default async function ClientDetailPage({ params }: Props) {
     getInvoices({ clientId: params.id }),
   ])
 
-  if (!clientResult.success) notFound()
+  if (!clientResult.success) {
+    if (isErpUnavailableError(clientResult.error)) {
+      return (
+        <div className="space-y-5 p-4">
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard/clients" style={{ color: 'var(--fd-muted)' }}>
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </div>
+          <div
+            className="rounded-2xl border p-6 text-center"
+            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+          >
+            <p className="text-sm font-medium" style={{ color: 'var(--fd-muted)' }}>
+              Workspace data is still connecting
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Client details will appear once your workspace data connection is ready.
+            </p>
+            <Link
+              href="/dashboard/clients"
+              className="mt-4 inline-block text-sm font-semibold"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              ← Back to clients
+            </Link>
+          </div>
+        </div>
+      )
+    }
+    notFound()
+  }
 
   const client = clientResult.data
   const sessions = sessionsResult.success ? sessionsResult.data : []
