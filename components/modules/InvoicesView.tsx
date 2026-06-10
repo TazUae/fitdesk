@@ -126,52 +126,55 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
   const isActionable = invoice.status === 'sent' || invoice.status === 'overdue'
 
   return (
-    <div
-      className="space-y-3 rounded-2xl border p-4"
-      style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-    >
-      {/* Row 1: avatar + client info + amount + badge */}
-      <div className="flex items-start gap-3">
-        <Avatar name={invoice.clientName} size="md" />
+    <div className="space-y-3">
+      <Link
+        href={`/dashboard/invoices/${invoice.id}`}
+        className="block rounded-2xl border p-4"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        {/* Row 1: avatar + client info + amount + badge */}
+        <div className="flex items-start gap-3">
+          <Avatar name={invoice.clientName} size="md" />
 
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            {invoice.clientName}
-          </p>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {invoice.id}
-          </p>
-          {/* Due / paid date */}
-          {invoice.status === 'paid' && invoice.paidAt ? (
-            <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-green)' }}>
-              Paid {invoice.paidAt}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+              {invoice.clientName}
             </p>
-          ) : (
-            <p
-              className="mt-0.5 text-xs"
-              style={{ color: invoice.status === 'overdue' ? 'var(--fd-red)' : 'var(--fd-muted)' }}
-            >
-              Due {invoice.dueDate}
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+              {invoice.id}
             </p>
-          )}
-          {/* Sessions count — placeholder: requires linking invoices to sessions in ERP */}
-          {/* TODO: show sessions count when invoice-session linking is implemented */}
+            {/* Due / paid date */}
+            {invoice.status === 'paid' && invoice.paidAt ? (
+              <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-green)' }}>
+                Paid {invoice.paidAt}
+              </p>
+            ) : (
+              <p
+                className="mt-0.5 text-xs"
+                style={{ color: invoice.status === 'overdue' ? 'var(--fd-red)' : 'var(--fd-muted)' }}
+              >
+                Due {invoice.dueDate}
+              </p>
+            )}
+            {/* Sessions count — placeholder: requires linking invoices to sessions in ERP */}
+            {/* TODO: show sessions count when invoice-session linking is implemented */}
+          </div>
+
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <p className="text-sm font-bold" style={{ color: 'var(--fd-text)' }}>
+              {fmtMoney(invoice.amount, invoice.currency)}
+            </p>
+            {invoice.outstandingAmount > 0 && invoice.outstandingAmount < invoice.amount && (
+              <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+                owed {fmtMoney(invoice.outstandingAmount, invoice.currency)}
+              </p>
+            )}
+            <Badge variant={statusVariant(invoice.status)} />
+          </div>
         </div>
+      </Link>
 
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <p className="text-sm font-bold" style={{ color: 'var(--fd-text)' }}>
-            {fmtMoney(invoice.amount, invoice.currency)}
-          </p>
-          {invoice.outstandingAmount > 0 && invoice.outstandingAmount < invoice.amount && (
-            <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
-              owed {fmtMoney(invoice.outstandingAmount, invoice.currency)}
-            </p>
-          )}
-          <Badge variant={statusVariant(invoice.status)} />
-        </div>
-      </div>
-
-      {/* Row 2: actions (only for actionable invoices) */}
+      {/* Row 2: actions (only for actionable invoices) — outside the Link to avoid nested elements */}
       {isActionable && (
         <div className="flex gap-2">
           <button
