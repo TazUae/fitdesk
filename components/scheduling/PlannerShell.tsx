@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { PlannerToolbar } from '@/components/scheduling/PlannerToolbar'
 import { PlannerSidebar } from '@/components/scheduling/PlannerSidebar'
 import { cn } from '@/lib/utils'
@@ -28,10 +28,10 @@ export function PlannerShell({
   rightDrawerOpen,
   overlays,
 }: PlannerShellProps) {
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false
-    return window.matchMedia('(min-width: 1280px)').matches
-  })
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  useEffect(() => {
+    setSidebarOpen(window.matchMedia('(min-width: 1280px)').matches)
+  }, [])
 
   return (
     <div

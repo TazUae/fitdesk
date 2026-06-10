@@ -1,11 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { PlannerShell } from '@/components/scheduling/PlannerShell'
-import { SchedulerXAdapter } from '@/components/scheduling/SchedulerXAdapter'
 import { SchedulerErrorBoundary } from '@/components/scheduling/SchedulerErrorBoundary'
 import type { Client, Session, SessionStatus } from '@/types'
 import type { CalendarSession, FDSessionStatus } from '@/types/scheduling'
+
+const SchedulerXAdapter = dynamic(
+  () => import('@/components/scheduling/SchedulerXAdapter').then(mod => ({ default: mod.SchedulerXAdapter })),
+  { ssr: false, loading: () => <div className="h-full" /> },
+)
 
 // ─── Session adapter ──────────────────────────────────────────────────────────
 
@@ -42,8 +47,11 @@ interface ScheduleViewProps {
 
 export function ScheduleView({ sessions, error }: ScheduleViewProps) {
   const [calendarDate, setCalendarDate] = useState(() => new Date())
+  const [timezone, setTimezone] = useState('UTC')
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  useEffect(() => {
+    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  }, [])
 
   const calendarSessions: CalendarSession[] = sessions.map(toCalendarSession)
 
