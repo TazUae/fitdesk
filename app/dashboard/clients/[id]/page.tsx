@@ -52,10 +52,11 @@ function outstandingBalance(invoices: Invoice[]): number {
 type Props = { params: { id: string } }
 
 export default async function ClientDetailPage({ params }: Props) {
+  const clientId = decodeURIComponent(params.id)
   const [clientResult, sessionsResult, invoicesResult] = await Promise.all([
-    getClientById(params.id),
-    getSessions({ clientId: params.id }),
-    getInvoices({ clientId: params.id }),
+    getClientById(clientId),
+    getSessions({ clientId }),
+    getInvoices({ clientId }),
   ])
 
   if (!clientResult.success) {
