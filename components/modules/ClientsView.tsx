@@ -77,12 +77,14 @@ function AddClientSheet({ isOpen, onClose, onCreated }: AddClientSheetProps) {
 
     startTransition(async () => {
       const result = await addClient({
-        first_name: fd.get('first_name') as string,
-        last_name: (fd.get('last_name') as string) || undefined,
+        customer_name: fd.get('customer_name') as string,
+        customer_type: 'Individual',
+        customer_group: 'Individual',
+        territory: 'All Territories',
         mobile_no: (fd.get('mobile_no') as string) || undefined,
         email_id: (fd.get('email_id') as string) || undefined,
-        goal: (fd.get('goal') as string) || undefined,
-        notes: (fd.get('notes') as string) || undefined,
+        custom_fitness_goals: (fd.get('custom_fitness_goals') as string) || undefined,
+        custom_trainer_notes: (fd.get('custom_trainer_notes') as string) || undefined,
         status: 'Active',
       })
 
@@ -143,19 +145,11 @@ function AddClientSheet({ isOpen, onClose, onCreated }: AddClientSheetProps) {
         {/* Scrollable form body */}
         <div className="max-h-[72vh] overflow-y-auto px-5">
           <form onSubmit={handleSubmit} className="space-y-4 pb-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                  First name *
-                </label>
-                <input name="first_name" required className="input-base" placeholder="Lara" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                  Last name
-                </label>
-                <input name="last_name" className="input-base" placeholder="Croft" />
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                Full name *
+              </label>
+              <input name="customer_name" required className="input-base" placeholder="Lara Croft" />
             </div>
 
             <div className="space-y-1.5">
@@ -184,10 +178,10 @@ function AddClientSheet({ isOpen, onClose, onCreated }: AddClientSheetProps) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Goal
+                Goals
               </label>
               <input
-                name="goal"
+                name="custom_fitness_goals"
                 className="input-base"
                 placeholder="e.g. Lose weight, build muscle…"
               />
@@ -198,7 +192,7 @@ function AddClientSheet({ isOpen, onClose, onCreated }: AddClientSheetProps) {
                 Notes
               </label>
               <textarea
-                name="notes"
+                name="custom_trainer_notes"
                 rows={2}
                 className="input-base resize-none"
                 placeholder="Health notes, injuries, preferences…"
@@ -237,7 +231,6 @@ interface ClientsViewProps {
 export function ClientsView({ clients, error }: ClientsViewProps) {
   const router = useRouter()
   const [query, setQuery] = useState('')
-  const [isAdding, setIsAdding] = useState(false)
 
   const filtered = query.trim()
     ? clients.filter(c => {
@@ -251,11 +244,6 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
       })
     : clients
 
-  function handleCreated() {
-    setIsAdding(false)
-    // Re-run the server component to get the newly created client
-    router.refresh()
-  }
 
   return (
     <div className="p-4 space-y-4">
@@ -265,7 +253,7 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
           {clients.length} client{clients.length !== 1 ? 's' : ''}
         </p>
         <button
-          onClick={() => setIsAdding(true)}
+          onClick={() => router.push('/dashboard/clients/new')}
           className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold"
           style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
         >
@@ -330,13 +318,6 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
           <ClientCard key={client.id} client={client} />
         ))}
       </div>
-
-      {/* Add client bottom sheet */}
-      <AddClientSheet
-        isOpen={isAdding}
-        onClose={() => setIsAdding(false)}
-        onCreated={handleCreated}
-      />
     </div>
   )
 }
