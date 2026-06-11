@@ -7,15 +7,27 @@ import Link from 'next/link'
 import { CalendarPlus, UserPlus, MessageCircle, Receipt } from 'lucide-react'
 
 const ACTIONS = [
-  { href: '/dashboard/schedule/new', Icon: CalendarPlus, label: 'Book'    },
-  { href: '/dashboard/clients/new',  Icon: UserPlus,     label: 'Client'  },
-  { href: '/dashboard/invoices/new', Icon: Receipt,      label: 'Invoice' },
+  { href: '/dashboard/clients/new',  Icon: UserPlus,      label: 'Client'  },
+  { href: '/dashboard/invoices/new', Icon: Receipt,       label: 'Invoice' },
   { href: '/dashboard/whatsapp',     Icon: MessageCircle, label: 'WhatsApp'},
 ] as const
 
 export function QuickActions() {
   return (
     <div className="grid grid-cols-4 gap-2">
+      {/* Book — disabled until session writes are connected */}
+      <div
+        className="flex flex-col items-center gap-1.5 rounded-2xl border py-3 opacity-35 cursor-not-allowed select-none"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+        aria-disabled="true"
+        title="Session booking coming soon"
+      >
+        <CalendarPlus className="h-5 w-5" style={{ color: 'var(--fd-accent)' }} />
+        <span className="text-[10px] font-semibold" style={{ color: 'var(--fd-muted)' }}>
+          Book
+        </span>
+      </div>
+
       {ACTIONS.map(({ href, Icon, label }) => (
         <Link
           key={href}

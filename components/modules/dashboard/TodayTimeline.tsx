@@ -79,13 +79,13 @@ export function TodayTimeline({ sections }: TodayTimelineProps) {
   if (!hasAny) {
     return (
       <Link
-        href="/dashboard/schedule/new"
+        href="/dashboard/schedule"
         className="flex items-center gap-3 rounded-2xl border border-dashed px-4 py-4 transition-opacity active:opacity-70"
         style={{ borderColor: 'var(--fd-border)' }}
       >
         <CalendarPlus className="h-5 w-5 shrink-0 opacity-30" style={{ color: 'var(--fd-muted)' }} />
         <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-          Nothing scheduled today · Book a session
+          Nothing scheduled today · View schedule
         </p>
       </Link>
     )

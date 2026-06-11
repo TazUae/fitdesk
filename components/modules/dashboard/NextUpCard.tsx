@@ -18,7 +18,7 @@ export function NextUpCard({ nextUp }: NextUpCardProps) {
   if (!nextUp) {
     return (
       <Link
-        href="/dashboard/schedule/new"
+        href="/dashboard/schedule"
         className="flex flex-col items-center gap-3 rounded-2xl border border-dashed py-8 transition-opacity active:opacity-70"
         style={{ borderColor: 'var(--fd-border)' }}
       >
@@ -28,7 +28,7 @@ export function NextUpCard({ nextUp }: NextUpCardProps) {
             No upcoming sessions
           </p>
           <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
-            Tap to schedule one →
+            View schedule →
           </p>
         </div>
       </Link>
