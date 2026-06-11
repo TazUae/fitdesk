@@ -125,24 +125,25 @@ export interface ERPPaymentEntry {
 // These define what we send TO ERPNext when creating or updating records.
 
 export interface CreateClientPayload {
-  first_name: string
-  last_name?: string
+  customer_name: string
+  customer_type?: string
+  customer_group?: string
+  territory?: string
   email_id?: string
   mobile_no?: string
   status?: 'Active'
   trainer?: string        // linked Trainer docname
-  goal?: string
-  notes?: string
+  custom_fitness_goals?: string
+  custom_trainer_notes?: string
 }
 
 export interface UpdateClientPayload {
-  first_name?: string
-  last_name?: string
+  customer_name?: string
   email_id?: string
   mobile_no?: string
   status?: 'Active' | 'Inactive' | 'Paused'
-  goal?: string
-  notes?: string
+  custom_fitness_goals?: string
+  custom_trainer_notes?: string
 }
 
 export interface CreateSessionPayload {

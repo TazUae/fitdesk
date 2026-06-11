@@ -6,7 +6,25 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { getClientById, updateClient } from '@/lib/business-data'
+import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
+import { parsePhoneNumber } from 'libphonenumber-js'
 import type { Client } from '@/types'
+
+function parsePhoneValue(phone: string): PhoneValue | undefined {
+  try {
+    const p = parsePhoneNumber(phone)
+    if (!p?.country || !p.nationalNumber) return undefined
+    return {
+      phone_country:      p.country,
+      phone_country_code: '+' + p.countryCallingCode,
+      phone_number:       String(p.nationalNumber),
+      phone_full:         p.number as string,
+      has_whatsapp:       true,
+    }
+  } catch {
+    return undefined
+  }
+}
 
 type Props = { params: { id: string } }
 
@@ -17,14 +35,25 @@ export default function EditClientPage({ params }: Props) {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [phoneValue, setPhoneValue] = useState<PhoneValue | undefined>()
+  const [goal, setGoal] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const clientId = decodeURIComponent(params.id)
 
   useEffect(() => {
-    getClientById(params.id).then(result => {
-      if (result.success) setClient(result.data)
-      else setFetchError(result.error)
+    getClientById(clientId).then(result => {
+      if (result.success) {
+        setClient(result.data)
+        setGoal(result.data.goal ?? '')
+        setNotes(result.data.notes ?? '')
+        if (result.data.phone) setPhoneValue(parsePhoneValue(result.data.phone))
+      } else {
+        setFetchError(result.error)
+      }
       setLoading(false)
     })
-  }, [params.id])
+  }, [clientId])
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -32,19 +61,18 @@ export default function EditClientPage({ params }: Props) {
     const fd = new FormData(e.currentTarget)
 
     startTransition(async () => {
-      const result = await updateClient(params.id, {
-        first_name: fd.get('first_name') as string,
-        last_name: (fd.get('last_name') as string) || undefined,
-        mobile_no: (fd.get('mobile_no') as string) || undefined,
+      const result = await updateClient(clientId, {
+        customer_name: fd.get('customer_name') as string,
+        mobile_no: phoneValue?.phone_full || undefined,
         email_id: (fd.get('email_id') as string) || undefined,
         status: fd.get('status') as 'Active' | 'Inactive' | 'Paused',
-        goal: (fd.get('goal') as string) || undefined,
-        notes: (fd.get('notes') as string) || undefined,
+        custom_fitness_goals: (fd.get('custom_fitness_goals') as string) || undefined,
+        custom_trainer_notes: (fd.get('custom_trainer_notes') as string) || undefined,
       })
 
       if (result.success) {
         toast.success('Client updated')
-        router.push(`/dashboard/clients/${params.id}`)
+        router.push(`/dashboard/clients/${encodeURIComponent(clientId)}`)
       } else {
         setSubmitError(result.error)
       }
@@ -81,7 +109,7 @@ export default function EditClientPage({ params }: Props) {
   return (
     <div className="p-4 space-y-5">
       <div className="flex items-center gap-3">
-        <Link href={`/dashboard/clients/${params.id}`} style={{ color: 'var(--fd-muted)' }}>
+        <Link href={`/dashboard/clients/${encodeURIComponent(clientId)}`} style={{ color: 'var(--fd-muted)' }}>
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <h1 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
@@ -90,32 +118,26 @@ export default function EditClientPage({ params }: Props) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-              First name *
-            </label>
-            <input
-              name="first_name"
-              required
-              defaultValue={client.firstName}
-              className="input-base"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-              Last name
-            </label>
-            <input name="last_name" defaultValue={client.lastName ?? ''} className="input-base" />
-          </div>
-        </div>
-
         <div className="space-y-1.5">
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-            Phone
+            Full name *
           </label>
-          <input name="mobile_no" type="tel" defaultValue={client.phone} className="input-base" />
+          <input
+            name="customer_name"
+            required
+            defaultValue={client.name}
+            className="input-base"
+          />
         </div>
+
+        <PhoneInput
+          defaultCountry="LB"
+          value={phoneValue}
+          onChange={setPhoneValue}
+          label="Phone"
+          hint=""
+          showWhatsApp={false}
+        />
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
@@ -142,11 +164,12 @@ export default function EditClientPage({ params }: Props) {
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-            Goal
+            Goals
           </label>
           <input
-            name="goal"
-            defaultValue={client.goal ?? ''}
+            name="custom_fitness_goals"
+            value={goal}
+            onChange={e => setGoal(e.target.value)}
             className="input-base"
             placeholder="e.g. Lose weight, build muscle…"
           />
@@ -154,12 +177,13 @@ export default function EditClientPage({ params }: Props) {
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-            Notes
+            Trainer notes
           </label>
           <textarea
-            name="notes"
+            name="custom_trainer_notes"
             rows={3}
-            defaultValue={client.notes ?? ''}
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
             className="input-base resize-none"
           />
         </div>
