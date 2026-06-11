@@ -11,6 +11,7 @@ import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
+import { formatGoal } from '@/lib/format/goal'
 import type { Client, ClientStatus } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,10 +40,10 @@ function ClientCard({ client }: { client: Client }) {
         <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
           {client.phone || client.email || 'No contact info'}
         </p>
-        {client.goal && (
+        {formatGoal(client.goal) && (
           <p className="mt-0.5 flex items-center gap-1 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
             <Target className="h-3 w-3 shrink-0" />
-            {client.goal}
+            {formatGoal(client.goal)}
           </p>
         )}
       </div>

@@ -4,6 +4,7 @@ import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-re
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
+import { formatGoal } from '@/lib/format/goal'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
@@ -149,10 +150,10 @@ export default async function ClientDetailPage({ params }: Props) {
               <span className="truncate">{client.email}</span>
             </div>
           )}
-          {client.goal && (
+          {formatGoal(client.goal) && (
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Target className="h-3.5 w-3.5 shrink-0" />
-              {client.goal}
+              {formatGoal(client.goal)}
             </div>
           )}
         </div>
@@ -216,13 +217,13 @@ export default async function ClientDetailPage({ params }: Props) {
               </span>
             )}
           </h3>
-          <Link
-            href={`/dashboard/schedule/new?client=${params.id}`}
-            className="text-xs font-medium"
+          <span
+            className="text-xs font-medium opacity-35 cursor-not-allowed select-none"
             style={{ color: 'var(--fd-accent)' }}
+            title="Session booking coming soon"
           >
             + Schedule
-          </Link>
+          </span>
         </div>
 
         {sessions.length === 0 ? (
