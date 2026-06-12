@@ -1,49 +1,16 @@
 /**
- * FitDesk app schema migration script.
+ * Migration idempotency tests.
  *
- * Run with: node scripts/migrate-app.mjs
- *
- * This script is intentionally separate from Better Auth migration logic.
- * It creates app-level tables used by FitDesk runtime provisioning flows.
- *
- * Safe to re-run — all statements use CREATE TABLE/INDEX IF NOT EXISTS.
+ * Verifies that running the DDL statements from scripts/migrate-app.mjs twice
+ * against an in-memory database succeeds without error (CREATE TABLE IF NOT EXISTS).
  */
 
 import { createClient } from '@libsql/client'
+import { describe, expect, it } from 'vitest'
 
-const DATABASE_URL = process.env.DATABASE_URL ?? 'file:./auth.db'
-const DATABASE_AUTH_TOKEN = process.env.DATABASE_AUTH_TOKEN
-
-console.log(`\nConnecting to: ${DATABASE_URL}`)
-
-const client = createClient({
-  url: DATABASE_URL,
-  authToken: DATABASE_AUTH_TOKEN,
-})
-
-const statements = [
-  // ── WorkspaceProvisioning (existing) ────────────────────────────────────────
-  `CREATE TABLE IF NOT EXISTS "WorkspaceProvisioning" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "userId" TEXT NOT NULL,
-    "slug" TEXT NOT NULL,
-    "tenantId" TEXT,
-    "jobId" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "failureReason" TEXT,
-    "lastSyncedAt" TEXT,
-    "createdAt" TEXT NOT NULL,
-    "updatedAt" TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS "WorkspaceProvisioning_userId_idx" ON "WorkspaceProvisioning"("userId")`,
-  `CREATE INDEX IF NOT EXISTS "WorkspaceProvisioning_jobId_idx" ON "WorkspaceProvisioning"("jobId")`,
-
-  // ── Client Management v1.2.1 — additive enrichment tables ──────────────────
-  // All new tables are additive. No ALTER, DROP, or data deletion allowed.
-  // Every table enforces tenant isolation via tenant_id.
-  // Timestamps: ISO-8601 UTC TEXT. Arrays: *_json TEXT columns.
-  // See: docs/adr/ADR-001-client-management-erp-authoritative-hybrid.md
-
+// The same DDL statements that migrate-app.mjs runs — kept in sync manually.
+// If migrate-app.mjs changes its DDL, update these too.
+const CLIENT_DDL = [
   `CREATE TABLE IF NOT EXISTS "client_index" (
     "id"                          TEXT NOT NULL PRIMARY KEY,
     "tenant_id"                   TEXT NOT NULL,
@@ -129,37 +96,51 @@ const statements = [
     ON "client_event" ("tenant_id", "client_index_id")`,
 ]
 
-for (const sql of statements) {
-  try {
+async function runDdl(client: ReturnType<typeof createClient>) {
+  for (const sql of CLIENT_DDL) {
     await client.execute(sql)
-  } catch (err) {
-    console.error('[app-migration] statement failed:', err.message)
-    process.exit(1)
   }
 }
 
-console.log('\nVerifying app tables...')
-const { rows } = await client.execute(
-  `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
-)
-const tables = rows.map((r) => r.name)
+describe('client management DDL migration', () => {
+  it('creates all four client tables without error', async () => {
+    const client = createClient({ url: ':memory:' })
+    await expect(runDdl(client)).resolves.not.toThrow()
+    client.close()
+  })
 
-const requiredTables = [
-  'WorkspaceProvisioning',
-  'client_index',
-  'client_goal',
-  'client_action_intent',
-  'client_event',
-]
+  it('is idempotent — running DDL twice does not throw', async () => {
+    const client = createClient({ url: ':memory:' })
+    await runDdl(client)
+    await expect(runDdl(client)).resolves.not.toThrow()
+    client.close()
+  })
 
-const missing = requiredTables.filter((t) => !tables.includes(t))
-if (missing.length > 0) {
-  console.error('\n[app-migration] missing required tables:', missing.join(', '))
-  process.exit(1)
-}
+  it('confirms all four tables exist after migration', async () => {
+    const client = createClient({ url: ':memory:' })
+    await runDdl(client)
 
-for (const t of requiredTables) {
-  console.log(`✓ ${t} table is present`)
-}
-console.log('✓ App migration complete.\n')
-client.close()
+    const { rows } = await client.execute(
+      `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
+    )
+    const tableNames = rows.map((r) => r.name as string)
+
+    expect(tableNames).toContain('client_index')
+    expect(tableNames).toContain('client_goal')
+    expect(tableNames).toContain('client_action_intent')
+    expect(tableNames).toContain('client_event')
+    client.close()
+  })
+
+  it('confirms the unique (tenant_id, erp_customer_id) index exists on client_index', async () => {
+    const client = createClient({ url: ':memory:' })
+    await runDdl(client)
+
+    const { rows } = await client.execute(
+      `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='client_index'`,
+    )
+    const indexNames = rows.map((r) => r.name as string)
+    expect(indexNames).toContain('client_index_tenant_erp_idx')
+    client.close()
+  })
+})
