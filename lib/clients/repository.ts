@@ -478,6 +478,48 @@ export class ClientRepository {
     }
   }
 
+  // ── Write: event ────────────────────────────────────────────────────────
+
+  /**
+   * Insert a single client_event row.
+   * Used by backfill to record client.backfilled events without a full
+   * createClientRow transaction.
+   */
+  async insertClientEvent(opts: {
+    tenantId: string
+    clientIndexId: string | null
+    erpCustomerId: string | null
+    type: string
+    payloadJson: Record<string, unknown>
+    createdByUserId: string | null
+  }): Promise<ClientEvent> {
+    assertTenantId({ tenantId: opts.tenantId })
+    const now = new Date().toISOString()
+    const id = crypto.randomUUID()
+
+    await this.db.insert(schema.clientEvent).values({
+      id,
+      tenantId:        opts.tenantId,
+      clientIndexId:   opts.clientIndexId ?? null,
+      erpCustomerId:   opts.erpCustomerId ?? null,
+      type:            opts.type,
+      payloadJson:     JSON.stringify(opts.payloadJson),
+      createdByUserId: opts.createdByUserId ?? null,
+      createdAtUtc:    now,
+    })
+
+    return {
+      id,
+      tenantId:        opts.tenantId,
+      clientIndexId:   opts.clientIndexId ?? null,
+      erpCustomerId:   opts.erpCustomerId ?? null,
+      type:            opts.type,
+      payloadJson:     opts.payloadJson,
+      createdByUserId: opts.createdByUserId ?? null,
+      createdAtUtc:    now,
+    }
+  }
+
   // ── Write: backfill upsert ────────────────────────────────────────────────
 
   /**
