@@ -3,14 +3,34 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, Loader2, Sparkles } from 'lucide-react'
+import { parsePhoneNumber, getCountryCallingCode } from 'libphonenumber-js'
+import type { CountryCode } from 'libphonenumber-js'
 import { toast } from 'sonner'
-import { addClient, findClientDuplicates } from '@/actions/clients'
+import { addClient, findClientDuplicates, parseClientDetails } from '@/actions/clients'
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { GoalMultiSelect, type SubGoalsMap } from '@/components/ui/GoalMultiSelect'
 import type { Client } from '@/types'
-import type { DuplicateClientMatch } from '@/types/clients'
+import type { AiParseState, DuplicateClientMatch } from '@/types/clients'
+
+// Convert an E.164 phone string to the PhoneValue shape expected by PhoneInput.
+function e164ToPhoneValue(e164: string, hasWhatsApp: boolean): PhoneValue | null {
+  try {
+    const parsed = parsePhoneNumber(e164)
+    if (!parsed?.country) return null
+    const cc = '+' + getCountryCallingCode(parsed.country as CountryCode)
+    return {
+      phone_country:      parsed.country,
+      phone_country_code: cc,
+      phone_number:       String(parsed.nationalNumber),
+      phone_full:         e164,
+      has_whatsapp:       hasWhatsApp,
+    }
+  } catch {
+    return null
+  }
+}
 
 /** Options accepted by addClient — inferred so no type is exported from the 'use server' file. */
 type AddClientOptions = NonNullable<Parameters<typeof addClient>[1]>
@@ -88,6 +108,11 @@ export default function NewClientPage() {
   const [duplicateMatches, setDuplicateMatches] = useState<DuplicateClientMatch[] | null>(null)
   const [overrideReason, setOverrideReason] = useState('')
 
+  // Phase 5 — optional AI parse state.
+  const [aiOpen, setAiOpen]       = useState(false)
+  const [aiRawText, setAiRawText] = useState('')
+  const [aiState, setAiState]     = useState<AiParseState>('idle')
+
   function buildPayload() {
     let trainerNotes = notes.trim()
     const ageParts: string[] = []
@@ -164,6 +189,31 @@ export default function NewClientPage() {
     })
   }
 
+  function handleExtractDetails() {
+    if (!aiRawText.trim() || isPending) return
+    setAiState('parsing')
+    setError(null)
+    startTransition(async () => {
+      const result = await parseClientDetails(aiRawText)
+      if (!result.success || result.data.state === 'failed' || result.data.state === 'timeout') {
+        setAiState(result.success ? result.data.state : 'failed')
+        toast.error("Couldn't read that — please fill the form manually.")
+        return
+      }
+      const { state, fields } = result.data
+      // Prefill form fields — trainer reviews and can edit everything before submitting.
+      if (fields.fullName.value) setName(fields.fullName.value)
+      if (fields.phone.value) {
+        // whatsappEnabled is visual only this phase; buildClientCreateDraft hardcodes false.
+        const pv = e164ToPhoneValue(fields.phone.value, fields.whatsappEnabled.value ?? true)
+        if (pv) setPhoneValue(pv)
+      }
+      if (fields.goals.value && fields.goals.value.length > 0) setGoals(fields.goals.value)
+      if (fields.notes.value) setNotes(prev => prev || fields.notes.value!)
+      setAiState(state)
+    })
+  }
+
   if (createdClient) return <SuccessView client={createdClient} />
 
   return (
@@ -181,6 +231,89 @@ export default function NewClientPage() {
           New Client
         </h1>
       </div>
+
+      {/* Phase 5 — optional AI quick-add (collapsed by default, manual-first) */}
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{ borderColor: 'var(--fd-border)' }}
+      >
+        <button
+          type="button"
+          onClick={() => setAiOpen(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium transition-opacity active:opacity-70"
+          style={{ backgroundColor: 'var(--fd-surface)', color: 'var(--fd-text)' }}
+          aria-expanded={aiOpen}
+        >
+          <span className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+            Quick add from text
+          </span>
+          <ChevronDown
+            className="h-4 w-4 transition-transform duration-200"
+            style={{
+              color:     'var(--fd-muted)',
+              transform: aiOpen ? 'rotate(180deg)' : 'none',
+            }}
+          />
+        </button>
+
+        {aiOpen && (
+          <div
+            className="px-4 pb-4 pt-2 space-y-3 border-t"
+            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+          >
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Paste your notes and we&apos;ll suggest form fields — review everything before saving.
+            </p>
+            <textarea
+              value={aiRawText}
+              onChange={e => setAiRawText(e.target.value)}
+              rows={3}
+              placeholder="e.g. Sara Ahmad, +961 70 000 000, wants fat loss, prefers WhatsApp"
+              className="input-base resize-none"
+            />
+            <button
+              type="button"
+              onClick={handleExtractDetails}
+              disabled={isPending || !aiRawText.trim()}
+              className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+            >
+              {aiState === 'parsing'
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
+                : <><Sparkles className="h-4 w-4" /> Extract details</>
+              }
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* AI parse review banners */}
+      {aiState === 'partial_success' && (
+        <div
+          className="rounded-xl px-4 py-3 text-sm"
+          style={{
+            backgroundColor: 'rgba(78,203,160,0.08)',
+            border:          '1px solid rgba(78,203,160,0.25)',
+            color:           'var(--fd-green)',
+          }}
+        >
+          Details filled in — please review before saving.
+        </div>
+      )}
+      {aiState === 'low_confidence' && (
+        <div
+          className="rounded-xl px-4 py-3 text-sm"
+          style={{
+            backgroundColor: 'rgba(232,197,71,0.08)',
+            border:          '1px solid rgba(232,197,71,0.35)',
+          }}
+        >
+          <p className="font-semibold" style={{ color: '#d4a017' }}>
+            Low confidence — please double-check everything before saving.
+          </p>
+        </div>
+      )}
 
       {/* Phase 6 — possible-duplicate warning */}
       {duplicateMatches && duplicateMatches.length > 0 && (

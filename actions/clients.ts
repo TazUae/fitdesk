@@ -9,9 +9,10 @@ import { ClientRepository } from '@/lib/clients/repository'
 import { buildClientCreateDraft } from '@/lib/clients/create-draft'
 import { findDuplicatesByPhone } from '@/lib/clients/duplicates'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
+import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
 import type { ActionResult, Client } from '@/types'
-import type { DuplicateClientMatch } from '@/types/clients'
+import type { DuplicateClientMatch, ClientParseResult } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +86,32 @@ export async function findClientDuplicates(
     return { success: true, data: matches }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to check duplicates' }
+  }
+}
+
+/**
+ * Optional AI-assisted client info extraction (Phase 5).
+ *
+ * Parses free-form trainer text into suggested Add Client form fields.
+ * Auth-gated so ANTHROPIC_API_KEY is never exposed to unauthenticated callers.
+ * Never creates a client, never calls ERP, never stores the raw text.
+ *
+ * Fail contract: any internal error → success:true, state:'failed' so the manual
+ * form always remains usable. success:false is reserved for auth failures only.
+ */
+export async function parseClientDetails(
+  rawText: string,
+): Promise<ActionResult<ClientParseResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const text = String(rawText ?? '').trim().slice(0, 2000)
+    if (!text) return { success: true, data: failedParseResult() }
+    const result = await parseClientText(text)
+    return { success: true, data: result }
+  } catch {
+    return { success: true, data: failedParseResult() }
   }
 }
 

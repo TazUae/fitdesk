@@ -31,15 +31,31 @@ vi.mock('@/lib/business-data/erp-adapter', () => ({
   getClientById: vi.fn(),
   getClients: vi.fn(),
   updateClient: vi.fn(),
-  // Side-effect primitives — asserted NEVER called by Add Client.
+  // Side-effect primitives — asserted NEVER called by Add Client or AI parse.
   createInvoice: vi.fn(),
   submitSalesInvoice: vi.fn(),
   createAndSubmitPaymentEntry: vi.fn(),
   createSession: vi.fn(),
 }))
 
-import { addClient, findClientDuplicates } from '@/actions/clients'
+vi.mock('@/lib/clients/ai-parse', () => ({
+  parseClientText:    vi.fn(),
+  failedParseResult:  vi.fn(() => ({
+    state: 'failed',
+    fields: {
+      fullName:        { value: null, confidence: 'unknown', source: 'ai_parse' },
+      phone:           { value: null, confidence: 'unknown', source: 'ai_parse' },
+      whatsappEnabled: { value: null, confidence: 'unknown', source: 'ai_parse' },
+      goals:           { value: [],   confidence: 'unknown', source: 'ai_parse' },
+      notes:           { value: null, confidence: 'unknown', source: 'ai_parse' },
+    },
+  })),
+}))
+
+import { addClient, findClientDuplicates, parseClientDetails } from '@/actions/clients'
 import * as erp from '@/lib/business-data/erp-adapter'
+import * as aiParse from '@/lib/clients/ai-parse'
+import { auth } from '@/lib/auth'
 import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
 import type { ClientCreateDraft } from '@/types/clients'
@@ -327,5 +343,77 @@ describe('addClient — duplicate override', () => {
 
     expect(await count('client_event', `type = 'duplicate.override'`)).toBe(0)
     expect(await count('client_index', `possible_duplicate_client_id IS NOT NULL`)).toBe(0)
+  })
+})
+
+// ─── parseClientDetails (Phase 5) ────────────────────────────────────────────
+
+describe('parseClientDetails', () => {
+  const mockPartialResult = {
+    state: 'partial_success' as const,
+    fields: {
+      fullName:        { value: 'Sara Ahmad', confidence: 'high' as const, source: 'ai_parse' as const },
+      phone:           { value: '+96170555000', confidence: 'high' as const, source: 'ai_parse' as const },
+      whatsappEnabled: { value: true, confidence: 'high' as const, source: 'ai_parse' as const },
+      goals:           { value: ['fat_loss'], confidence: 'high' as const, source: 'ai_parse' as const },
+      notes:           { value: null, confidence: 'unknown' as const, source: 'ai_parse' as const },
+    },
+  }
+
+  it('returns success:false when not authenticated', async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await parseClientDetails('Sara Ahmad 70 000 000')
+    expect(result.success).toBe(false)
+    expect(aiParse.parseClientText).not.toHaveBeenCalled()
+  })
+
+  it('returns success:true with the parser result on parse success', async () => {
+    vi.mocked(aiParse.parseClientText).mockResolvedValue(mockPartialResult)
+
+    const result = await parseClientDetails('Sara Ahmad 70 000 000')
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.state).toBe('partial_success')
+      expect(result.data.fields.fullName.value).toBe('Sara Ahmad')
+    }
+  })
+
+  it('returns success:true with failed state when parseClientText unexpectedly throws', async () => {
+    vi.mocked(aiParse.parseClientText).mockRejectedValue(new Error('unexpected'))
+
+    const result = await parseClientDetails('some text')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.state).toBe('failed')
+  })
+
+  it('returns success:true with failed state for empty input', async () => {
+    const result = await parseClientDetails('   ')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.state).toBe('failed')
+    expect(aiParse.parseClientText).not.toHaveBeenCalled()
+  })
+
+  it('does NOT call ERP createClient, createInvoice, payment, or session', async () => {
+    vi.mocked(aiParse.parseClientText).mockResolvedValue(mockPartialResult)
+
+    await parseClientDetails('Sara Ahmad')
+
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+  })
+
+  it('duplicate detection is untouched — addClient still runs Phase 6 duplicate check on submit', async () => {
+    // addClient flow is separate from parseClientDetails; this verifies they are independent.
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const addResult = await addClient(PAYLOAD)
+    expect(addResult.success).toBe(true)
+    // parseClientText was NOT called by addClient (duplicate detection is in findClientDuplicates)
+    expect(aiParse.parseClientText).not.toHaveBeenCalled()
   })
 })

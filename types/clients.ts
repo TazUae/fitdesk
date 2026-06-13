@@ -273,3 +273,38 @@ export type ClientHubOverview = {
     progress: { status: 'not_started' | 'available_later'; label: string }
   }
 }
+
+// ─── AI parse types (Phase 5) ─────────────────────────────────────────────────
+
+/**
+ * UI and server states for the optional AI-assisted Add Client parse.
+ * idle/parsing are client-side states; the server action returns terminal states only.
+ */
+export type AiParseState =
+  | 'idle'
+  | 'parsing'
+  | 'partial_success'
+  | 'low_confidence'
+  | 'failed'
+  | 'timeout'
+
+/**
+ * Structured output of the AI parse — one ParsedField per Add Client form field.
+ * Trainer reviews and edits all fields before submitting.
+ * Safety, medical, and billing fields are intentionally excluded from AI parse.
+ */
+export type ClientParseFields = {
+  fullName:        ParsedField<string>
+  /** value = normalized E.164 string when parseable; null otherwise. */
+  phone:           ParsedField<string>
+  whatsappEnabled: ParsedField<boolean>
+  /** Each value must be a canonical GOALS id from components/ui/GoalSelect.tsx. */
+  goals:           ParsedField<string[]>
+  notes:           ParsedField<string>
+}
+
+export type ClientParseResult = {
+  /** Terminal result state (server action never returns 'idle' or 'parsing'). */
+  state: Exclude<AiParseState, 'idle' | 'parsing'>
+  fields: ClientParseFields
+}
