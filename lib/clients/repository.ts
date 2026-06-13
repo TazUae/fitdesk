@@ -332,8 +332,8 @@ export class ClientRepository {
         paymentSummary:           'unset',
         nextSessionAtUtc:         null,
         lastActivityAtUtc:        now,
-        possibleDuplicateClientId: null,
-        duplicateOverrideReason:   null,
+        possibleDuplicateClientId: draft.possibleDuplicateClientId ?? null,
+        duplicateOverrideReason:   draft.duplicateOverrideReason ?? null,
         createdAtUtc:             now,
         updatedAtUtc:             now,
       })
@@ -446,6 +446,25 @@ export class ClientRepository {
         createdByUserId: draft.createdByUserId,
         createdAtUtc:    now,
       }
+
+      // 5. Duplicate-override audit (Phase 6): written in the SAME transaction so
+      // the override event and the override columns can never diverge. Only when
+      // the trainer continued past a possible-duplicate warning.
+      if (draft.possibleDuplicateClientId) {
+        await tx.insert(schema.clientEvent).values({
+          id:              crypto.randomUUID(),
+          tenantId,
+          clientIndexId,
+          erpCustomerId:   draft.erpCustomerId,
+          type:            'duplicate.override',
+          payloadJson:     JSON.stringify({
+            possibleDuplicateClientId: draft.possibleDuplicateClientId,
+            reason:                    draft.duplicateOverrideReason ?? null,
+          }),
+          createdByUserId: draft.createdByUserId,
+          createdAtUtc:    now,
+        })
+      }
     })
 
     const createdClientIndex: ClientIndex = {
@@ -464,8 +483,8 @@ export class ClientRepository {
       paymentSummary:            'unset',
       nextSessionAtUtc:          null,
       lastActivityAtUtc:         now,
-      possibleDuplicateClientId: null,
-      duplicateOverrideReason:   null,
+      possibleDuplicateClientId: draft.possibleDuplicateClientId ?? null,
+      duplicateOverrideReason:   draft.duplicateOverrideReason ?? null,
       createdAtUtc:              now,
       updatedAtUtc:              now,
     }

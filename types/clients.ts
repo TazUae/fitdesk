@@ -205,6 +205,13 @@ export type ClientCreateDraft = {
   safetyFlags: string[]
   goalNotes: string | null
   createdByUserId: string | null
+  /**
+   * Duplicate-override audit (Phase 6). Set only when the trainer chose
+   * "Continue anyway" past a possible-duplicate warning.
+   * possibleDuplicateClientId references the matched client_index.id (local UUID).
+   */
+  possibleDuplicateClientId?: string | null
+  duplicateOverrideReason?: string | null
 }
 
 /** Result of the local row creation transaction. */

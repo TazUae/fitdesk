@@ -38,9 +38,11 @@ vi.mock('@/lib/business-data/erp-adapter', () => ({
   createSession: vi.fn(),
 }))
 
-import { addClient } from '@/actions/clients'
+import { addClient, findClientDuplicates } from '@/actions/clients'
 import * as erp from '@/lib/business-data/erp-adapter'
 import { getTenantContext } from '@/lib/tenant/context'
+import { ClientRepository } from '@/lib/clients/repository'
+import type { ClientCreateDraft } from '@/types/clients'
 
 // ─── DDL (all four client tables — createClientRow writes to all) ───────────────
 
@@ -224,5 +226,106 @@ describe('addClient — tenant isolation', () => {
 
     expect(await count('client_index', `tenant_id = '${TENANT_A}'`)).toBe(1)
     expect(await count('client_index', `tenant_id = '${TENANT_B}'`)).toBe(0)
+  })
+})
+
+// ─── findClientDuplicates (Phase 6) ──────────────────────────────────────────────
+
+async function seedClient(tenantId: string, phoneE164: string, erpCustomerId: string) {
+  const repo = new ClientRepository(h.db)
+  const draft: ClientCreateDraft = {
+    tenantId, erpCustomerId, fullName: 'Seed Client', phoneE164, whatsappEnabled: false,
+    primaryGoalLabel: null, primaryGoalId: null, goalId: null, subGoalIds: [], goalUrgency: null,
+    goalConfidence: 'unknown', goalSource: 'system_inferred', safetyFlags: [], goalNotes: null,
+    createdByUserId: null,
+  }
+  await repo.upsertClientFromBackfill({ tenantId }, draft)
+}
+
+describe('findClientDuplicates', () => {
+  it('detects an exact-phone duplicate in the same tenant and exposes the ERP docname', async () => {
+    await seedClient(TENANT_A, '+96170555000', 'CUST-DUP')
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await findClientDuplicates('+96170555000')
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].matchType).toBe('exact_phone')
+      expect(result.data[0].erpCustomerId).toBe('CUST-DUP') // Open existing uses ERP docname
+    }
+  })
+
+  it('does NOT surface a duplicate from another tenant', async () => {
+    await seedClient(TENANT_B, '+96170555000', 'CUST-OTHER')
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await findClientDuplicates('+96170555000')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toHaveLength(0)
+  })
+
+  it('returns empty when there is no duplicate', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await findClientDuplicates('+96170555111')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toHaveLength(0)
+  })
+
+  it('returns empty for an unnormalizable phone', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await findClientDuplicates('not-a-phone')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toHaveLength(0)
+  })
+
+  it('fails open with empty list when there is no tenant context', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(null))
+    const result = await findClientDuplicates('+96170555000')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toHaveLength(0)
+  })
+})
+
+// ─── addClient — duplicate override (Phase 6) ────────────────────────────────────
+
+describe('addClient — duplicate override', () => {
+  it('with a reason: stores override columns and writes a duplicate.override event', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addClient(PAYLOAD, {
+      overrideDuplicate: true,
+      duplicateOverrideReason: 'Different person',
+      possibleDuplicateClientId: 'existing-local-id',
+    })
+
+    expect(result.success).toBe(true)
+    expect(await count('client_index', `possible_duplicate_client_id = 'existing-local-id'`)).toBe(1)
+    expect(await count('client_index', `duplicate_override_reason = 'Different person'`)).toBe(1)
+    expect(await count('client_event', `type = 'duplicate.override'`)).toBe(1)
+    expect(await count('client_event', `type = 'client.created'`)).toBe(1)
+  })
+
+  it('blocks server-side when override is requested without a reason — no ERP call, no rows', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addClient(PAYLOAD, { overrideDuplicate: true, duplicateOverrideReason: '   ' })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toContain('reason is required')
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(await count('client_index')).toBe(0)
+  })
+
+  it('normal create writes no duplicate.override event and no override columns', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    await addClient(PAYLOAD)
+
+    expect(await count('client_event', `type = 'duplicate.override'`)).toBe(0)
+    expect(await count('client_index', `possible_duplicate_client_id IS NOT NULL`)).toBe(0)
   })
 })

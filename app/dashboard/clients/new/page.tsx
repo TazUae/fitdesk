@@ -3,13 +3,17 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { createClient } from '@/lib/business-data'
+import { addClient, findClientDuplicates } from '@/actions/clients'
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { GoalMultiSelect, type SubGoalsMap } from '@/components/ui/GoalMultiSelect'
 import type { Client } from '@/types'
+import type { DuplicateClientMatch } from '@/types/clients'
+
+/** Options accepted by addClient — inferred so no type is exported from the 'use server' file. */
+type AddClientOptions = NonNullable<Parameters<typeof addClient>[1]>
 
 // ─── Success state ────────────────────────────────────────────────────────────
 
@@ -80,6 +84,46 @@ export default function NewClientPage() {
   const [error, setError] = useState<string | null>(null)
   const [createdClient, setCreatedClient] = useState<Client | null>(null)
 
+  // Phase 6 — possible-duplicate warning state.
+  const [duplicateMatches, setDuplicateMatches] = useState<DuplicateClientMatch[] | null>(null)
+  const [overrideReason, setOverrideReason] = useState('')
+
+  function buildPayload() {
+    let trainerNotes = notes.trim()
+    const ageParts: string[] = []
+    if (ageValue.age) ageParts.push(`Age: ${ageValue.age}`)
+    if (ageValue.date_of_birth) ageParts.push(`DOB: ${ageValue.date_of_birth}`)
+    if (ageParts.length > 0) {
+      trainerNotes = `${ageParts.join(' | ')}${trainerNotes ? '\n' + trainerNotes : ''}`
+    }
+
+    const fitnessGoalStr = goals.length > 0
+      ? JSON.stringify(goals.map(g => ({ label: g, value: g })))
+      : undefined
+
+    return {
+      customer_name: name.trim(),
+      customer_type: 'Individual',
+      customer_group: 'Individual',
+      territory: 'All Territories',
+      mobile_no: phoneValue?.phone_full ?? '',
+      custom_fitness_goals: fitnessGoalStr,
+      custom_trainer_notes: trainerNotes || undefined,
+      status: 'Active' as const,
+    }
+  }
+
+  async function runCreate(options?: AddClientOptions) {
+    const result = await addClient(buildPayload(), options)
+    if (result.success) {
+      toast.success(`${result.data.name} added to your roster.`)
+      setCreatedClient(result.data)
+    } else {
+      setDuplicateMatches(null)
+      setError(result.error)
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -93,36 +137,30 @@ export default function NewClientPage() {
       return
     }
 
-    let trainerNotes = notes.trim()
-    const ageParts: string[] = []
-    if (ageValue.age) ageParts.push(`Age: ${ageValue.age}`)
-    if (ageValue.date_of_birth) ageParts.push(`DOB: ${ageValue.date_of_birth}`)
-    if (ageParts.length > 0) {
-      trainerNotes = `${ageParts.join(' | ')}${trainerNotes ? '\n' + trainerNotes : ''}`
-    }
-
-    const fitnessGoalStr = goals.length > 0
-      ? JSON.stringify(goals.map(g => ({ label: g, value: g })))
-      : undefined
-
     startTransition(async () => {
-      const result = await createClient({
-        customer_name: name.trim(),
-        customer_type: 'Individual',
-        customer_group: 'Individual',
-        territory: 'All Territories',
-        mobile_no: phoneValue?.phone_full ?? '',
-        custom_fitness_goals: fitnessGoalStr,
-        custom_trainer_notes: trainerNotes || undefined,
-        status: 'Active',
-      })
-
-      if (result.success) {
-        toast.success(`${result.data.name} added to your roster.`)
-        setCreatedClient(result.data)
-      } else {
-        setError(result.error)
+      // Phase 6 — advisory tenant-scoped duplicate check BEFORE ERP creation.
+      // Fails open: a check error or no tenant lets creation proceed.
+      const dup = await findClientDuplicates(phoneValue?.phone_full ?? '')
+      if (dup.success && dup.data.length > 0) {
+        setOverrideReason('')
+        setDuplicateMatches(dup.data)
+        return
       }
+      await runCreate()
+    })
+  }
+
+  function handleContinueAnyway() {
+    const reason = overrideReason.trim()
+    if (!reason || !duplicateMatches || duplicateMatches.length === 0) return
+    const match = duplicateMatches[0]
+    setError(null)
+    startTransition(async () => {
+      await runCreate({
+        overrideDuplicate: true,
+        duplicateOverrideReason: reason,
+        possibleDuplicateClientId: match.clientIndexId,
+      })
     })
   }
 
@@ -143,6 +181,68 @@ export default function NewClientPage() {
           New Client
         </h1>
       </div>
+
+      {/* Phase 6 — possible-duplicate warning */}
+      {duplicateMatches && duplicateMatches.length > 0 && (
+        <div
+          role="alertdialog"
+          aria-label="Possible duplicate client"
+          className="rounded-2xl border p-4 space-y-3"
+          style={{ backgroundColor: 'rgba(232,92,106,0.06)', borderColor: 'rgba(232,92,106,0.3)' }}
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-5 w-5 shrink-0" style={{ color: 'var(--fd-red)' }} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                Possible duplicate found
+              </p>
+              <p className="mt-0.5 truncate text-sm" style={{ color: 'var(--fd-muted)' }}>
+                {duplicateMatches[0].fullName} — {duplicateMatches[0].phoneE164}
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href={`/dashboard/clients/${encodeURIComponent(duplicateMatches[0].erpCustomerId)}`}
+            className="block w-full rounded-xl py-2.5 text-center text-sm font-semibold transition-opacity active:opacity-70"
+            style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+          >
+            Open existing client
+          </Link>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+              Reason to add anyway (required)
+            </label>
+            <input
+              value={overrideReason}
+              onChange={e => setOverrideReason(e.target.value)}
+              placeholder="e.g. Different person, same household number"
+              className="input-base"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setDuplicateMatches(null); setOverrideReason('') }}
+              className="flex-1 rounded-xl border py-2.5 text-sm font-semibold transition-opacity active:opacity-60"
+              style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)' }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleContinueAnyway}
+              disabled={isPending || overrideReason.trim() === ''}
+              className="flex-1 rounded-xl py-2.5 text-sm font-semibold transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: 'var(--fd-red)', color: 'var(--fd-bg)' }}
+            >
+              {isPending ? 'Adding…' : 'Continue anyway'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-1.5">

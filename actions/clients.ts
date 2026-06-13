@@ -7,8 +7,11 @@ import { ensureTrainerIdForUser } from '@/lib/trainer'
 import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
 import { buildClientCreateDraft } from '@/lib/clients/create-draft'
+import { findDuplicatesByPhone } from '@/lib/clients/duplicates'
+import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { db } from '@/lib/db'
 import type { ActionResult, Client } from '@/types'
+import type { DuplicateClientMatch } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -60,6 +63,32 @@ export async function fetchClientById(id: string): Promise<ActionResult<Client>>
 }
 
 /**
+ * Tenant-scoped exact-phone duplicate check used by Add Client BEFORE ERP
+ * Customer creation (Phase 6). Advisory only — never blocks creation here.
+ *
+ * Matches against the local client_index read model within the current tenant;
+ * cross-tenant matches are never returned. Fails open: when the tenant or phone
+ * cannot be resolved, returns an empty list so creation can proceed.
+ */
+export async function findClientDuplicates(
+  rawPhone: string,
+): Promise<ActionResult<DuplicateClientMatch[]>> {
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: true, data: [] }
+
+    const phone = normalizePhoneToE164(rawPhone)
+    if (!phone.ok) return { success: true, data: [] }
+
+    const repo = new ClientRepository(db)
+    const matches = await findDuplicatesByPhone(repo, { tenantId: ctx.tenantId }, phone.e164)
+    return { success: true, data: matches }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to check duplicates' }
+  }
+}
+
+/**
  * Add a new client.
  * The trainer field is injected server-side from the auth session —
  * callers must NOT include it in the payload.
@@ -77,9 +106,26 @@ export async function fetchClientById(id: string): Promise<ActionResult<Client>>
  */
 export async function addClient(
   payload: Omit<CreateClientPayload, 'trainer'>,
+  options?: {
+    /** Set by the UI when the trainer continued past a possible-duplicate warning. */
+    overrideDuplicate?: boolean
+    /** Required when overrideDuplicate is true — captured in the duplicate.override audit. */
+    duplicateOverrideReason?: string
+    /** The matched client_index.id (local UUID) the trainer chose to override. */
+    possibleDuplicateClientId?: string
+  },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
+
+  // Phase 6 — when overriding a possible-duplicate warning, a reason is REQUIRED.
+  // Enforced server-side (the UI also disables Continue until a reason is entered).
+  const overrideReason = options?.overrideDuplicate
+    ? (options.duplicateOverrideReason?.trim() ?? '')
+    : null
+  if (options?.overrideDuplicate && !overrideReason) {
+    return { success: false, error: 'A reason is required to add a possible duplicate client.' }
+  }
 
   // Step 1 — create the ERP Customer (canonical identity).
   let data: Client
@@ -104,6 +150,8 @@ export async function addClient(
       userId:             ctx.userId ?? null,
       createdClient:      data,
       customFitnessGoals: payload.custom_fitness_goals ?? null,
+      possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
+      duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })
 
     const repo = new ClientRepository(db)

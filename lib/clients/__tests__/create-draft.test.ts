@@ -121,4 +121,23 @@ describe('buildClientCreateDraft', () => {
     })
     expect(draft.createdByUserId).toBeNull()
   })
+
+  describe('duplicate-override passthrough (Phase 6)', () => {
+    it('passes possibleDuplicateClientId and duplicateOverrideReason when provided', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+        possibleDuplicateClientId: 'dup-local-id', duplicateOverrideReason: 'Different person',
+      })
+      expect(draft.possibleDuplicateClientId).toBe('dup-local-id')
+      expect(draft.duplicateOverrideReason).toBe('Different person')
+    })
+
+    it('defaults both override fields to null when absent', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+      })
+      expect(draft.possibleDuplicateClientId).toBeNull()
+      expect(draft.duplicateOverrideReason).toBeNull()
+    })
+  })
 })

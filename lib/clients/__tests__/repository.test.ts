@@ -331,3 +331,39 @@ describe('goal JSON hydration', () => {
     expect(goals[0].safetyFlags).toEqual(['cardiac', 'knee'])
   })
 })
+
+// ─── Duplicate override (Phase 6) ───────────────────────────────────────────────
+
+describe('createClientRow — duplicate override audit', () => {
+  it('stores override columns and writes a duplicate.override event in the same transaction', async () => {
+    const draft: ClientCreateDraft = {
+      ...baseDraft,
+      possibleDuplicateClientId: 'existing-local-id',
+      duplicateOverrideReason:   'Different person, shared number',
+    }
+    const result = await repo.createClientRow({ tenantId: TENANT_A }, draft)
+
+    expect(result.clientIndex.possibleDuplicateClientId).toBe('existing-local-id')
+    expect(result.clientIndex.duplicateOverrideReason).toBe('Different person, shared number')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, result.clientIndex.id)
+    const types = events.map((e) => e.type)
+    expect(types).toContain('client.created')
+    expect(types).toContain('duplicate.override')
+
+    const override = events.find((e) => e.type === 'duplicate.override')
+    expect(override?.payloadJson.possibleDuplicateClientId).toBe('existing-local-id')
+    expect(override?.payloadJson.reason).toBe('Different person, shared number')
+  })
+
+  it('writes NO duplicate.override event for a normal create (Phase 4 behavior preserved)', async () => {
+    const result = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    expect(result.clientIndex.possibleDuplicateClientId).toBeNull()
+    expect(result.clientIndex.duplicateOverrideReason).toBeNull()
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, result.clientIndex.id)
+    expect(events.map((e) => e.type)).not.toContain('duplicate.override')
+    expect(events.some((e) => e.type === 'client.created')).toBe(true)
+  })
+})

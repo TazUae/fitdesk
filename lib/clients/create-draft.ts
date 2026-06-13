@@ -28,6 +28,12 @@ export type BuildClientCreateDraftInput = {
   createdClient: Client
   /** Raw payload.custom_fitness_goals (free-text / JSON), if any. */
   customFitnessGoals?: string | null
+  /**
+   * Duplicate-override audit (Phase 6). Set only when the trainer continued past
+   * a possible-duplicate warning. possibleDuplicateClientId = matched client_index.id.
+   */
+  possibleDuplicateClientId?: string | null
+  duplicateOverrideReason?: string | null
 }
 
 export type BuildClientCreateDraftResult = {
@@ -71,6 +77,8 @@ export function buildClientCreateDraft(
   input: BuildClientCreateDraftInput,
 ): BuildClientCreateDraftResult {
   const { tenantId, userId, createdClient, customFitnessGoals } = input
+  const possibleDuplicateClientId = input.possibleDuplicateClientId ?? null
+  const duplicateOverrideReason = input.duplicateOverrideReason ?? null
 
   // Phone: prefer normalized E.164; fall back to the raw value so the row still
   // exists (never fail Add Client only because of phone formatting).
@@ -98,6 +106,8 @@ export function buildClientCreateDraft(
     safetyFlags:      [],
     goalNotes:        null,
     createdByUserId:  userId,
+    possibleDuplicateClientId,
+    duplicateOverrideReason,
   }
 
   return { draft, phoneNormalized }
