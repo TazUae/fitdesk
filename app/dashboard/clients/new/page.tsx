@@ -139,7 +139,10 @@ export default function NewClientPage() {
   }
 
   async function runCreate(options?: AddClientOptions) {
-    const result = await addClient(buildPayload(), options)
+    const result = await addClient(buildPayload(), {
+      ...options,
+      whatsappEnabled: phoneValue?.has_whatsapp ?? false,
+    })
     if (result.success) {
       toast.success(`${result.data.name} added to your roster.`)
       setCreatedClient(result.data)
@@ -204,7 +207,7 @@ export default function NewClientPage() {
       // Prefill form fields — trainer reviews and can edit everything before submitting.
       if (fields.fullName.value) setName(fields.fullName.value)
       if (fields.phone.value) {
-        // whatsappEnabled is visual only this phase; buildClientCreateDraft hardcodes false.
+        // hasWhatsApp prefills the PhoneInput toggle; the value flows to the submit payload via runCreate.
         const pv = e164ToPhoneValue(fields.phone.value, fields.whatsappEnabled.value ?? true)
         if (pv) setPhoneValue(pv)
       }

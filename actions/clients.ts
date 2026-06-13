@@ -140,6 +140,8 @@ export async function addClient(
     duplicateOverrideReason?: string
     /** The matched client_index.id (local UUID) the trainer chose to override. */
     possibleDuplicateClientId?: string
+    /** Whether WhatsApp is enabled for this client — from the PhoneInput has_whatsapp toggle. */
+    whatsappEnabled?: boolean
   },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
@@ -177,6 +179,7 @@ export async function addClient(
       userId:             ctx.userId ?? null,
       createdClient:      data,
       customFitnessGoals: payload.custom_fitness_goals ?? null,
+      whatsappEnabled:    options?.whatsappEnabled ?? false,
       possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
       duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })

@@ -29,6 +29,11 @@ export type BuildClientCreateDraftInput = {
   /** Raw payload.custom_fitness_goals (free-text / JSON), if any. */
   customFitnessGoals?: string | null
   /**
+   * Whether the trainer has enabled WhatsApp for this client — from the PhoneInput
+   * has_whatsapp toggle (manual or AI-prefilled). Defaults to false when absent.
+   */
+  whatsappEnabled?: boolean | null
+  /**
    * Duplicate-override audit (Phase 6). Set only when the trainer continued past
    * a possible-duplicate warning. possibleDuplicateClientId = matched client_index.id.
    */
@@ -95,7 +100,7 @@ export function buildClientCreateDraft(
     erpCustomerId:    createdClient.id, // canonical ERP Customer docname — invariant
     fullName:         createdClient.name,
     phoneE164,
-    whatsappEnabled:  false, // no Add Client toggle yet — placeholder
+    whatsappEnabled:  input.whatsappEnabled ?? false,
     primaryGoalLabel,
     primaryGoalId:    goalId,
     goalId,

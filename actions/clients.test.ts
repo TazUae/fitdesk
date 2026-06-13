@@ -194,6 +194,24 @@ describe('addClient — ERP success + local success', () => {
     expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
     expect(erp.createSession).not.toHaveBeenCalled()
   })
+
+  it('persists whatsappEnabled:true to client_index.whatsapp_enabled', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD, { whatsappEnabled: true })
+
+    const { rows } = await dbClient.execute(`SELECT whatsapp_enabled FROM client_index LIMIT 1`)
+    expect(Number(rows[0].whatsapp_enabled)).toBe(1)
+  })
+
+  it('stores whatsapp_enabled as 0 when option is absent', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD)
+
+    const { rows } = await dbClient.execute(`SELECT whatsapp_enabled FROM client_index LIMIT 1`)
+    expect(Number(rows[0].whatsapp_enabled)).toBe(0)
+  })
 })
 
 // ─── ERP failure ────────────────────────────────────────────────────────────────
