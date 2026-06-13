@@ -11,6 +11,7 @@
  * ─── NEVER import this file in a client component. ───────────────────────────
  */
 
+import 'server-only'
 import { z } from 'zod'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import type { AiParseState, ClientParseFields, ClientParseResult } from '@/types/clients'
