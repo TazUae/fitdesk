@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({ db: null as unknown as ReturnType<typeof drizzle> 
 
 vi.mock('@/lib/db', () => ({ get db() { return h.db } }))
 vi.mock('next/headers', () => ({ headers: () => ({}) }))
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
   auth: { api: { getSession: vi.fn(async () => ({ user: { id: 'user-1', name: 'T', email: 't@e.com', phone: null } })) } },
 }))
@@ -52,7 +53,7 @@ vi.mock('@/lib/clients/ai-parse', () => ({
   })),
 }))
 
-import { addClient, findClientDuplicates, parseClientDetails } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails } from '@/actions/clients'
 import * as erp from '@/lib/business-data/erp-adapter'
 import * as aiParse from '@/lib/clients/ai-parse'
 import { auth } from '@/lib/auth'
@@ -433,5 +434,152 @@ describe('parseClientDetails', () => {
     expect(addResult.success).toBe(true)
     // parseClientText was NOT called by addClient (duplicate detection is in findClientDuplicates)
     expect(aiParse.parseClientText).not.toHaveBeenCalled()
+  })
+})
+
+// ─── completeClientAction (Phase 7) ──────────────────────────────────────────
+
+describe('completeClientAction', () => {
+  async function seedAndGetIntentId(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_action_intent WHERE status = 'pending' LIMIT 1`,
+    )
+    return String(rows[0].id)
+  }
+
+  it('marks the intent as completed in the database', async () => {
+    const intentId = await seedAndGetIntentId()
+
+    const result = await completeClientAction(intentId)
+
+    expect(result.success).toBe(true)
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('completed')
+  })
+
+  it('writes an action_intent.completed audit event', async () => {
+    const intentId = await seedAndGetIntentId()
+    await completeClientAction(intentId)
+
+    const { rows } = await dbClient.execute(
+      `SELECT count(*) AS c FROM client_event WHERE type = 'action_intent.completed'`,
+    )
+    expect(Number(rows[0].c)).toBe(1)
+  })
+
+  it('does NOT call ERP createClient, invoice, payment, or session', async () => {
+    const intentId = await seedAndGetIntentId()
+    vi.clearAllMocks()
+    // Re-set needed mocks only — deliberately NOT re-setting ERP adapters
+    vi.mocked(auth.api.getSession).mockResolvedValue({ user: { id: 'user-1', name: 'T', email: 't@e.com', phone: null } } as never)
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    await completeClientAction(intentId)
+
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.updateClient).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await completeClientAction('any-id')
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false for a non-existent intentId (no mutation)', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await completeClientAction('ghost-id')
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false when cross-tenant intentId is used', async () => {
+    const intentId = await seedAndGetIntentId()
+    // Switch to a different tenant for the action call
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_B))
+
+    const result = await completeClientAction(intentId)
+    expect(result.success).toBe(false)
+
+    // Original intent is still pending
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('pending')
+  })
+})
+
+// ─── dismissClientAction (Phase 7) ───────────────────────────────────────────
+
+describe('dismissClientAction', () => {
+  async function seedAndGetIntentId(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient({ ...PAYLOAD, mobile_no: '+96170000099' })
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_action_intent WHERE status = 'pending' LIMIT 1`,
+    )
+    return String(rows[0].id)
+  }
+
+  it('marks the intent as dismissed in the database', async () => {
+    const intentId = await seedAndGetIntentId()
+
+    const result = await dismissClientAction(intentId)
+
+    expect(result.success).toBe(true)
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('dismissed')
+  })
+
+  it('writes an action_intent.dismissed audit event', async () => {
+    const intentId = await seedAndGetIntentId()
+    await dismissClientAction(intentId)
+
+    const { rows } = await dbClient.execute(
+      `SELECT count(*) AS c FROM client_event WHERE type = 'action_intent.dismissed'`,
+    )
+    expect(Number(rows[0].c)).toBe(1)
+  })
+
+  it('does NOT call ERP createClient, invoice, payment, or session', async () => {
+    const intentId = await seedAndGetIntentId()
+    vi.clearAllMocks()
+    vi.mocked(auth.api.getSession).mockResolvedValue({ user: { id: 'user-1', name: 'T', email: 't@e.com', phone: null } } as never)
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    await dismissClientAction(intentId)
+
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+    expect(erp.updateClient).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await dismissClientAction('any-id')
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false for a non-existent intentId', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await dismissClientAction('ghost-id')
+    expect(result.success).toBe(false)
   })
 })

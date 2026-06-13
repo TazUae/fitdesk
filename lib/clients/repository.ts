@@ -13,7 +13,7 @@
  * This repository owns only FitDesk local enrichment rows.
  */
 
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
@@ -606,5 +606,135 @@ export class ClientRepository {
     })
 
     return newRow
+  }
+
+  // ── Write: action intent transitions (Phase 7) ─────────────────────────────
+
+  /**
+   * Mark a pending/in_progress action intent as completed.
+   *
+   * Tenant filter is applied in both the guard SELECT and the UPDATE — a caller
+   * holding tenant A's session cannot mutate tenant B's rows even if they guess
+   * an intent id. Returns null (no-op) when the intent is not found in this tenant
+   * or is already in a terminal status (completed/dismissed/expired).
+   */
+  async completeActionIntent(
+    ctx: TenantCtx,
+    intentId: string,
+  ): Promise<ClientActionIntent | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    // Guard read: tenant-scoped, confirms existence and transitionable status.
+    const existing = await this.db
+      .select()
+      .from(schema.clientActionIntent)
+      .where(
+        and(
+          eq(schema.clientActionIntent.tenantId, tenantId),
+          eq(schema.clientActionIntent.id, intentId),
+        ),
+      )
+      .limit(1)
+
+    const row = existing[0]
+    if (!row) return null
+    if (row.status !== 'pending' && row.status !== 'in_progress') return null
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(schema.clientActionIntent)
+        .set({ status: 'completed', completedAtUtc: now, updatedAtUtc: now })
+        .where(
+          and(
+            eq(schema.clientActionIntent.tenantId, tenantId),
+            eq(schema.clientActionIntent.id, intentId),
+            or(
+              eq(schema.clientActionIntent.status, 'pending'),
+              eq(schema.clientActionIntent.status, 'in_progress'),
+            ),
+          ),
+        )
+
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId:   row.clientIndexId,
+        erpCustomerId:   row.erpCustomerId,
+        type:            'action_intent.completed',
+        payloadJson:     JSON.stringify({ intentId, intentType: row.type }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+    })
+
+    return hydrateClientActionIntent({
+      ...row,
+      status:         'completed',
+      completedAtUtc: now,
+      updatedAtUtc:   now,
+    })
+  }
+
+  /**
+   * Mark a pending/in_progress action intent as dismissed.
+   *
+   * Same tenant-filter and null/no-op contract as completeActionIntent.
+   */
+  async dismissActionIntent(
+    ctx: TenantCtx,
+    intentId: string,
+  ): Promise<ClientActionIntent | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    const existing = await this.db
+      .select()
+      .from(schema.clientActionIntent)
+      .where(
+        and(
+          eq(schema.clientActionIntent.tenantId, tenantId),
+          eq(schema.clientActionIntent.id, intentId),
+        ),
+      )
+      .limit(1)
+
+    const row = existing[0]
+    if (!row) return null
+    if (row.status !== 'pending' && row.status !== 'in_progress') return null
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(schema.clientActionIntent)
+        .set({ status: 'dismissed', dismissedAtUtc: now, updatedAtUtc: now })
+        .where(
+          and(
+            eq(schema.clientActionIntent.tenantId, tenantId),
+            eq(schema.clientActionIntent.id, intentId),
+            or(
+              eq(schema.clientActionIntent.status, 'pending'),
+              eq(schema.clientActionIntent.status, 'in_progress'),
+            ),
+          ),
+        )
+
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId:   row.clientIndexId,
+        erpCustomerId:   row.erpCustomerId,
+        type:            'action_intent.dismissed',
+        payloadJson:     JSON.stringify({ intentId, intentType: row.type }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+    })
+
+    return hydrateClientActionIntent({
+      ...row,
+      status:          'dismissed',
+      dismissedAtUtc:  now,
+      updatedAtUtc:    now,
+    })
   }
 }

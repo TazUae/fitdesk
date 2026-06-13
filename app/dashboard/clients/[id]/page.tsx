@@ -5,8 +5,10 @@ import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
+import { getClientHubOverview } from '@/lib/clients/hub'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
+import { ClientHubPanel } from '@/components/modules/ClientHubPanel'
 import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import type { ClientStatus, Invoice, InvoiceStatus, Session, SessionStatus } from '@/types'
@@ -53,10 +55,11 @@ type Props = { params: { id: string } }
 
 export default async function ClientDetailPage({ params }: Props) {
   const clientId = decodeURIComponent(params.id)
-  const [clientResult, sessionsResult, invoicesResult] = await Promise.all([
+  const [clientResult, sessionsResult, invoicesResult, hub] = await Promise.all([
     getClientById(clientId),
     getSessions({ clientId }),
     getInvoices({ clientId }),
+    getClientHubOverview(clientId),
   ])
 
   if (!clientResult.success) {
@@ -206,6 +209,9 @@ export default async function ClientDetailPage({ params }: Props) {
           </Link>
         )}
       </div>
+
+      {/* ── Client Hub (Phase 7 — flag-gated, additive) ─────────────────── */}
+      {hub && <ClientHubPanel overview={hub} />}
 
       {/* ── Sessions ─────────────────────────────────────────────────────── */}
       <section className="space-y-3">

@@ -1,6 +1,7 @@
 'use server'
 
 import { headers } from 'next/headers'
+import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { createClient, getClientById, getClients, updateClient } from '@/lib/business-data/erp-adapter'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
@@ -245,5 +246,69 @@ export async function deleteClient(id: string): Promise<ActionResult<Client>> {
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to deactivate client' }
+  }
+}
+
+/**
+ * Complete a pending action intent (Phase 7).
+ *
+ * Pure local status transition — writes status='completed', completedAtUtc, and an
+ * action_intent.completed audit event. Never triggers WhatsApp, invoices, payments,
+ * sessions, or programs. The intent is advisory only.
+ *
+ * Returns success:false (not found) when the intent does not exist in this tenant
+ * or is already in a terminal status.
+ */
+export async function completeClientAction(
+  intentId: string,
+): Promise<ActionResult<{ intentId: string }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.completeActionIntent({ tenantId: ctx.tenantId }, intentId)
+    if (!result) return { success: false, error: 'Action not found or already completed.' }
+
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(result.erpCustomerId)}`)
+    return { success: true, data: { intentId } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to complete action.',
+    }
+  }
+}
+
+/**
+ * Dismiss a pending action intent (Phase 7).
+ *
+ * Pure local status transition — writes status='dismissed', dismissedAtUtc, and an
+ * action_intent.dismissed audit event. Same no-side-effect contract as completeClientAction.
+ */
+export async function dismissClientAction(
+  intentId: string,
+): Promise<ActionResult<{ intentId: string }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.dismissActionIntent({ tenantId: ctx.tenantId }, intentId)
+    if (!result) return { success: false, error: 'Action not found or already dismissed.' }
+
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(result.erpCustomerId)}`)
+    return { success: true, data: { intentId } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to dismiss action.',
+    }
   }
 }
