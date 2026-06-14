@@ -18,7 +18,7 @@
  *   Desktop (xl+)  : Main Workspace + AI Rail; AI Copilot moves to right rail
  */
 
-import { Sparkles }      from 'lucide-react'
+import { Sparkles, Users } from 'lucide-react'
 import { TodayHero }     from '@/components/modules/dashboard/TodayHero'
 import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
 import { MoneySnapshot } from '@/components/modules/dashboard/MoneySnapshot'
@@ -40,15 +40,16 @@ import type { Session } from '@/types'
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface DashboardViewProps {
-  trainerName:     string
-  greeting:        string
-  today:           string
-  nextUp:          NextUpData | null
-  todaySection:    TodaySection
-  moneySnapshot:   MoneySnapshotData
-  upcoming:        Session[]
-  attentionItems:  AttentionItem[]
-  isLocalBackend:  boolean
+  trainerName:        string
+  greeting:           string
+  today:              string
+  nextUp:             NextUpData | null
+  todaySection:       TodaySection
+  moneySnapshot:      MoneySnapshotData
+  upcoming:           Session[]
+  attentionItems:     AttentionItem[]
+  isLocalBackend:     boolean
+  activeClientsCount: number | null
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -63,10 +64,21 @@ export function DashboardView({
   upcoming,
   attentionItems,
   isLocalBackend,
+  activeClientsCount,
 }: DashboardViewProps) {
   const firstName    = trainerName.split(' ')[0] ?? trainerName
   const hasUpcoming  = upcoming.length > 0
   const hasAttention = attentionItems.length > 0
+
+  const totalToday = todaySection.upcoming.length + todaySection.completed.length
+  const briefLine = (() => {
+    if (totalToday === 0)
+      return nextUp
+        ? `Nothing today — next session is ${nextUp.label}.`
+        : 'No sessions on the schedule right now.'
+    if (todaySection.upcoming.length === 0) return 'All done for today.'
+    return `${todaySection.upcoming.length} session${todaySection.upcoming.length !== 1 ? 's' : ''} ahead today.`
+  })()
 
   return (
     <div className="xl:flex">
@@ -90,7 +102,10 @@ export function DashboardView({
                 completedCount={todaySection.completed.length}
               />
             </div>
-            <NextUpCard nextUp={nextUp} />
+            <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+              {briefLine}
+            </p>
+            {nextUp && <NextUpCard nextUp={nextUp} />}
           </div>
 
           {/* 2. Needs Attention — always renders */}
@@ -160,6 +175,20 @@ export function DashboardView({
               Business Health
             </p>
             <MoneySnapshot snapshot={moneySnapshot} />
+            <div
+              className="flex items-center justify-between rounded-2xl border p-4"
+              style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--fd-muted)' }}>
+                  Active Clients
+                </p>
+                <p className="mt-0.5 text-2xl font-bold tabular-nums" style={{ color: 'var(--fd-text)' }}>
+                  {activeClientsCount !== null ? activeClientsCount : '—'}
+                </p>
+              </div>
+              <Users className="h-6 w-6 opacity-25" style={{ color: 'var(--fd-accent)' }} />
+            </div>
           </div>
 
           {/* 6. Client Pulse — slot reserved; no data in Phase 1 */}
