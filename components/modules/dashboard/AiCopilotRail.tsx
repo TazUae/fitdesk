@@ -31,21 +31,21 @@ export function AiCopilotRail() {
           }}
         >
           <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-            Nothing to suggest right now.
+            AI Copilot is standing by.
           </p>
           <p
             className="mt-1 text-xs leading-relaxed"
             style={{ color: 'var(--fd-muted)' }}
           >
-            AI reviews your sessions, invoices, and client activity to surface
-            timely suggestions here.
+            It will surface useful suggestions when there is something worth
+            reviewing.
           </p>
         </div>
 
         {/* Philosophy note */}
         <p
           className="mt-5 text-center text-[11px]"
-          style={{ color: 'var(--fd-border)' }}
+          style={{ color: 'var(--fd-muted)' }}
         >
           AI suggests. You decide.
         </p>

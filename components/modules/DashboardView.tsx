@@ -23,6 +23,7 @@ import { TodayHero }     from '@/components/modules/dashboard/TodayHero'
 import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
 import { MoneySnapshot } from '@/components/modules/dashboard/MoneySnapshot'
 import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
+import { NeedsAttentionEmpty } from '@/components/modules/dashboard/NeedsAttentionEmpty'
 import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
 import { UpcomingList }  from '@/components/modules/dashboard/UpcomingList'
 import { QuickActions }  from '@/components/modules/dashboard/QuickActions'
@@ -92,8 +93,16 @@ export function DashboardView({
             <NextUpCard nextUp={nextUp} />
           </div>
 
-          {/* 2. Needs Attention */}
-          {hasAttention && <ActionCenter items={attentionItems} />}
+          {/* 2. Needs Attention — always renders */}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+              Needs attention
+            </p>
+            {hasAttention
+              ? <ActionCenter items={attentionItems} />
+              : <NeedsAttentionEmpty />
+            }
+          </div>
 
           {/* 3. Today Timeline */}
           <div className="space-y-3">
@@ -133,13 +142,13 @@ export function DashboardView({
               style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
             >
               <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
-                Nothing to suggest right now.
+                AI Copilot is standing by.
               </p>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--fd-muted)' }}>
-                AI reviews your sessions, invoices, and client activity to surface
-                timely suggestions here.
+                It will surface useful suggestions when there is something worth
+                reviewing.
               </p>
-              <p className="mt-3 text-[11px]" style={{ color: 'var(--fd-border)' }}>
+              <p className="mt-3 text-[11px]" style={{ color: 'var(--fd-muted)' }}>
                 AI suggests. You decide.
               </p>
             </div>

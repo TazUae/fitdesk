@@ -32,11 +32,11 @@ export function QuickActions() {
         <Link
           key={href}
           href={href}
-          className="flex flex-col items-center gap-1.5 rounded-2xl border py-3 transition-opacity active:opacity-70"
+          className="flex flex-col items-center gap-1.5 rounded-2xl border py-3 transition-all hover:bg-[rgba(255,255,255,0.04)] active:scale-[0.97] active:opacity-80"
           style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
         >
           <Icon className="h-5 w-5" style={{ color: 'var(--fd-accent)' }} />
-          <span className="text-[10px] font-semibold" style={{ color: 'var(--fd-muted)' }}>
+          <span className="text-[10px] font-semibold" style={{ color: 'var(--fd-text)' }}>
             {label}
           </span>
         </Link>

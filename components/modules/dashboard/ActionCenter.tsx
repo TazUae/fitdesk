@@ -20,9 +20,6 @@ export function ActionCenter({ items }: ActionCenterProps) {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
-        Needs attention
-      </p>
       {items.map((item, idx) => (
         <Link
           key={idx}
