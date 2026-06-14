@@ -18,10 +18,10 @@
  *   Desktop (xl+)  : Main Workspace + AI Rail; AI Copilot moves to right rail
  */
 
-import { Sparkles, Users } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { TodayHero }     from '@/components/modules/dashboard/TodayHero'
 import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
-import { MoneySnapshot } from '@/components/modules/dashboard/MoneySnapshot'
+import { BusinessHealth } from '@/components/modules/dashboard/BusinessHealth'
 import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
 import { NeedsAttentionEmpty } from '@/components/modules/dashboard/NeedsAttentionEmpty'
 import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
@@ -174,21 +174,7 @@ export function DashboardView({
             <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
               Business Health
             </p>
-            <MoneySnapshot snapshot={moneySnapshot} />
-            <div
-              className="flex items-center justify-between rounded-2xl border p-4"
-              style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-            >
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--fd-muted)' }}>
-                  Active Clients
-                </p>
-                <p className="mt-0.5 text-2xl font-bold tabular-nums" style={{ color: 'var(--fd-text)' }}>
-                  {activeClientsCount !== null ? activeClientsCount : '—'}
-                </p>
-              </div>
-              <Users className="h-6 w-6 opacity-25" style={{ color: 'var(--fd-accent)' }} />
-            </div>
+            <BusinessHealth snapshot={moneySnapshot} activeClientsCount={activeClientsCount} />
           </div>
 
           {/* 6. Client Pulse — slot reserved; no data in Phase 1 */}
