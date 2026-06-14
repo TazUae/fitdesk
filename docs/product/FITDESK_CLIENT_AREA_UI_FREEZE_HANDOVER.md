@@ -142,12 +142,20 @@ before local QA when uncommitted changes are tested.
 
 ## Current honest limitations
 
-- **client_index foundation not implemented.** The UI uses live ERP `Customer` data fetched
-  via the existing proxy boundary. The `client_index`, `client_goal`, `client_action_intent`,
-  and `client_event` local tables described in the v1.2 data architecture do not exist yet.
-- **Client Hub is placeholder/disabled.** `getClientHubOverview()` returns `null` when
-  `FITDESK_CLIENT_HUB_ENABLED` is false (the default). `{hub && <ClientHubPanel />}` renders
-  nothing in production.
+- **Client Management local foundation implemented but not validated in this UI freeze.**
+  The `client_index`, `client_goal`, `client_action_intent`, and `client_event` tables exist
+  (implemented in prior commits on this branch). The tenant-scoped repository, phone
+  normalizer, duplicate helper, backfill, directory local-read path, and action-intent
+  lifecycle are all implemented and tested (12 files / 150 tests). However, this UI freeze
+  did not perform controlled test-tenant enablement of local read flags or backfill
+  operations. The UI still reads live ERP `Customer` data via the existing proxy. Do not
+  reimplement the foundation. See
+  `docs/product/FITDESK_CLIENT_MANAGEMENT_FOUNDATION_RECONCILIATION.md` for the full
+  audit and gap list.
+- **Client Hub implemented but flag-gated OFF.** `getClientHubOverview()` returns `null`
+  when `FITDESK_CLIENT_HUB_ENABLED` is false (the default). `{hub && <ClientHubPanel />}`
+  renders nothing in production. Hub code exists and is tested; enabling it requires
+  controlled test-tenant validation first.
 - **Sessions backend is stubbed.** `getSessions()` returns `[]` unconditionally. The PT Session
   DocType does not exist in the ERP workspace. The Sessions panel shows an honest
   "Scheduling is not connected yet." — no fake zero-session state.
@@ -207,27 +215,17 @@ ERP data can change out-of-band (direct ERP edits, other integrations, bulk impo
 
 ---
 
-## Next recommended work — Track B: Client Management v1.2.1 Foundation
+## Next recommended work — Track B operationalization
 
-**UI polish track is now paused.** The next major work is data foundation only — no new UI.
+**UI polish track is paused.** The Client Management local foundation is already implemented
+(see `docs/product/FITDESK_CLIENT_MANAGEMENT_FOUNDATION_RECONCILIATION.md`). Do not
+reimplement it. The next work is controlled validation and operationalization.
 
-### Phase 1 deliverables
+### Recommended tracks (in priority order)
 
-| Item | Description |
+| Track | Description |
 |---|---|
-| Data contracts | TypeScript interfaces for `ClientIndex`, `ClientGoal`, `ClientActionIntent`, `ClientEvent` — aligned with existing `types/clients.ts` |
-| Additive schema | SQL migrations: `client_index`, `client_goal`, `client_action_intent`, `client_event` tables — tenant-scoped, no existing table modifications |
-| Tenant-scoped repository | `lib/clients/repository.ts` — read/write functions scoped by `tenantId`; no cross-tenant access |
-| Phone normalization | `normalizePhone()` utility — E.164 canonical form, handles Lebanon (+961) country code stripping |
-| Duplicate helper | `findDuplicateCandidate()` — checks `client_index` by phone (normalized) and name before ERP Customer creation |
-| Backfill skeleton | `backfillClientIndex(tenantId)` — reads ERP Customer list via proxy, upserts `client_index` rows idempotently |
-| Tests | Unit tests for phone normalizer, duplicate helper, and backfill skeleton (no I/O in unit tests) |
-
-**Constraints:**
-- No UI changes
-- No modifications to existing tables or ERP DocTypes
-- No new package dependencies without approval
-- Backfill must be idempotent and safe to re-run
-- All new tables must have `tenant_id` as a non-nullable indexed column
-- Do not enable `FITDESK_CLIENT_DIRECTORY_LOCAL_READ` or `FITDESK_CLIENT_HUB_ENABLED` until
-  the data foundation is verified in a test tenant
+| Controlled test-tenant validation | Enable `FITDESK_CLIENT_DIRECTORY_LOCAL_READ=1` and `FITDESK_CLIENT_HUB_ENABLED=1` on a local Docker stack with a single test tenant. Verify local reads, ERP fallback, and hub rendering before any pilot rollout. **Blocker for flag-on.** |
+| Operational backfill CLI runner | Add a `scripts/backfill-clients.mjs` runner or admin endpoint that calls `backfillTenantClients` via the approved Control Plane proxy fetch path. Required before operators can repair projection failures without ad-hoc scripts. |
+| Projection-failure observability | Replace `console.error` in `addClient`'s local-write catch block with a queryable projection-failure record. Required before the local write path is load-bearing in production. |
+| Docs correction already done | `FITDESK_CLIENT_MANAGEMENT_FOUNDATION_RECONCILIATION.md` is the authoritative foundation audit. This doc has been updated to match. |
