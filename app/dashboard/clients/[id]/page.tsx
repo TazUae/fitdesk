@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
+import { fmtMonthDayYear } from '@/lib/date'
 import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
@@ -163,6 +164,12 @@ export default async function ClientDetailPage({ params }: Props) {
                   {formatGoal(client.goal)}
                 </div>
               )}
+              {client.createdAt && (
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                  Added {fmtMonthDayYear(client.createdAt.slice(0, 10))}
+                </div>
+              )}
             </div>
 
             {/* Outstanding balance */}
@@ -218,28 +225,24 @@ export default async function ClientDetailPage({ params }: Props) {
 
           {/* Sessions */}
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                Sessions
-                {sessions.length > 0 && (
-                  <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
-                    ({sessions.length})
-                  </span>
-                )}
-              </h3>
-              <span
-                className="text-xs font-medium opacity-35 cursor-not-allowed select-none"
-                style={{ color: 'var(--fd-accent)' }}
-                title="Session booking coming soon"
-              >
-                + Schedule
-              </span>
-            </div>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+              Sessions
+              {sessions.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
+                  ({sessions.length})
+                </span>
+              )}
+            </h3>
 
             {sessions.length === 0 ? (
-              <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-                No sessions yet.
-              </p>
+              <div
+                className="rounded-xl border border-dashed p-4 text-center"
+                style={{ borderColor: 'var(--fd-border)' }}
+              >
+                <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  Scheduling is not connected yet.
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {sessions.slice(0, 10).map(session => (
@@ -285,18 +288,19 @@ export default async function ClientDetailPage({ params }: Props) {
             )}
           </section>
 
-          {/* Danger zone */}
-          {client.status === 'active' && (
-            <section className="space-y-2 pt-2">
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
-                Danger zone
-              </p>
-              <DeactivateClientButton clientId={client.id} clientName={client.name} />
-            </section>
-          )}
-
         </div>
       </div>
+
+      {/* ── Danger zone — full-width footer ───────────────────────────────── */}
+      {client.status === 'active' && (
+        <section className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--fd-border)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
+            Danger zone
+          </p>
+          <DeactivateClientButton clientId={client.id} clientName={client.name} />
+        </section>
+      )}
+
     </div>
   )
 }
