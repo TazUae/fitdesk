@@ -1,256 +1,134 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Search, Target, X } from 'lucide-react'
-import { toast } from 'sonner'
+import { AlertTriangle, Plus, Search, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { addClient } from '@/actions/clients'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
-import type { BadgeVariant } from '@/components/modules/Badge'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
-import { formatGoal } from '@/lib/format/goal'
-import type { Client, ClientStatus } from '@/types'
+import type { ClientRosterCard, NeedsActionType } from '@/lib/clients/list-derive'
+import type { BadgeVariant } from '@/components/modules/Badge'
+import type { ClientStatus } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function statusVariant(s: ClientStatus): BadgeVariant {
   if (s === 'active') return 'active'
-  if (s === 'inactive') return 'inactive'
-  return 'inactive' // paused → show as inactive in list
+  return 'inactive'
+}
+
+function actionBadgeStyle(type: NeedsActionType): { bg: string; color: string } {
+  if (type === 'overdue') {
+    return {
+      bg:    'rgba(232,92,106,0.12)',
+      color: 'var(--fd-red)',
+    }
+  }
+  if (type === 'outstanding') {
+    return {
+      bg:    'rgba(232,163,92,0.12)',
+      color: 'var(--fd-accent)',
+    }
+  }
+  return {
+    bg:    'var(--fd-card)',
+    color: 'var(--fd-muted)',
+  }
 }
 
 // ─── Client card ──────────────────────────────────────────────────────────────
 
-function ClientCard({ client }: { client: Client }) {
+function ClientCard({ card }: { card: ClientRosterCard }) {
+  const style = card.needsAction ? actionBadgeStyle(card.needsAction) : null
+
   return (
     <Link
-      href={`/dashboard/clients/${client.id}`}
-      className="flex items-center gap-3 rounded-2xl border p-4 transition-opacity active:opacity-60"
+      href={`/dashboard/clients/${card.id}`}
+      className="flex items-start gap-3 rounded-2xl border p-4 transition-opacity active:opacity-60"
       style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
     >
-      <Avatar name={client.name} size="md" />
+      <Avatar name={card.name} size="md" />
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-          {client.name}
+          {card.name}
         </p>
         <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
-          {client.phone || client.email || 'No contact info'}
+          {card.phone || 'No phone'}
         </p>
-        {formatGoal(client.goal) && (
+        {card.goalLabel && (
           <p className="mt-0.5 flex items-center gap-1 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
             <Target className="h-3 w-3 shrink-0" />
-            {formatGoal(client.goal)}
+            {card.goalLabel}
           </p>
         )}
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <Badge variant={statusVariant(client.status)} />
-        <span className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
-          {client.sessionCount} sessions
-        </span>
+        <Badge variant={statusVariant(card.status)} />
+        {card.needsAction && card.actionLabel && style && (
+          <span
+            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            style={{ backgroundColor: style.bg, color: style.color }}
+          >
+            {card.needsAction === 'overdue' && (
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+            )}
+            {card.actionLabel}
+          </span>
+        )}
       </div>
     </Link>
   )
 }
 
-// ─── Add client bottom sheet ──────────────────────────────────────────────────
+// ─── Filter chips ─────────────────────────────────────────────────────────────
 
-interface AddClientSheetProps {
-  isOpen: boolean
-  onClose: () => void
-  onCreated: () => void
-}
-
-function AddClientSheet({ isOpen, onClose, onCreated }: AddClientSheetProps) {
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setError(null)
-    const fd = new FormData(e.currentTarget)
-
-    startTransition(async () => {
-      const result = await addClient({
-        customer_name: fd.get('customer_name') as string,
-        customer_type: 'Individual',
-        customer_group: 'Individual',
-        territory: 'All Territories',
-        mobile_no: (fd.get('mobile_no') as string) || undefined,
-        email_id: (fd.get('email_id') as string) || undefined,
-        custom_fitness_goals: (fd.get('custom_fitness_goals') as string) || undefined,
-        custom_trainer_notes: (fd.get('custom_trainer_notes') as string) || undefined,
-        status: 'Active',
-      })
-
-      if (result.success) {
-        toast.success('Client added')
-        ;(e.target as HTMLFormElement).reset()
-        onCreated()
-      } else {
-        setError(result.error)
-      }
-    })
-  }
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        aria-hidden="true"
-        className={cn(
-          'fixed inset-0 z-40 bg-black/60 transition-opacity duration-300',
-          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-        onClick={onClose}
-      />
-
-      {/* Sheet panel — slides up from bottom, centred at 480 px to match the app column */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add new client"
-        className={cn(
-          'fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-300',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        )}
-        style={{
-          backgroundColor: 'var(--fd-surface)',
-          borderColor: 'var(--fd-border)',
-          // clear the iPhone home indicator
-          paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)',
-        }}
-      >
-        {/* Drag handle */}
-        <div className="flex justify-center pb-2 pt-3">
-          <div className="h-1 w-10 rounded-full" style={{ backgroundColor: 'var(--fd-border)' }} />
-        </div>
-
-        {/* Sheet header */}
-        <div className="flex items-center justify-between px-5 pb-4">
-          <h2 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-            New Client
-          </h2>
-          <button type="button" onClick={onClose} style={{ color: 'var(--fd-muted)' }}>
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Scrollable form body */}
-        <div className="max-h-[72vh] overflow-y-auto px-5">
-          <form onSubmit={handleSubmit} className="space-y-4 pb-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Full name *
-              </label>
-              <input name="customer_name" required className="input-base" placeholder="Lara Croft" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Phone
-              </label>
-              <input
-                name="mobile_no"
-                type="tel"
-                className="input-base"
-                placeholder="+961 71 000 000"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Email
-              </label>
-              <input
-                name="email_id"
-                type="email"
-                className="input-base"
-                placeholder="lara@example.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Goals
-              </label>
-              <input
-                name="custom_fitness_goals"
-                className="input-base"
-                placeholder="e.g. Lose weight, build muscle…"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Notes
-              </label>
-              <textarea
-                name="custom_trainer_notes"
-                rows={2}
-                className="input-base resize-none"
-                placeholder="Health notes, injuries, preferences…"
-              />
-            </div>
-
-            {error && (
-              <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isPending}
-              className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
-              style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-            >
-              {isPending ? 'Creating…' : 'Create Client'}
-            </button>
-          </form>
-        </div>
-      </div>
-    </>
-  )
-}
+type FilterType = 'all' | 'owes'
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface ClientsViewProps {
-  clients: Client[]
+  rosterCards:        ClientRosterCard[]
   /** Error from the server fetch — displayed inline above the list. */
-  error?: string
+  error?:             string
+  invoicesAvailable:  boolean
 }
 
-export function ClientsView({ clients, error }: ClientsViewProps) {
-  const router = useRouter()
-  const [query, setQuery] = useState('')
+export function ClientsView({ rosterCards, error, invoicesAvailable }: ClientsViewProps) {
+  const router    = useRouter()
+  const [query,   setQuery]   = useState('')
+  const [filter,  setFilter]  = useState<FilterType>('all')
 
-  const filtered = query.trim()
-    ? clients.filter(c => {
+  const oweCount = rosterCards.filter(
+    c => c.needsAction === 'overdue' || c.needsAction === 'outstanding',
+  ).length
+
+  const afterFilter: ClientRosterCard[] =
+    filter === 'owes'
+      ? rosterCards.filter(c => c.outstanding > 0 || c.overdueCount > 0)
+      : rosterCards
+
+  const filtered: ClientRosterCard[] = query.trim()
+    ? afterFilter.filter(c => {
         const q = query.toLowerCase()
         return (
           c.name.toLowerCase().includes(q) ||
           c.phone.includes(q) ||
-          c.email?.toLowerCase().includes(q) ||
-          c.goal?.toLowerCase().includes(q)
+          (c.goalLabel?.toLowerCase().includes(q) ?? false)
         )
       })
-    : clients
-
+    : afterFilter
 
   return (
     <div className="p-4 space-y-4">
-      {/* Header row: count + add button */}
+
+      {/* ── Header row ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <p className="text-base font-semibold" style={{ color: 'var(--fd-muted)' }}>
-          {clients.length} client{clients.length !== 1 ? 's' : ''}
+          {rosterCards.length} client{rosterCards.length !== 1 ? 's' : ''}
         </p>
         <button
           onClick={() => router.push('/dashboard/clients/new')}
@@ -262,7 +140,7 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
         </button>
       </div>
 
-      {/* Server-side fetch error */}
+      {/* ── Server-side fetch error ───────────────────────────────────────── */}
       {error && (
         isErpUnavailableError(error) ? (
           <div className="py-8 text-center">
@@ -283,41 +161,70 @@ export function ClientsView({ clients, error }: ClientsViewProps) {
         )
       )}
 
-      {/* Search — only shown when there are clients to search through */}
-      {clients.length > 2 && (
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
-            style={{ color: 'var(--fd-muted)' }}
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search by name, phone, goal…"
-            className="input-base pl-9"
-          />
+      {/* ── Search ───────────────────────────────────────────────────────── */}
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+          style={{ color: 'var(--fd-muted)' }}
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search by name, phone, goal…"
+          className="input-base pl-9"
+        />
+      </div>
+
+      {/* ── Filter chips ─────────────────────────────────────────────────── */}
+      {invoicesAvailable && oweCount > 0 && (
+        <div className="flex gap-2">
+          {(['all', 'owes'] as const).map(f => {
+            const label = f === 'all' ? 'All' : `Owes money · ${oweCount}`
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
+                  filter === f
+                    ? 'text-[var(--fd-bg)]'
+                    : 'border',
+                )}
+                style={
+                  filter === f
+                    ? { backgroundColor: 'var(--fd-accent)' }
+                    : { borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }
+                }
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
       )}
 
-      {/* Empty states */}
-      {clients.length === 0 && !error && (
+      {/* ── Empty states ─────────────────────────────────────────────────── */}
+      {rosterCards.length === 0 && !error && (
         <p className="py-8 text-center text-sm" style={{ color: 'var(--fd-muted)' }}>
           No clients yet. Tap <strong>Add</strong> to create your first one.
         </p>
       )}
-      {clients.length > 0 && filtered.length === 0 && (
+      {rosterCards.length > 0 && filtered.length === 0 && (
         <p className="py-4 text-center text-sm" style={{ color: 'var(--fd-muted)' }}>
-          No clients match &ldquo;{query}&rdquo;
+          {query.trim()
+            ? `No clients match "${query}"`
+            : 'No clients in this filter.'}
         </p>
       )}
 
-      {/* Client list */}
-      <div className="space-y-2">
-        {filtered.map(client => (
-          <ClientCard key={client.id} client={client} />
+      {/* ── Roster grid ──────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {filtered.map(card => (
+          <ClientCard key={card.id} card={card} />
         ))}
       </div>
+
     </div>
   )
 }

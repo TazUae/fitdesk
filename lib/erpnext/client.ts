@@ -56,6 +56,7 @@ interface ERPCustomer {
   customer_name:         string
   mobile_no?:            string
   disabled?:             0 | 1
+  email_id?:             string
   custom_fitness_goals?: string
   custom_trainer_notes?: string
   creation:              string
@@ -214,9 +215,9 @@ function normalizeClient(raw: ERPCustomer): Client {
     firstName,
     lastName,
     name:         full,
-    email:        undefined,
+    email:        raw.email_id ?? undefined,
     phone:        raw.mobile_no ?? '',
-    status:       'active',
+    status:       raw.disabled === 1 ? 'inactive' : 'active',
     trainerId:    '',
     sessionCount: 0,
     goal:         raw.custom_fitness_goals,

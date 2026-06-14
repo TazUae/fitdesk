@@ -71,10 +71,11 @@ export function DashboardClientShell({ children, banner }: Props) {
   const isFullWidthRoute =
     pathname === '/dashboard/schedule' || pathname.startsWith('/dashboard/schedule/')
 
-  // Only the command-center home gets the wide desktop canvas.
-  // All other sub-routes stay constrained at max-w-[480px] on desktop
-  // so they remain visually stable until each is explicitly redesigned.
+  // Routes with the wide desktop canvas (responsive grid layout).
+  // All other sub-routes stay constrained at max-w-[480px] until redesigned.
   const isCommandCenter = pathname === '/dashboard'
+  const isClientsRoute  = pathname === '/dashboard/clients' || pathname.startsWith('/dashboard/clients/')
+  const isWideCanvas    = isCommandCenter || isClientsRoute
 
   // Schedule keeps its own full-width layout — no shell chrome
   if (isFullWidthRoute) {
@@ -104,7 +105,7 @@ export function DashboardClientShell({ children, banner }: Props) {
       {/*   Desktop sub-routes:    stays max-w-[480px] centered beside sidebar */}
       <div className={cn(
         'flex min-h-dvh flex-col mx-auto w-full max-w-[480px] lg:flex-1 lg:min-w-0',
-        isCommandCenter && 'lg:mx-0 lg:max-w-none',
+        isWideCanvas && 'lg:mx-0 lg:max-w-none',
       )}>
 
         {banner}

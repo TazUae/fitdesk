@@ -101,7 +101,7 @@ export default async function ClientDetailPage({ params }: Props) {
   const balance = outstandingBalance(invoices)
 
   return (
-    <div className="space-y-5 p-4">
+    <div className="p-4 space-y-5">
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
@@ -119,180 +119,184 @@ export default async function ClientDetailPage({ params }: Props) {
         </Link>
       </div>
 
-      {/* ── Profile card ────────────────────────────────────────────────── */}
-      <div
-        className="space-y-4 rounded-2xl border p-5"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-      >
-        {/* Avatar + name + status */}
-        <div className="flex items-center gap-4">
-          <Avatar name={client.name} size="lg" />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-bold" style={{ color: 'var(--fd-text)' }}>
-              {client.name}
-            </h2>
-            <div className="mt-1 flex items-center gap-2">
-              <Badge variant={clientVariant(client.status)} />
-              <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                {client.sessionCount} sessions
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* ── Two-column layout at xl ────────────────────────────────────── */}
+      <div className="xl:grid xl:grid-cols-2 xl:items-start xl:gap-6 space-y-5 xl:space-y-0">
 
-        {/* Contact info */}
-        <div className="space-y-2">
-          {client.phone && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Phone className="h-3.5 w-3.5 shrink-0" />
-              {client.phone}
-            </div>
-          )}
-          {client.email && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Mail className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{client.email}</span>
-            </div>
-          )}
-          {formatGoal(client.goal) && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Target className="h-3.5 w-3.5 shrink-0" />
-              {formatGoal(client.goal)}
-            </div>
-          )}
-        </div>
+        {/* ── Left column ─────────────────────────────────────────────── */}
+        <div className="space-y-5">
 
-        {/* Outstanding balance — only shown when there is money owed */}
-        {balance > 0 && (
+          {/* Profile card */}
           <div
-            className="rounded-xl border px-4 py-3"
-            style={{
-              backgroundColor: 'rgba(232,92,106,0.08)',
-              borderColor: 'rgba(232,92,106,0.25)',
-            }}
+            className="space-y-4 rounded-2xl border p-5"
+            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
           >
-            <p className="text-xs font-medium" style={{ color: 'var(--fd-red)' }}>
-              Outstanding balance
-            </p>
-            <p className="text-xl font-bold" style={{ color: 'var(--fd-red)' }}>
-              ${balance.toLocaleString()}
-            </p>
-          </div>
-        )}
+            {/* Avatar + name + status */}
+            <div className="flex items-center gap-4">
+              <Avatar name={client.name} size="lg" />
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-lg font-bold" style={{ color: 'var(--fd-text)' }}>
+                  {client.name}
+                </h2>
+                <div className="mt-1">
+                  <Badge variant={clientVariant(client.status)} />
+                </div>
+              </div>
+            </div>
 
-        {/* Notes placeholder */}
-        {client.notes ? (
-          <p
-            className="rounded-xl border p-3 text-xs"
-            style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
-          >
-            {client.notes}
-          </p>
-        ) : (
-          <p
-            className="rounded-xl border border-dashed p-3 text-center text-xs"
-            style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
-          >
-            No notes — add them via Edit
-          </p>
-        )}
+            {/* Contact info */}
+            <div className="space-y-2">
+              {client.phone && (
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  <Phone className="h-3.5 w-3.5 shrink-0" />
+                  {client.phone}
+                </div>
+              )}
+              {client.email && (
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{client.email}</span>
+                </div>
+              )}
+              {formatGoal(client.goal) && (
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  <Target className="h-3.5 w-3.5 shrink-0" />
+                  {formatGoal(client.goal)}
+                </div>
+              )}
+            </div>
 
-        {/* WhatsApp button */}
-        {client.phone && (
-          <Link
-            href={`/dashboard/messages/${params.id}`}
-            className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
-            style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
-          >
-            <MessageCircle className="h-4 w-4" />
-            Send WhatsApp
-          </Link>
-        )}
-      </div>
-
-      {/* ── Client Hub (Phase 7 — flag-gated, additive) ─────────────────── */}
-      {hub && <ClientHubPanel overview={hub} />}
-
-      {/* ── Sessions ─────────────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Sessions
-            {sessions.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
-                ({sessions.length})
-              </span>
+            {/* Outstanding balance */}
+            {balance > 0 && (
+              <div
+                className="rounded-xl border px-4 py-3"
+                style={{
+                  backgroundColor: 'rgba(232,92,106,0.08)',
+                  borderColor:     'rgba(232,92,106,0.25)',
+                }}
+              >
+                <p className="text-xs font-medium" style={{ color: 'var(--fd-red)' }}>
+                  Outstanding balance
+                </p>
+                <p className="text-xl font-bold" style={{ color: 'var(--fd-red)' }}>
+                  ${balance.toLocaleString()}
+                </p>
+              </div>
             )}
-          </h3>
-          <span
-            className="text-xs font-medium opacity-35 cursor-not-allowed select-none"
-            style={{ color: 'var(--fd-accent)' }}
-            title="Session booking coming soon"
-          >
-            + Schedule
-          </span>
-        </div>
 
-        {sessions.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            No sessions yet.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {sessions.slice(0, 10).map(session => (
-              <SessionRow key={session.id} session={session} />
-            ))}
-            {sessions.length > 10 && (
-              <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
-                Showing 10 of {sessions.length}
+            {/* Notes */}
+            {client.notes ? (
+              <p
+                className="rounded-xl border p-3 text-xs"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
+              >
+                {client.notes}
+              </p>
+            ) : (
+              <p
+                className="rounded-xl border border-dashed p-3 text-center text-xs"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
+              >
+                No notes — add them via Edit
               </p>
             )}
-          </div>
-        )}
-      </section>
 
-      {/* ── Invoices ──────────────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Invoices
-            {invoices.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
-                ({invoices.length})
-              </span>
+            {/* WhatsApp button */}
+            {client.phone && (
+              <Link
+                href={`/dashboard/messages/${params.id}`}
+                className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Send WhatsApp
+              </Link>
             )}
-          </h3>
-          <Link
-            href={`/dashboard/invoices/new?client=${params.id}`}
-            className="text-xs font-medium"
-            style={{ color: 'var(--fd-accent)' }}
-          >
-            + Invoice
-          </Link>
+          </div>
+
+          {/* Client Hub (Phase 7 — flag-gated, additive) */}
+          {hub && <ClientHubPanel overview={hub} />}
+
+          {/* Sessions */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                Sessions
+                {sessions.length > 0 && (
+                  <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
+                    ({sessions.length})
+                  </span>
+                )}
+              </h3>
+              <span
+                className="text-xs font-medium opacity-35 cursor-not-allowed select-none"
+                style={{ color: 'var(--fd-accent)' }}
+                title="Session booking coming soon"
+              >
+                + Schedule
+              </span>
+            </div>
+
+            {sessions.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                No sessions yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {sessions.slice(0, 10).map(session => (
+                  <SessionRow key={session.id} session={session} />
+                ))}
+                {sessions.length > 10 && (
+                  <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
+                    Showing 10 of {sessions.length}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
         </div>
 
-        {invoices.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            No invoices yet.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {invoices.map(invoice => (
-              <InvoiceRow key={invoice.id} invoice={invoice} />
-            ))}
-          </div>
-        )}
-      </section>
+        {/* ── Right column ────────────────────────────────────────────── */}
+        <div className="space-y-5">
 
-      {/* ── Danger zone ───────────────────────────────────────────────────── */}
-      {client.status === 'active' && (
-        <section className="space-y-2 pt-2">
-          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
-            Danger zone
-          </p>
-          <DeactivateClientButton clientId={client.id} clientName={client.name} />
-        </section>
-      )}
+          {/* Invoices */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                Invoices
+                {invoices.length > 0 && (
+                  <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
+                    ({invoices.length})
+                  </span>
+                )}
+              </h3>
+            </div>
+
+            {invoices.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                No invoices yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {invoices.map(invoice => (
+                  <InvoiceRow key={invoice.id} invoice={invoice} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Danger zone */}
+          {client.status === 'active' && (
+            <section className="space-y-2 pt-2">
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fd-muted)' }}>
+                Danger zone
+              </p>
+              <DeactivateClientButton clientId={client.id} clientName={client.name} />
+            </section>
+          )}
+
+        </div>
+      </div>
     </div>
   )
 }
