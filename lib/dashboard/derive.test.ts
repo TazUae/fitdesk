@@ -241,39 +241,130 @@ describe('getUpcoming', () => {
 
 // ─── getAttentionItems ────────────────────────────────────────────────────────
 
+// Fixed reference date for deterministic ageDays calculations.
+const REF_DATE = '2024-06-15'
+
 describe('getAttentionItems', () => {
   it('returns empty array when no overdue invoices', () => {
     const invoices = [makeInvoice({ id: 'I1', status: 'sent' })]
-    expect(getAttentionItems(invoices)).toHaveLength(0)
+    expect(getAttentionItems(invoices, REF_DATE)).toHaveLength(0)
   })
 
   it('returns empty array when invoice list is empty', () => {
-    expect(getAttentionItems([])).toHaveLength(0)
+    expect(getAttentionItems([], REF_DATE)).toHaveLength(0)
   })
 
-  it('returns one item when there are overdue invoices', () => {
+  it('returns one item per overdue invoice', () => {
     const invoices = [
-      makeInvoice({ id: 'I1', status: 'overdue' }),
-      makeInvoice({ id: 'I2', status: 'overdue' }),
+      makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10' }),
+      makeInvoice({ id: 'I2', status: 'overdue', dueDate: '2024-06-05' }),
     ]
-    const items = getAttentionItems(invoices)
-    expect(items).toHaveLength(1)
-    expect(items[0].type).toBe('overdue_invoice')
-    expect(items[0].href).toBe('/dashboard/invoices')
-    expect(items[0].label).toContain('2')
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items).toHaveLength(2)
+    expect(items.every(i => i.type === 'overdue_invoice')).toBe(true)
   })
 
-  it('uses singular label for exactly 1 overdue invoice', () => {
-    const invoices = [makeInvoice({ id: 'I1', status: 'overdue' })]
-    const items = getAttentionItems(invoices)
-    expect(items[0].label).toMatch(/invoice\b(?!s)/)
+  it('maps href to /dashboard/invoices/{id}', () => {
+    const invoices = [makeInvoice({ id: 'I42', status: 'overdue', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].href).toBe('/dashboard/invoices/I42')
   })
 
-  it('does not include sent/partially_paid as attention items', () => {
+  it('maps clientName from the invoice', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'overdue', clientName: 'Sara K.', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].clientName).toBe('Sara K.')
+  })
+
+  it('maps outstandingAmount and currency', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'overdue', outstandingAmount: 250, currency: 'USD', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].outstandingAmount).toBe(250)
+    expect(items[0].currency).toBe('USD')
+  })
+
+  it('calculates ageDays from dueDate vs today', () => {
+    // REF_DATE = 2024-06-15, dueDate = 2024-06-10 → 5 days
+    const invoices = [makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].ageDays).toBe(5)
+  })
+
+  it('assigns severity "high" for invoices >= 14 days overdue', () => {
+    // 2024-06-15 - 2024-06-01 = 14 days → high
+    const invoices = [makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-01' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].severity).toBe('high')
+  })
+
+  it('assigns severity "normal" for invoices < 14 days overdue', () => {
+    // 2024-06-15 - 2024-06-03 = 12 days → normal
+    const invoices = [makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-03' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].severity).toBe('normal')
+  })
+
+  it('orders by oldest dueDate first', () => {
+    const invoices = [
+      makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10' }),
+      makeInvoice({ id: 'I2', status: 'overdue', dueDate: '2024-06-03' }),
+      makeInvoice({ id: 'I3', status: 'overdue', dueDate: '2024-06-07' }),
+    ]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items.map(i => i.href)).toEqual([
+      '/dashboard/invoices/I2',
+      '/dashboard/invoices/I3',
+      '/dashboard/invoices/I1',
+    ])
+  })
+
+  it('breaks ties in dueDate by larger outstandingAmount first', () => {
+    const invoices = [
+      makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10', outstandingAmount: 50 }),
+      makeInvoice({ id: 'I2', status: 'overdue', dueDate: '2024-06-10', outstandingAmount: 200 }),
+    ]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].href).toBe('/dashboard/invoices/I2')
+    expect(items[1].href).toBe('/dashboard/invoices/I1')
+  })
+
+  it('caps at 4 items without overflow when exactly 4 overdue', () => {
+    const invoices = Array.from({ length: 4 }, (_, i) =>
+      makeInvoice({ id: `I${i}`, status: 'overdue', dueDate: `2024-06-0${i + 1}` }),
+    )
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items).toHaveLength(4)
+    expect(items.every(i => i.type === 'overdue_invoice')).toBe(true)
+  })
+
+  it('appends overflow item when more than 4 overdue', () => {
+    const invoices = Array.from({ length: 6 }, (_, i) =>
+      makeInvoice({ id: `I${i}`, status: 'overdue', dueDate: `2024-06-0${i + 1}` }),
+    )
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items).toHaveLength(5)
+    const overflow = items[4]
+    expect(overflow.type).toBe('overdue_invoice_overflow')
+    expect(overflow.href).toBe('/dashboard/invoices')
+    expect(overflow.label).toContain('+2')
+  })
+
+  it('overflow label is singular when exactly 1 extra', () => {
+    const invoices = Array.from({ length: 5 }, (_, i) =>
+      makeInvoice({ id: `I${i}`, status: 'overdue', dueDate: `2024-06-0${i + 1}` }),
+    )
+    const items = getAttentionItems(invoices, REF_DATE)
+    const overflow = items[4]
+    expect(overflow.label).toMatch(/\+1 more overdue invoice\b(?!s)/)
+  })
+
+  it('excludes sent, partially_paid, paid, and draft invoices', () => {
     const invoices = [
       makeInvoice({ id: 'I1', status: 'sent' }),
       makeInvoice({ id: 'I2', status: 'partially_paid' }),
+      makeInvoice({ id: 'I3', status: 'paid' }),
+      makeInvoice({ id: 'I4', status: 'draft' }),
     ]
-    expect(getAttentionItems(invoices)).toHaveLength(0)
+    expect(getAttentionItems(invoices, REF_DATE)).toHaveLength(0)
   })
 })
