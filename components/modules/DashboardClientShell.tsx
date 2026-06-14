@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/auth-client'
 import { Avatar } from '@/components/modules/Avatar'
 import { UserMenuSheet } from '@/components/modules/UserMenuSheet'
+import { DashboardSidebar } from '@/components/modules/dashboard/DashboardSidebar'
+import { QuickActionsFab } from '@/components/modules/dashboard/QuickActionsFab'
 
 type NavItem = {
   href:   string
@@ -69,6 +71,12 @@ export function DashboardClientShell({ children, banner }: Props) {
   const isFullWidthRoute =
     pathname === '/dashboard/schedule' || pathname.startsWith('/dashboard/schedule/')
 
+  // Only the command-center home gets the wide desktop canvas.
+  // All other sub-routes stay constrained at max-w-[480px] on desktop
+  // so they remain visually stable until each is explicitly redesigned.
+  const isCommandCenter = pathname === '/dashboard'
+
+  // Schedule keeps its own full-width layout — no shell chrome
   if (isFullWidthRoute) {
     return (
       <>
@@ -85,13 +93,25 @@ export function DashboardClientShell({ children, banner }: Props) {
   }
 
   return (
-    <div className="min-h-dvh" style={{ backgroundColor: 'var(--fd-bg)' }}>
-      <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col">
+    <div className="min-h-dvh lg:flex" style={{ backgroundColor: 'var(--fd-bg)' }}>
+
+      {/* ── Desktop sidebar (lg+) ──────────────────────────────────────────── */}
+      <DashboardSidebar />
+
+      {/* ── Content column ────────────────────────────────────────────────── */}
+      {/*   Mobile (all routes):   centered 480px column                       */}
+      {/*   Desktop /dashboard:    fills remaining space (wide command center) */}
+      {/*   Desktop sub-routes:    stays max-w-[480px] centered beside sidebar */}
+      <div className={cn(
+        'flex min-h-dvh flex-col mx-auto w-full max-w-[480px] lg:flex-1 lg:min-w-0',
+        isCommandCenter && 'lg:mx-0 lg:max-w-none',
+      )}>
 
         {banner}
 
+        {/* Mobile header — hidden on desktop */}
         <header
-          className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b px-4"
+          className="relative lg:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b px-4"
           style={{ backgroundColor: 'var(--fd-bg)', borderColor: 'var(--fd-border)' }}
         >
           <span
@@ -126,14 +146,46 @@ export function DashboardClientShell({ children, banner }: Props) {
           </button>
         </header>
 
-        <main className="flex-1 pb-24">
+        {/* Desktop header — hidden on mobile */}
+        <header
+          className="hidden lg:sticky lg:top-0 lg:z-20 lg:flex h-14 shrink-0 items-center justify-between border-b px-6"
+          style={{ backgroundColor: 'var(--fd-bg)', borderColor: 'var(--fd-border)' }}
+        >
+          <span
+            className="text-sm font-semibold"
+            style={{ color: 'var(--fd-text)' }}
+          >
+            {getTitle(pathname)}
+          </span>
+
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity active:opacity-60"
+            aria-label="Open account menu"
+          >
+            {userName ? (
+              <Avatar name={userName} size="sm" />
+            ) : (
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold"
+                style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-accent)' }}
+              >
+                PT
+              </div>
+            )}
+          </button>
+        </header>
+
+        {/* Page content */}
+        <main className="flex-1 pb-24 lg:pb-0">
           {children}
         </main>
 
       </div>
 
+      {/* ── Mobile bottom nav (lg:hidden) ─────────────────────────────────── */}
       <nav
-        className="fixed bottom-0 left-1/2 z-20 w-full max-w-[480px] -translate-x-1/2 border-t"
+        className="lg:hidden fixed bottom-0 left-1/2 z-20 w-full max-w-[480px] -translate-x-1/2 border-t"
         style={{
           backgroundColor: 'var(--fd-bg)',
           borderColor:     'var(--fd-border)',
@@ -186,12 +238,17 @@ export function DashboardClientShell({ children, banner }: Props) {
         </div>
       </nav>
 
+      {/* ── Mobile FAB — Quick Actions (lg:hidden, handled inside component) ─ */}
+      <QuickActionsFab />
+
+      {/* ── Account sheet ─────────────────────────────────────────────────── */}
       <UserMenuSheet
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         userName={userName}
         userEmail={userEmail}
       />
+
     </div>
   )
 }
