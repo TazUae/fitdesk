@@ -313,6 +313,41 @@ describe('goal handling', () => {
     const clients = await repo.listClients({ tenantId: TENANT_A })
     expect(clients[0].primaryGoalLabel).toBeNull()
   })
+
+  it('normalizes a JSON array with goal_type to a readable label', async () => {
+    const fetchCustomers = async () => [
+      makeCustomer({ custom_fitness_goals: '[{"goal_type":"fat_loss","focuses":["weight_loss"]}]' }),
+    ]
+
+    await backfillTenantClients(repo, { tenantId: TENANT_A, dryRun: false }, fetchCustomers)
+
+    const clients = await repo.listClients({ tenantId: TENANT_A })
+    expect(clients[0].primaryGoalLabel).toBe('Fat loss')
+  })
+
+  it('normalizes a JSON array with multiple goals to comma-separated labels', async () => {
+    const fetchCustomers = async () => [
+      makeCustomer({
+        custom_fitness_goals: '[{"goal_type":"strength","focuses":["max_strength"]},{"goal_type":"muscle_gain","focuses":["hypertrophy"]}]',
+      }),
+    ]
+
+    await backfillTenantClients(repo, { tenantId: TENANT_A, dryRun: false }, fetchCustomers)
+
+    const clients = await repo.listClients({ tenantId: TENANT_A })
+    expect(clients[0].primaryGoalLabel).toBe('Strength, Muscle gain')
+  })
+
+  it('normalizes a JSON object with a label field to a readable label', async () => {
+    const fetchCustomers = async () => [
+      makeCustomer({ custom_fitness_goals: '{"label":"Mobility"}' }),
+    ]
+
+    await backfillTenantClients(repo, { tenantId: TENANT_A, dryRun: false }, fetchCustomers)
+
+    const clients = await repo.listClients({ tenantId: TENANT_A })
+    expect(clients[0].primaryGoalLabel).toBe('Mobility')
+  })
 })
 
 // ─── Event writing ────────────────────────────────────────────────────────────
