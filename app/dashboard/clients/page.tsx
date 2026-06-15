@@ -13,8 +13,14 @@ import { ClientsView } from '@/components/modules/ClientsView'
  *      per-client outstanding signals. Fetched in parallel; failure suppresses
  *      money signals but never breaks the roster.
  *   3. deriveClientRoster() converts both into sorted ClientRosterCard VMs.
+ *
+ * Feature flag — server-side only, never reaches the client bundle:
+ *   FITDESK_ADD_CLIENT_SHEET_ENABLED = '1'  → opens Add Client sheet instead of /new
  */
+const ADD_CLIENT_SHEET_FLAG = 'FITDESK_ADD_CLIENT_SHEET_ENABLED'
+
 export default async function ClientsPage() {
+  const enableAddClientSheet = process.env[ADD_CLIENT_SHEET_FLAG] === '1'
   const [clientsSettled, invoicesSettled] = await Promise.allSettled([
     getDirectoryClients(),
     getInvoices({}),
@@ -39,6 +45,7 @@ export default async function ClientsPage() {
       rosterCards={rosterCards}
       error={clientsResult.success ? undefined : clientsResult.error}
       invoicesAvailable={invoicesAvailable}
+      enableAddClientSheet={enableAddClientSheet}
     />
   )
 }

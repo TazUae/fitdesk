@@ -7,6 +7,7 @@ import { AlertTriangle, Plus, Search, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
+import { AddClientSheet } from '@/components/clients/AddClientSheet'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
 import type { ClientRosterCard, NeedsActionType } from '@/lib/clients/list-derive'
 import type { BadgeVariant } from '@/components/modules/Badge'
@@ -91,16 +92,19 @@ type FilterType = 'all' | 'owes'
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface ClientsViewProps {
-  rosterCards:        ClientRosterCard[]
+  rosterCards:           ClientRosterCard[]
   /** Error from the server fetch — displayed inline above the list. */
-  error?:             string
-  invoicesAvailable:  boolean
+  error?:                string
+  invoicesAvailable:     boolean
+  /** When true, Add button opens the AddClientSheet instead of navigating to /new. */
+  enableAddClientSheet?: boolean
 }
 
-export function ClientsView({ rosterCards, error, invoicesAvailable }: ClientsViewProps) {
+export function ClientsView({ rosterCards, error, invoicesAvailable, enableAddClientSheet }: ClientsViewProps) {
   const router    = useRouter()
   const [query,   setQuery]   = useState('')
   const [filter,  setFilter]  = useState<FilterType>('all')
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const oweCount = rosterCards.filter(
     c => c.needsAction === 'overdue' || c.needsAction === 'outstanding',
@@ -125,13 +129,24 @@ export function ClientsView({ rosterCards, error, invoicesAvailable }: ClientsVi
   return (
     <div className="p-4 space-y-4">
 
+      {/* Add Client Sheet (flag-gated) */}
+      {enableAddClientSheet && (
+        <AddClientSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+      )}
+
       {/* ── Header row ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <p className="text-base font-semibold" style={{ color: 'var(--fd-muted)' }}>
           {rosterCards.length} client{rosterCards.length !== 1 ? 's' : ''}
         </p>
         <button
-          onClick={() => router.push('/dashboard/clients/new')}
+          onClick={() => {
+            if (enableAddClientSheet) {
+              setSheetOpen(true)
+            } else {
+              router.push('/dashboard/clients/new')
+            }
+          }}
           className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold"
           style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
         >
