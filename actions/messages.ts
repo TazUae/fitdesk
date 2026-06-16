@@ -2,12 +2,10 @@
 
 import { randomUUID } from 'crypto'
 import { and, desc, eq } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { messageLog } from '@/lib/db/schema'
 import { getClientById, getInvoiceByIdForTrainer } from '@/lib/business-data/erp-adapter'
-import { ensureTrainerIdForUser } from '@/lib/trainer'
+import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { sendWhatsAppMessage, normalizePhone } from '@/lib/evolution'
 import { generateMessage } from '@/lib/claude'
 import { isPilotMode, matchAllowlist } from '@/lib/pilot'
@@ -26,30 +24,14 @@ import type { MessageContext } from '@/lib/claude'
 export async function getMessages(
   clientId: string,
 ): Promise<ActionResult<MessageLog[]>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
-  const sessionPhone =
-    typeof (session.user as { phone?: string | null }).phone === 'string'
-      ? (session.user as { phone?: string | null }).phone
-      : undefined
-
-  let trainerId: string
-  try {
-    trainerId = await ensureTrainerIdForUser({
-      userId: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      phone: sessionPhone,
-    })
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }
-  }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
     const rows = await db
       .select()
       .from(messageLog)
-      .where(and(eq(messageLog.trainerId, trainerId), eq(messageLog.clientId, clientId)))
+      .where(and(eq(messageLog.trainerId, resolved.trainerId), eq(messageLog.clientId, clientId)))
       .orderBy(desc(messageLog.sentAt))
       .limit(50)
 
@@ -87,27 +69,11 @@ export async function generateDraftMessage(
   invoiceId?:   string,
   extraContext?: Partial<MessageContext>,
 ): Promise<ActionResult<string>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
-  const sessionPhone =
-    typeof (session.user as { phone?: string | null }).phone === 'string'
-      ? (session.user as { phone?: string | null }).phone
-      : undefined
-
-  let draftTrainerId: string
-  try {
-    draftTrainerId = await ensureTrainerIdForUser({
-      userId: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      phone: sessionPhone,
-    })
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }
-  }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
-    const client = await getClientById(clientId, draftTrainerId)
+    const client = await getClientById(clientId, resolved.trainerId)
 
     const context: MessageContext = {
       clientName: client.name,
@@ -118,7 +84,7 @@ export async function generateDraftMessage(
       // Ownership always validated — a 403 propagates to the outer catch and
       // fails the draft. Callers must only pass invoice IDs that belong to their
       // own clients; silently dropping a cross-trainer invoice would be insecure.
-      const invoice = await getInvoiceByIdForTrainer(invoiceId, draftTrainerId)
+      const invoice = await getInvoiceByIdForTrainer(invoiceId, resolved.trainerId)
       context.invoiceId = invoice.id
       context.amount    = invoice.amount
       context.currency  = invoice.currency
@@ -154,24 +120,8 @@ export async function sendMessage(opts: {
   messageType: string
   invoiceId?:  string
 }): Promise<ActionResult<MessageLog>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
-  const sessionPhone =
-    typeof (session.user as { phone?: string | null }).phone === 'string'
-      ? (session.user as { phone?: string | null }).phone
-      : undefined
-
-  let trainerId: string
-  try {
-    trainerId = await ensureTrainerIdForUser({
-      userId: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      phone: sessionPhone,
-    })
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Trainer account not configured.' }
-  }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   const sentAt = new Date().toISOString()
 
@@ -193,7 +143,7 @@ export async function sendMessage(opts: {
         phone:       opts.phone,
         body:        opts.body,
         messageType: opts.messageType,
-        trainerId,
+        trainerId:   resolved.trainerId,
         clientId:    opts.clientId,
         invoiceId:   opts.invoiceId,
       })
@@ -203,7 +153,7 @@ export async function sendMessage(opts: {
       phone:       opts.phone,
       body:        opts.body,
       messageType: opts.messageType,
-      trainerId,
+      trainerId:   resolved.trainerId,
       clientId:    opts.clientId,
       invoiceId:   opts.invoiceId,
     })
@@ -212,7 +162,7 @@ export async function sendMessage(opts: {
   const id = randomUUID()
   const entry: MessageLog = {
     id,
-    trainerId,
+    trainerId:          resolved.trainerId,
     clientId:           opts.clientId,
     messageType:        opts.messageType,
     body:               opts.body,
@@ -227,7 +177,7 @@ export async function sendMessage(opts: {
   try {
     await db.insert(messageLog).values({
       id,
-      trainerId,
+      trainerId:          resolved.trainerId,
       clientId:           opts.clientId,
       messageType:        opts.messageType,
       body:               opts.body,
