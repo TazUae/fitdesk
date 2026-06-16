@@ -367,3 +367,24 @@ describe('createClientRow — duplicate override audit', () => {
     expect(events.some((e) => e.type === 'client.created')).toBe(true)
   })
 })
+
+// ─── Billing mode (Phase E) ───────────────────────────────────────────────────
+
+describe('createClientRow — billing mode', () => {
+  it('defaults to unset when billingMode is absent from draft', async () => {
+    const result = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    expect(result.clientIndex.billingMode).toBe('unset')
+  })
+
+  it('stores package billing mode', async () => {
+    const draft: ClientCreateDraft = { ...baseDraft, billingMode: 'package' }
+    const result = await repo.createClientRow({ tenantId: TENANT_A }, draft)
+    expect(result.clientIndex.billingMode).toBe('package')
+  })
+
+  it('stores pay_per_session billing mode', async () => {
+    const draft: ClientCreateDraft = { ...baseDraft, billingMode: 'pay_per_session' }
+    const result = await repo.createClientRow({ tenantId: TENANT_A }, draft)
+    expect(result.clientIndex.billingMode).toBe('pay_per_session')
+  })
+})

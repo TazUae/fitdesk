@@ -21,6 +21,7 @@ import {
   ERPNextError,
   clampDueDate,
   createAndSubmitPaymentEntry,
+  getClientById,
   getInvoiceById,
   getInvoiceByIdForTrainer,
   getPaymentEntry,
@@ -324,6 +325,61 @@ describe('createAndSubmitPaymentEntry', () => {
     fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
 
     await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(ERPNextError)
+  })
+})
+
+// ─── normalizeClient (via getClientById round-trip) ──────────────────────────
+
+function rawCustomer(overrides: Record<string, unknown> = {}) {
+  return {
+    name:          CLIENT_ID,
+    customer_name: 'Test Client',
+    mobile_no:     '+1 555 000 0001',
+    creation:      '2024-01-01',
+    ...overrides,
+  }
+}
+
+describe('normalizeClient — disabled → status mapping', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('maps disabled: 1 → status "inactive"', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawCustomer({ disabled: 1 })))
+    const client = await getClientById(CLIENT_ID, TRAINER_ID)
+    expect(client.status).toBe('inactive')
+  })
+
+  it('maps disabled: 0 → status "active"', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawCustomer({ disabled: 0 })))
+    const client = await getClientById(CLIENT_ID, TRAINER_ID)
+    expect(client.status).toBe('active')
+  })
+
+  it('maps absent disabled → status "active"', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawCustomer()))
+    const client = await getClientById(CLIENT_ID, TRAINER_ID)
+    expect(client.status).toBe('active')
+  })
+
+  it('passes through email_id when present', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawCustomer({ email_id: 'test@example.com' })))
+    const client = await getClientById(CLIENT_ID, TRAINER_ID)
+    expect(client.email).toBe('test@example.com')
+  })
+
+  it('sets email undefined when email_id absent', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk(rawCustomer()))
+    const client = await getClientById(CLIENT_ID, TRAINER_ID)
+    expect(client.email).toBeUndefined()
   })
 })
 

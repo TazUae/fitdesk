@@ -14,6 +14,7 @@
  */
 
 import { normalizePhoneToE164 } from './phone'
+import { formatGoal } from '@/lib/format/goal'
 import { ClientRepository } from './repository'
 import type { ClientCreateDraft } from '@/types/clients'
 
@@ -112,8 +113,9 @@ export async function backfillTenantClients(
         continue
       }
 
-      // Goal label: store raw text; no structured goal row created at backfill time
-      const goalLabel = customer.custom_fitness_goals?.trim() || null
+      // Normalize to a human-readable display label (mirrors create-draft.ts).
+      // Structured client_goal rows are out of scope for backfill.
+      const goalLabel = formatGoal(customer.custom_fitness_goals) || null
 
       const draft: ClientCreateDraft = {
         tenantId:         ctx.tenantId,

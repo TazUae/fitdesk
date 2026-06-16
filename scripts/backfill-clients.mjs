@@ -137,6 +137,53 @@ async function fetchErpCustomers() {
   return json.data ?? []
 }
 
+// ─── Goal label normalization ─────────────────────────────────────────────────
+//
+// CONTRACT NOTE — keep in sync with lib/format/goal.ts:formatGoal():
+//   This plain .mjs runner cannot import the TypeScript helper directly, so the
+//   behavior is inlined here. If formatGoal() changes, update this function too.
+//   Source of truth: lib/format/goal.ts.
+
+function formatGoalLabel(raw) {
+  if (!raw) return ''
+  const trimmed = String(raw).trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map(item => {
+          if (typeof item === 'string') return item.trim()
+          if (item !== null && typeof item === 'object') {
+            const label = item.label ?? item.name ?? item.description ?? item.goal_type ?? item.type ?? item.value
+            if (typeof label === 'string' && label.trim()) {
+              return label.trim().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+            }
+            const first = Object.values(item).find(v => typeof v === 'string' && v.trim().length > 0)
+            if (first) return String(first).trim().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+          }
+          return ''
+        })
+        .filter(Boolean)
+        .join(', ')
+    }
+    if (parsed !== null && typeof parsed === 'object') {
+      const display = parsed.label ?? parsed.name ?? parsed.description ?? parsed.type ?? parsed.value
+      if (typeof display === 'string' && display.trim()) {
+        return display.trim().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+      }
+      const parts = Object.values(parsed)
+        .filter(v => typeof v === 'string' && v.trim().length > 0)
+        .map(v => v.trim())
+      return parts.join(', ') || trimmed
+    }
+    if (typeof parsed === 'string') return parsed.trim()
+    return trimmed
+  } catch {
+    return trimmed
+  }
+}
+
 // ─── Phone normalization ──────────────────────────────────────────────────────
 
 function normalizePhone(raw) {
@@ -162,7 +209,7 @@ async function findExisting(db, erpCustomerId) {
 }
 
 async function upsertClient(db, customer, phoneE164) {
-  const goalLabel = (customer.custom_fitness_goals ?? '').trim() || null
+  const goalLabel = formatGoalLabel(customer.custom_fitness_goals) || null
   const now = new Date().toISOString()
 
   const existing = await findExisting(db, customer.name)

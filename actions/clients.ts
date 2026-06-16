@@ -13,7 +13,7 @@ import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
 import type { ActionResult, Client } from '@/types'
-import type { DuplicateClientMatch, ClientParseResult } from '@/types/clients'
+import type { BillingMode, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,6 +143,8 @@ export async function addClient(
     possibleDuplicateClientId?: string
     /** Whether WhatsApp is enabled for this client — from the PhoneInput has_whatsapp toggle. */
     whatsappEnabled?: boolean
+    /** Billing mode set at add-time. Mapped to ERP custom_billing_mode on creation. */
+    billingMode?: BillingMode
   },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
@@ -157,10 +159,20 @@ export async function addClient(
     return { success: false, error: 'A reason is required to add a possible duplicate client.' }
   }
 
+  // Map app BillingMode to ERP Select option string (custom_default_session_rate flows via payload).
+  const erpBillingMode =
+    options?.billingMode === 'package'         ? 'Package' :
+    options?.billingMode === 'pay_per_session' ? 'Pay Per Session' :
+    undefined
+
   // Step 1 — create the ERP Customer (canonical identity).
   let data: Client
   try {
-    data = await createClient({ ...payload, trainer: resolved.trainerId })
+    data = await createClient({
+      ...payload,
+      trainer: resolved.trainerId,
+      ...(erpBillingMode ? { custom_billing_mode: erpBillingMode } : {}),
+    })
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to create client' }
   }
@@ -181,6 +193,7 @@ export async function addClient(
       createdClient:      data,
       customFitnessGoals: payload.custom_fitness_goals ?? null,
       whatsappEnabled:    options?.whatsappEnabled ?? false,
+      billingMode:        options?.billingMode ?? null,
       possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
       duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })

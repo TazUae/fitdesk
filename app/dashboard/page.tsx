@@ -1,6 +1,6 @@
 import { headers }      from 'next/headers'
 import { auth }          from '@/lib/auth'
-import { getInvoices, getSessions } from '@/lib/business-data'
+import { getClients, getInvoices, getSessions } from '@/lib/business-data'
 import { DashboardView } from '@/components/modules/DashboardView'
 import {
   getNextUp,
@@ -9,7 +9,7 @@ import {
   getUpcoming,
   getAttentionItems,
 } from '@/lib/dashboard/derive'
-import type { Session, Invoice } from '@/types'
+import type { Client, Session, Invoice } from '@/types'
 
 // ─── Greeting ────────────────────────────────────────────────────────────────
 
@@ -38,9 +38,10 @@ export default async function DashboardPage() {
 
   // ── Parallel data fetch ─────────────────────────────────────────────────────
   // Promise.allSettled — a single ERP failure must not blank the whole dashboard.
-  const [sessionsResult, invoicesResult] = await Promise.allSettled([
+  const [sessionsResult, invoicesResult, clientsResult] = await Promise.allSettled([
     getSessions(),
     getInvoices(),
+    getClients(),
   ])
 
   const sessions: Session[] =
@@ -52,6 +53,14 @@ export default async function DashboardPage() {
     invoicesResult.status === 'fulfilled' && invoicesResult.value.success
       ? invoicesResult.value.data
       : []
+
+  const clients: Client[] | null =
+    clientsResult.status === 'fulfilled' && clientsResult.value.success
+      ? clientsResult.value.data
+      : null
+
+  const activeClientsCount: number | null =
+    clients !== null ? clients.filter((c) => c.status === 'active').length : null
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const nextUp         = getNextUp(sessions, today)
@@ -72,6 +81,7 @@ export default async function DashboardPage() {
       upcoming={upcoming}
       attentionItems={attentionItems}
       isLocalBackend={isLocalBackend}
+      activeClientsCount={activeClientsCount}
     />
   )
 }

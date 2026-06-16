@@ -135,6 +135,10 @@ export interface CreateClientPayload {
   trainer?: string        // linked Trainer docname
   custom_fitness_goals?: string
   custom_trainer_notes?: string
+  /** ERP Select options: 'Package' | 'Pay Per Session' | 'Trial' */
+  custom_billing_mode?: string
+  /** Currency field — per-session rate in the trainer's default currency */
+  custom_default_session_rate?: number
 }
 
 export interface UpdateClientPayload {

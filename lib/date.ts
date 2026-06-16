@@ -67,3 +67,17 @@ export function fmtMonthDay(dateYmd: string): string {
     day:      'numeric',
   })
 }
+
+/**
+ * Formats a YYYY-MM-DD date as "Jun 8, 2025" (month + day + year).
+ * Used for "Added {date}" on client detail pages.
+ */
+export function fmtMonthDayYear(dateYmd: string): string {
+  const [y, m, d] = dateYmd.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month:    'short',
+    day:      'numeric',
+    year:     'numeric',
+  })
+}

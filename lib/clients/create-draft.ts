@@ -17,7 +17,7 @@
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { formatGoal } from '@/lib/format/goal'
 import type { Client } from '@/types'
-import type { ClientCreateDraft } from '@/types/clients'
+import type { BillingMode, ClientCreateDraft } from '@/types/clients'
 
 export type BuildClientCreateDraftInput = {
   /** Canonical tenant isolation key from getTenantContext(). */
@@ -39,6 +39,8 @@ export type BuildClientCreateDraftInput = {
    */
   possibleDuplicateClientId?: string | null
   duplicateOverrideReason?: string | null
+  /** Billing mode set by the trainer at add-time. Omit or null = 'unset'. */
+  billingMode?: BillingMode | null
 }
 
 export type BuildClientCreateDraftResult = {
@@ -84,6 +86,7 @@ export function buildClientCreateDraft(
   const { tenantId, userId, createdClient, customFitnessGoals } = input
   const possibleDuplicateClientId = input.possibleDuplicateClientId ?? null
   const duplicateOverrideReason = input.duplicateOverrideReason ?? null
+  const billingMode: BillingMode = input.billingMode ?? 'unset'
 
   // Phone: prefer normalized E.164; fall back to the raw value so the row still
   // exists (never fail Add Client only because of phone formatting).
@@ -113,6 +116,7 @@ export function buildClientCreateDraft(
     createdByUserId:  userId,
     possibleDuplicateClientId,
     duplicateOverrideReason,
+    billingMode,
   }
 
   return { draft, phoneNormalized }

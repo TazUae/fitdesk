@@ -62,10 +62,9 @@ export default function EditClientPage({ params }: Props) {
 
     startTransition(async () => {
       const result = await updateClient(clientId, {
-        customer_name: fd.get('customer_name') as string,
-        mobile_no: phoneValue?.phone_full || undefined,
-        email_id: (fd.get('email_id') as string) || undefined,
-        status: fd.get('status') as 'Active' | 'Inactive' | 'Paused',
+        customer_name:        fd.get('customer_name') as string,
+        mobile_no:            phoneValue?.phone_full || undefined,
+        status:               fd.get('status') as 'Active' | 'Inactive' | 'Paused',
         custom_fitness_goals: (fd.get('custom_fitness_goals') as string) || undefined,
         custom_trainer_notes: (fd.get('custom_trainer_notes') as string) || undefined,
       })
@@ -139,17 +138,24 @@ export default function EditClientPage({ params }: Props) {
           showWhatsApp={false}
         />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-            Email
-          </label>
-          <input
-            name="email_id"
-            type="email"
-            defaultValue={client.email ?? ''}
-            className="input-base"
-          />
-        </div>
+        {/* Email is read-only — write path not yet audited for ERP round-trip */}
+        {client.email && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={client.email}
+              readOnly
+              tabIndex={-1}
+              className="input-base cursor-not-allowed opacity-60"
+            />
+            <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+              Email can only be updated through workspace settings.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>

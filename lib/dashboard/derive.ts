@@ -44,9 +44,18 @@ export interface MoneySnapshot {
 
 /** A single lightweight attention item — link only, no mutation. */
 export interface AttentionItem {
-  type: 'overdue_invoice'
+  type: 'overdue_invoice' | 'overdue_invoice_overflow'
   label: string
   href: string
+  /** Present on 'overdue_invoice' items — rich data for UI rendering. */
+  clientName?: string
+  outstandingAmount?: number
+  currency?: string
+  dueDate?: string
+  /** Days since the due date (0+ means past due). */
+  ageDays?: number
+  /** 'high' for invoices ≥ 14 days overdue; 'normal' otherwise. */
+  severity?: 'high' | 'normal'
 }
 
 // ─── Functions ────────────────────────────────────────────────────────────────
@@ -122,20 +131,65 @@ export function getUpcoming(sessions: Session[], today: string, limit = 3): Sess
     .slice(0, limit)
 }
 
+const ATTENTION_CAP = 4
+const HIGH_SEVERITY_DAYS = 14
+
+/** Days elapsed since dueDate relative to today (both YYYY-MM-DD). Always ≥ 0 for past-due. */
+function daysSinceDue(today: string, dueDate: string): number {
+  const [ty, tm, td] = today.split('-').map(Number)
+  const [dy, dm, dd] = dueDate.split('-').map(Number)
+  const todayMs = Date.UTC(ty, tm - 1, td)
+  const dueMs   = Date.UTC(dy, dm - 1, dd)
+  return Math.max(0, Math.floor((todayMs - dueMs) / 86_400_000))
+}
+
 /**
  * Derives lightweight attention items for the Action Center.
- * Returns an empty array when there are no overdue invoices — the Action Center
- * must NOT render if this is empty.
+ * Emits one item per overdue invoice, ordered oldest-first then larger-amount-first,
+ * capped at ATTENTION_CAP with an overflow item when there are more.
+ *
+ * `today` is optional (YYYY-MM-DD) — defaults to the real UTC date.
+ * Pass a fixed value in tests for deterministic ageDays.
  */
-export function getAttentionItems(invoices: Invoice[]): AttentionItem[] {
-  const overdueCount = invoices.filter(i => i.status === 'overdue').length
-  if (overdueCount === 0) return []
+export function getAttentionItems(invoices: Invoice[], today?: string): AttentionItem[] {
+  const refDate = today ?? new Date().toISOString().slice(0, 10)
 
-  return [
-    {
-      type: 'overdue_invoice' as const,
-      label: `${overdueCount} overdue invoice${overdueCount !== 1 ? 's' : ''} need attention`,
+  const overdue = invoices
+    .filter(i => i.status === 'overdue')
+    .sort((a, b) => {
+      const dateCmp = a.dueDate.localeCompare(b.dueDate)
+      if (dateCmp !== 0) return dateCmp
+      return b.outstandingAmount - a.outstandingAmount
+    })
+
+  if (overdue.length === 0) return []
+
+  const visible      = overdue.slice(0, ATTENTION_CAP)
+  const overflowCount = overdue.length - ATTENTION_CAP
+
+  const items: AttentionItem[] = visible.map(inv => {
+    const ageDays = daysSinceDue(refDate, inv.dueDate)
+    const severity: 'high' | 'normal' = ageDays >= HIGH_SEVERITY_DAYS ? 'high' : 'normal'
+    return {
+      type:              'overdue_invoice' as const,
+      label:             `${inv.clientName} — ${inv.outstandingAmount} ${inv.currency} overdue ${ageDays} day${ageDays !== 1 ? 's' : ''}`,
+      href:              `/dashboard/invoices/${inv.id}`,
+      clientName:        inv.clientName,
+      outstandingAmount: inv.outstandingAmount,
+      currency:          inv.currency,
+      dueDate:           inv.dueDate,
+      ageDays,
+      severity,
+    }
+  })
+
+  if (overflowCount > 0) {
+    items.push({
+      type:  'overdue_invoice_overflow' as const,
+      label: `+${overflowCount} more overdue invoice${overflowCount !== 1 ? 's' : ''}`,
       href:  '/dashboard/invoices',
-    },
-  ]
+    })
+  }
+
+  return items
 }
