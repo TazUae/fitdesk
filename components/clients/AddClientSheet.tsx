@@ -12,7 +12,7 @@ import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { GoalMultiSelect, type SubGoalsMap } from '@/components/ui/GoalMultiSelect'
 import type { Client } from '@/types'
-import type { AiParseState, DuplicateClientMatch } from '@/types/clients'
+import type { AiParseState, BillingMode, DuplicateClientMatch } from '@/types/clients'
 
 function e164ToPhoneValue(e164: string, hasWhatsApp: boolean): PhoneValue | null {
   try {
@@ -50,6 +50,9 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
   const [notes,       setNotes]       = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [isDesktop,   setIsDesktop]   = useState(false)
+
+  const [billingMode, setBillingMode] = useState<BillingMode>('unset')
+  const [ppsRate,     setPpsRate]     = useState('')
 
   const [error,            setError]            = useState<string | null>(null)
   const [createdClient,    setCreatedClient]    = useState<Client | null>(null)
@@ -108,6 +111,8 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
       setCreatedClient(null)
       setDuplicateMatches(null)
       setOverrideReason('')
+      setBillingMode('unset')
+      setPpsRate('')
       setAiOpen(false)
       setAiRawText('')
       setAiState('idle')
@@ -127,6 +132,8 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
     setError(null)
     setDuplicateMatches(null)
     setOverrideReason('')
+    setBillingMode('unset')
+    setPpsRate('')
     setAiOpen(false)
     setAiRawText('')
     setAiState('idle')
@@ -146,15 +153,20 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
       ? JSON.stringify(goals.map(g => ({ label: g, value: g })))
       : undefined
 
+    const parsedRate = billingMode === 'pay_per_session' ? parseFloat(ppsRate) : NaN
+
     return {
-      customer_name:         name.trim(),
-      customer_type:         'Individual',
-      customer_group:        'Individual',
-      territory:             'All Territories',
-      mobile_no:             phoneValue?.phone_full ?? '',
-      custom_fitness_goals:  fitnessGoalStr,
-      custom_trainer_notes:  trainerNotes || undefined,
-      status:                'Active' as const,
+      customer_name:               name.trim(),
+      customer_type:               'Individual',
+      customer_group:              'Individual',
+      territory:                   'All Territories',
+      mobile_no:                   phoneValue?.phone_full ?? '',
+      custom_fitness_goals:        fitnessGoalStr,
+      custom_trainer_notes:        trainerNotes || undefined,
+      status:                      'Active' as const,
+      ...(billingMode === 'pay_per_session' && !isNaN(parsedRate) && parsedRate > 0
+        ? { custom_default_session_rate: parsedRate }
+        : {}),
     }
   }
 
@@ -162,6 +174,7 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
     const result = await addClient(buildPayload(), {
       ...options,
       whatsappEnabled: phoneValue?.has_whatsapp ?? false,
+      billingMode:     billingMode !== 'unset' ? billingMode : undefined,
     })
     if (result.success) {
       toast.success(`${result.data.name} added to your roster.`)
@@ -328,6 +341,37 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
               >
                 View profile
               </Link>
+
+              {/* Navigational next steps — no state mutations, no auto-actions */}
+              <div
+                className="rounded-2xl border divide-y text-sm"
+                style={{ borderColor: 'var(--fd-border)' }}
+              >
+                <Link
+                  href={`/dashboard/schedule/new?client=${encodeURIComponent(createdClient.id)}`}
+                  className="flex items-center justify-between px-4 py-3 transition-opacity active:opacity-70"
+                  style={{ color: 'var(--fd-text)' }}
+                >
+                  <span>Book first session</span>
+                  <span style={{ color: 'var(--fd-muted)' }}>→</span>
+                </Link>
+                <Link
+                  href={`/dashboard/messages/${encodeURIComponent(createdClient.id)}`}
+                  className="flex items-center justify-between px-4 py-3 transition-opacity active:opacity-70"
+                  style={{ color: 'var(--fd-text)' }}
+                >
+                  <span>Send WhatsApp welcome</span>
+                  <span style={{ color: 'var(--fd-muted)' }}>→</span>
+                </Link>
+                <Link
+                  href={`/dashboard/clients/${encodeURIComponent(createdClient.id)}`}
+                  className="flex items-center justify-between px-4 py-3 transition-opacity active:opacity-70"
+                  style={{ color: 'var(--fd-text)' }}
+                >
+                  <span>Set up billing</span>
+                  <span style={{ color: 'var(--fd-muted)' }}>→</span>
+                </Link>
+              </div>
 
               <button
                 type="button"
@@ -515,6 +559,62 @@ export function AddClientSheet({ open, onClose }: AddClientSheetProps) {
                         rows={3}
                         className="input-base resize-none"
                       />
+                    </div>
+
+                    {/* Billing mode */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                        Billing
+                        <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
+                          (optional)
+                        </span>
+                      </label>
+                      <div
+                        className="flex rounded-xl p-1 gap-1"
+                        style={{ backgroundColor: 'var(--fd-card)' }}
+                      >
+                        {([
+                          { value: 'unset',           label: 'Decide later' },
+                          { value: 'package',         label: 'Package' },
+                          { value: 'pay_per_session', label: 'Per session' },
+                        ] as { value: BillingMode; label: string }[]).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setBillingMode(opt.value)}
+                            className="flex-1 rounded-lg py-2 text-xs font-semibold transition-all"
+                            style={{
+                              backgroundColor: billingMode === opt.value ? 'var(--fd-accent)' : 'transparent',
+                              color:           billingMode === opt.value ? 'var(--fd-bg)'     : 'var(--fd-muted)',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {billingMode === 'pay_per_session' && (
+                        <div className="space-y-1.5 pt-1">
+                          <label className="block text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                            Default rate per session
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={ppsRate}
+                            onChange={e => setPpsRate(e.target.value)}
+                            placeholder="e.g. 50"
+                            className="input-base"
+                          />
+                        </div>
+                      )}
+
+                      {billingMode === 'package' && (
+                        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                          Set up sessions and package details on the client profile.
+                        </p>
+                      )}
                     </div>
 
                     {/* Quick add from text */}

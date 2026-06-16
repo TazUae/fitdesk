@@ -212,6 +212,8 @@ export type ClientCreateDraft = {
    */
   possibleDuplicateClientId?: string | null
   duplicateOverrideReason?: string | null
+  /** Billing mode to store in the local client_index row. Defaults to 'unset'. */
+  billingMode?: BillingMode
 }
 
 /** Result of the local row creation transaction. */

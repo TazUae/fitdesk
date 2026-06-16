@@ -122,6 +122,39 @@ describe('buildClientCreateDraft', () => {
     expect(draft.createdByUserId).toBeNull()
   })
 
+  describe('billingMode passthrough', () => {
+    it('defaults to unset when billingMode is omitted', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+      })
+      expect(draft.billingMode).toBe('unset')
+    })
+
+    it('defaults to unset when billingMode is null', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+        billingMode: null,
+      })
+      expect(draft.billingMode).toBe('unset')
+    })
+
+    it('passes through package billing mode', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+        billingMode: 'package',
+      })
+      expect(draft.billingMode).toBe('package')
+    })
+
+    it('passes through pay_per_session billing mode', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(), customFitnessGoals: null,
+        billingMode: 'pay_per_session',
+      })
+      expect(draft.billingMode).toBe('pay_per_session')
+    })
+  })
+
   describe('duplicate-override passthrough (Phase 6)', () => {
     it('passes possibleDuplicateClientId and duplicateOverrideReason when provided', () => {
       const { draft } = buildClientCreateDraft({
