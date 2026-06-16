@@ -23,6 +23,7 @@ import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
+import { fmtMoney } from '@/lib/format/money'
 import type { Client, Invoice, InvoiceStatus } from '@/types'
 import type { PaymentProvider } from '@/lib/whish'
 
@@ -58,10 +59,6 @@ function tabCount(invoices: Invoice[], tab: FilterTab): number {
   if (tab === 'outstanding') return invoices.filter(i => isOutstandingInvoiceStatus(i.status)).length
   if (tab === 'paid')        return invoices.filter(i => i.status === 'paid').length
   return invoices.length
-}
-
-function fmtMoney(n: number, currency = 'USD'): string {
-  return `${currency} ${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
 // ─── Summary cards ────────────────────────────────────────────────────────────

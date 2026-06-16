@@ -11,20 +11,12 @@
  */
 
 import Link from 'next/link'
+import { fmtMoneyCompact } from '@/lib/format/money'
 import type { MoneySnapshot } from '@/lib/dashboard/derive'
 
 interface BusinessHealthProps {
   snapshot:           MoneySnapshot
   activeClientsCount: number | null
-}
-
-function fmtMoney(n: number, currency: string): string {
-  if (n === 0) return '$0'
-  return new Intl.NumberFormat('en-US', {
-    style:                'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(n)
 }
 
 export function BusinessHealth({ snapshot, activeClientsCount }: BusinessHealthProps) {
@@ -39,7 +31,7 @@ export function BusinessHealth({ snapshot, activeClientsCount }: BusinessHealthP
       <Link
         href="/dashboard/invoices"
         className="flex flex-col gap-0.5 bg-[var(--fd-surface)] px-3 py-3.5 transition-colors hover:bg-[var(--fd-card)] active:opacity-70"
-        aria-label={`To collect: ${fmtMoney(outstandingAmount, currency)}. View invoices.`}
+        aria-label={`To collect: ${fmtMoneyCompact(outstandingAmount, currency)}. View invoices.`}
       >
         <p
           className="text-[10px] font-semibold uppercase tracking-wide"
@@ -51,7 +43,7 @@ export function BusinessHealth({ snapshot, activeClientsCount }: BusinessHealthP
           className="text-xl font-bold tabular-nums"
           style={{ color: hasOutstanding ? 'var(--fd-red)' : 'var(--fd-green)' }}
         >
-          {fmtMoney(outstandingAmount, currency)}
+          {fmtMoneyCompact(outstandingAmount, currency)}
         </p>
         <p className="text-[10px]" style={{ color: hasOutstanding ? 'var(--fd-red)' : 'var(--fd-green)' }}>
           {hasOutstanding
@@ -64,7 +56,7 @@ export function BusinessHealth({ snapshot, activeClientsCount }: BusinessHealthP
       <Link
         href="/dashboard/invoices"
         className="flex flex-col gap-0.5 border-l bg-[var(--fd-surface)] px-3 py-3.5 transition-colors hover:bg-[var(--fd-card)] active:opacity-70"
-        aria-label={`This month: ${fmtMoney(monthlyRevenue, currency)}. View invoices.`}
+        aria-label={`This month: ${fmtMoneyCompact(monthlyRevenue, currency)}. View invoices.`}
       >
         <p
           className="text-[10px] font-semibold uppercase tracking-wide"
@@ -76,7 +68,7 @@ export function BusinessHealth({ snapshot, activeClientsCount }: BusinessHealthP
           className="text-xl font-bold tabular-nums"
           style={{ color: 'var(--fd-text)' }}
         >
-          {fmtMoney(monthlyRevenue, currency)}
+          {fmtMoneyCompact(monthlyRevenue, currency)}
         </p>
         <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>
           collected

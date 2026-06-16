@@ -9,19 +9,11 @@
 
 import Link from 'next/link'
 import { AlertTriangle, ArrowRight } from 'lucide-react'
+import { fmtMoneyCompact } from '@/lib/format/money'
 import type { AttentionItem } from '@/lib/dashboard/derive'
 
 interface ActionCenterProps {
   items: AttentionItem[]
-}
-
-function fmtMoney(amount: number, currency: string): string {
-  if (amount === 0) return '$0'
-  return new Intl.NumberFormat('en-US', {
-    style:                'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount)
 }
 
 export function ActionCenter({ items }: ActionCenterProps) {
@@ -76,7 +68,7 @@ export function ActionCenter({ items }: ActionCenterProps) {
                   className="mt-0.5 text-xs"
                   style={{ color: isHigh ? 'var(--fd-red)' : 'var(--fd-muted)' }}
                 >
-                  {fmtMoney(item.outstandingAmount!, item.currency!)}
+                  {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
                   {item.ageDays !== undefined && item.ageDays > 0 && (
                     <> · {item.ageDays} day{item.ageDays !== 1 ? 's' : ''} overdue</>
                   )}
