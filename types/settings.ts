@@ -21,6 +21,8 @@
  * Import path: @/types/settings
  */
 
+import type { PaymentProvider } from '@/lib/whish'
+
 // ─── Domain primitives ───────────────────────────────────────────────────────
 
 /** Nominal-type helper. Use for opaque IDs that should not be cross-assigned. */
@@ -144,8 +146,6 @@ export interface BillingSettings {
 }
 
 // ─── Section 5 — Payments ────────────────────────────────────────────────────
-
-export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 
 export interface PaymentsSettings {
   paymentProvider:             PaymentProvider

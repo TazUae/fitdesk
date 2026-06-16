@@ -18,10 +18,10 @@ import type {
   Invoice,
   InvoiceStatus,
   Payment,
-  PaymentProvider,
   Session,
   SessionStatus,
 } from '@/types'
+import type { PaymentProvider } from '@/lib/whish'
 
 import { getTenantContext } from '@/lib/tenant/context'
 

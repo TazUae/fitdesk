@@ -9,6 +9,9 @@
  *    mapped in the adapter layer.
  */
 
+import type { PaymentProvider } from '@/lib/whish'
+export type { PaymentProvider }
+
 // ─── Status string unions ─────────────────────────────────────────────────────
 
 export type ClientStatus = 'active' | 'inactive' | 'paused'
@@ -18,8 +21,6 @@ export type SessionStatus = 'scheduled' | 'completed' | 'missed' | 'cancelled'
 // `sent` represents a submitted, unpaid (to-collect) invoice.
 // `partially_paid` represents a submitted invoice with a partial payment recorded.
 export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
-
-export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 
 /**
  * WhatsApp message categories.
