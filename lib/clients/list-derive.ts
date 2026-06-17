@@ -1,4 +1,5 @@
-import type { Client, Invoice, InvoiceStatus } from '@/types'
+import type { Client, Invoice } from '@/types'
+import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
 
 // ─── VM shape ─────────────────────────────────────────────────────────────────
@@ -24,10 +25,6 @@ export interface DeriveRosterOpts {
   /** False when invoice fetch failed — suppresses all money signals. Default true. */
   invoicesAvailable?: boolean
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const OUTSTANDING_STATUSES = new Set<InvoiceStatus>(['sent', 'partially_paid', 'overdue'])
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +67,7 @@ export function deriveClientRoster(
 
     if (invoicesAvailable) {
       for (const inv of byClient.get(client.id) ?? []) {
-        if (OUTSTANDING_STATUSES.has(inv.status)) {
+        if (isOutstandingInvoiceStatus(inv.status)) {
           outstanding += inv.outstandingAmount
           currency = inv.currency
         }
