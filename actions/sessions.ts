@@ -139,12 +139,3 @@ export async function noShowSession(sessionId: string): Promise<ActionResult<Ses
     return { success: false, error: err instanceof Error ? err.message : 'Failed to mark session as no-show' }
   }
 }
-
-// ─── Legacy aliases ───────────────────────────────────────────────────────────
-// Kept so existing components (SessionActions.tsx) keep compiling.
-// Remove once SessionActions is deleted.
-
-/** @deprecated use bookSession */
-export const addSession = bookSession
-/** @deprecated use cancelSession */
-export const removeSession = cancelSession

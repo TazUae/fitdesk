@@ -3,8 +3,7 @@
 import { addClient, fetchClients } from '@/actions/clients'
 import { addInvoice, fetchInvoices, recordPayment as recordInvoicePayment } from '@/actions/invoices'
 import { bookSession as createSessionBooking, fetchSessions } from '@/actions/sessions'
-import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
-import type { ActionResult, Client, Invoice, Payment, RecordPaymentResult, Session } from '@/types'
+import type { ActionResult, Client, Invoice, RecordPaymentResult, Session } from '@/types'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
 import type { BookSessionInput } from '@/actions/sessions'
@@ -68,34 +67,4 @@ export async function recordPayment(input: {
   note?:      string
 }): Promise<ActionResult<RecordPaymentResult>> {
   return recordInvoicePayment(input)
-}
-
-export async function getDashboardMetrics() {
-  const [clientsResult, sessionsResult, invoicesResult] = await Promise.all([
-    getClients(),
-    getSessions(),
-    getInvoices(),
-  ])
-
-  const clients = clientsResult.success ? clientsResult.data : []
-  const sessions = sessionsResult.success ? sessionsResult.data : []
-  const invoices = invoicesResult.success ? invoicesResult.data : []
-
-  const now = new Date()
-  const today = now.toISOString().slice(0, 10)
-  const monthStart = today.slice(0, 8) + '01'
-
-  return {
-    activeClients: clients.filter((c) => c.status === 'active').length,
-    totalClients: clients.length,
-    sessionsThisMonth: sessions.filter((s) => s.status === 'completed' && s.date >= monthStart).length,
-    overdueInvoices: invoices.filter((i) => i.status === 'overdue').length,
-    outstandingBalance: invoices
-      .filter((i) => isOutstandingInvoiceStatus(i.status))
-      .reduce((sum, i) => sum + i.outstandingAmount, 0),
-    monthlyRevenue: invoices
-      .filter((i) => i.status === 'paid' && i.issuedAt >= monthStart)
-      .reduce((sum, i) => sum + i.amount, 0),
-    currency: invoices.find((i) => i.currency)?.currency ?? 'USD',
-  }
 }
