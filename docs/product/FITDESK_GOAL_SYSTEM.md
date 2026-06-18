@@ -1,7 +1,7 @@
 # FitDesk Goal System 2.0 — Canonical Specification
 
 ```
-Status: Draft restored from approved handover — requires product owner confirmation
+Status: Source-backed v2.0 — sub-goals from docs/research/FITDESK_GOAL_SYSTEM_FULL_SOURCE.md — requires product owner confirmation
 Version: 2.0-draft
 Date: 2026-06-16
 Replaces: 7-goal flat taxonomy in components/ui/GoalSelect.tsx
@@ -74,86 +74,440 @@ Goal IDs are stable and must not change once written — changing an ID is a bre
 
 ## 2. Sub-Goal Lists
 
-Sub-goals refine what the client actually wants within a top-level goal. They are optional — a client may select a goal with no sub-goal.
+Source: `docs/research/FITDESK_GOAL_SYSTEM_FULL_SOURCE.md`
 
-There are two sub-goal layers:
+Sub-goals refine what the client actually wants within a top-level goal. They are optional — a client may select a goal with no sub-goal. Sub-goal rows are stored in the `client_sub_goal` table (`client_goal_id`, `sub_goal_key`, `layer`).
 
-- **Client-stated sub-goals** (`subGoalIds`) — what the client explicitly tells the trainer they want. Collected during Add Client intake. Stored in `client_goal.sub_goal_ids_json`.
-- **Trainer-assessed sub-goals** (`trainerSubGoalIds`) — what the trainer identifies through assessment, intake form, or conversation. May differ from what the client stated. Stored in `client_goal.trainer_sub_goal_ids_json` (schema addition required — see Recovery Plan Phase 4.2).
+Two sub-goal layers:
 
-### Core sub-goals
+- **Primary (client-stated)** — what the client articulates during Add Client intake. `layer = 'primary'` in `client_sub_goal`.
+- **Secondary (trainer-assessed)** — what the trainer identifies through screening and assessment. `layer = 'secondary'` in `client_sub_goal`.
 
-| Goal ID | Sub-goal ID | Label |
-|---|---|---|
-| `fat-loss` | `weight_loss_gradual` | Lose weight gradually |
-| `fat-loss` | `fat_percentage_reduction` | Reduce body fat % |
-| `fat-loss` | `improve_conditioning` | Improve conditioning |
-| `muscle` | `hypertrophy` | Hypertrophy (size) |
-| `muscle` | `lean_mass` | Lean muscle |
-| `muscle` | `strength_and_size` | Strength + size |
-| `strength` | `max_strength` | Increase max strength |
-| `strength` | `powerlifting` | Powerlifting |
-| `strength` | `functional_strength` | Functional strength |
-| `general` | `overall_health` | Overall health & wellness |
-| `general` | `energy_levels` | Boost daily energy |
-| `general` | `stress_relief` | Reduce stress through exercise |
-| `rehab` | `back_pain` | Back pain recovery |
-| `rehab` | `knee_recovery` | Knee recovery |
-| `rehab` | `shoulder_recovery` | Shoulder recovery |
-| `rehab` | `post_surgery` | Post-surgery rehabilitation |
-| `rehab` | `injury_prevention` | Injury prevention |
-| `sports` | `speed_agility` | Speed & agility |
-| `sports` | `sport_specific` | Sport-specific conditioning |
-| `sports` | `explosive_power` | Explosive power |
-| `mobility` | `flexibility` | General flexibility |
-| `mobility` | `joint_health` | Joint health & range of motion |
-| `mobility` | `yoga_pilates` | Yoga / Pilates integration |
-| `mental` | `focus_concentration` | Focus & concentration |
-| `mental` | `executive_performance` | Executive performance |
-| `mental` | `sport_psychology` | Sport psychology |
+### Core goal sub-goals
 
-### Specialist sub-goals
+#### fat-loss
 
-| Goal ID | Sub-goal ID | Label |
-|---|---|---|
-| `cardio` | `aerobic_base` | Build aerobic base |
-| `cardio` | `race_prep` | Race / event preparation |
-| `cardio` | `hiit` | HIIT & metabolic conditioning |
-| `aesthetics` | `bodybuilding` | Natural bodybuilding |
-| `aesthetics` | `physique_competition` | Physique competition |
-| `aesthetics` | `photo_shoot_prep` | Photo shoot preparation |
-| `aging` | `balance_fall_prevention` | Balance & fall prevention |
-| `aging` | `bone_density` | Bone density & osteoporosis |
-| `aging` | `active_aging` | Active aging & independence |
-| `functional` | `daily_movement` | Better daily movement |
-| `functional` | `carry_lift` | Carry & lift capacity |
-| `functional` | `balance_coordination` | Balance & coordination |
-| `weight-mgmt` | `weight_maintenance` | Long-term weight maintenance |
-| `weight-mgmt` | `metabolic_health` | Metabolic health |
-| `weight-mgmt` | `lifestyle_change` | Sustainable lifestyle change |
-| `postnatal` | `prenatal_safe` | Prenatal safe exercise |
-| `postnatal` | `postnatal_recovery` | Postnatal recovery |
-| `postnatal` | `diastasis_recti` | Diastasis recti recovery |
-| `youth` | `fundamental_movement` | Fundamental movement skills |
-| `youth` | `sport_readiness` | Sport readiness |
-| `youth` | `confidence_play` | Confidence through play |
-| `underweight` | `healthy_weight_gain` | Healthy weight gain |
-| `underweight` | `muscle_building_underweight` | Muscle building for underweight |
-| `underweight` | `nutritional_recovery` | Nutritional recovery support |
+**Primary (client-stated)**
 
-### Emerging sub-goals
+| Sub-goal ID | Label |
+|---|---|
+| `reduce_total_body_fat` | Reduce total body fat |
+| `improve_visible_muscle_definition` | Improve visible muscle definition |
+| `increase_daily_activity_level` | Increase daily activity level |
+| `improve_nutrition_habits` | Improve nutrition habits |
+| `boost_daily_energy_levels` | Boost daily energy levels |
+| `track_visceral_fat_reduction` | Track visceral fat reduction |
 
-| Goal ID | Sub-goal ID | Label |
-|---|---|---|
-| `glp1` | `muscle_preservation` | Muscle preservation on GLP-1 |
-| `glp1` | `metabolic_rate` | Maintain metabolic rate |
-| `glp1` | `recomposition_support` | Recomposition support |
-| `longevity` | `healthspan_extension` | Healthspan extension |
-| `longevity` | `mobility_longevity` | Mobility for longevity |
-| `longevity` | `cognitive_health` | Cognitive health through movement |
-| `neuro` | `vestibular_training` | Vestibular & balance training |
-| `neuro` | `proprioception` | Proprioception & body awareness |
-| `neuro` | `neurological_rehab` | Neurological rehabilitation support |
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `preserve_skeletal_muscle_mass` | Preserve skeletal muscle mass (SMMI ≥ 7.5 kg/m² M / 6.7 kg/m² F) |
+| `improve_insulin_sensitivity` | Improve insulin sensitivity |
+| `manage_cortisol_stress_eating` | Manage cortisol and stress eating |
+| `regulate_postprandial_glucose` | Regulate postprandial glucose |
+| `maintain_resting_metabolic_rate` | Maintain resting metabolic rate |
+
+#### muscle
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `build_lean_muscle_mass` | Build lean muscle mass |
+| `improve_overall_body_shape` | Improve overall body shape |
+| `increase_training_volume` | Increase training volume |
+| `target_lagging_muscle_groups` | Target lagging muscle groups |
+| `improve_body_symmetry` | Improve body symmetry |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `accelerate_muscle_protein_synthesis` | Accelerate muscle protein synthesis |
+| `improve_mind_muscle_connection` | Improve mind-muscle connection |
+| `reduce_junk_volume` | Reduce junk volume |
+| `optimise_myofibrillar_density` | Optimise myofibrillar density |
+| `optimise_sleep_for_recovery` | Optimise sleep for recovery |
+
+#### strength
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `increase_1rm_compound_lifts` | Increase 1RM on compound lifts |
+| `feel_physically_stronger` | Feel physically stronger |
+| `improve_bar_technique` | Improve bar technique |
+| `build_core_strength` | Build core strength |
+| `improve_grip_strength` | Improve grip strength |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_rate_of_force_development` | Improve rate of force development |
+| `improve_motor_unit_synchronisation` | Improve motor unit synchronisation |
+| `build_unilateral_strength_balance` | Build unilateral strength balance |
+| `strengthen_tendons_ligaments` | Strengthen tendons and ligaments |
+| `improve_bar_velocity_tracking` | Improve bar velocity tracking |
+
+#### general
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_daily_energy_levels` | Improve daily energy levels |
+| `build_consistent_routine` | Build a consistent routine |
+| `reduce_physical_stiffness` | Reduce physical stiffness |
+| `improve_overall_health_markers` | Improve overall health markers |
+| `manage_body_weight` | Manage body weight |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_heart_rate_recovery` | Improve heart rate recovery (≥12 bpm drop, 1 min post-exercise) |
+| `hit_weekly_activity_guidelines` | Hit weekly activity guidelines (≥150 min/week) |
+| `reduce_sedentary_hours_daily` | Reduce sedentary hours daily |
+| `develop_fundamental_movement_patterns` | Develop fundamental movement patterns |
+| `build_metabolic_flexibility` | Build metabolic flexibility |
+| `improve_daily_step_target` | Improve daily step target (7,000–10,000/day) |
+
+#### rehab
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `return_to_sport_or_daily_activity` | Return to sport or daily activity |
+| `reduce_movement_related_pain` | Reduce movement-related pain |
+| `rebuild_physical_confidence` | Rebuild physical confidence |
+| `restore_full_range_of_motion` | Restore full range of motion |
+| `improve_balance_and_stability` | Improve balance and stability |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `achieve_limb_symmetry_index` | Achieve limb symmetry index ≥90% |
+| `overcome_kinesiophobia` | Overcome kinesiophobia |
+| `rebuild_joint_proprioception` | Rebuild joint proprioception |
+| `correct_muscular_compensation` | Correct muscular compensation patterns |
+| `desensitise_cns_movement_threats` | Desensitise CNS to movement threats |
+
+#### sports
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_sprint_speed` | Improve sprint speed |
+| `increase_explosive_power` | Increase explosive power |
+| `improve_multi_directional_agility` | Improve multi-directional agility |
+| `improve_sport_specific_endurance` | Improve sport-specific endurance |
+| `improve_vertical_jump` | Improve vertical jump |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_reaction_time_decision_speed` | Improve reaction time and decision speed |
+| `improve_deceleration_mechanics` | Improve deceleration mechanics |
+| `improve_cognitive_physical_coordination` | Improve cognitive-physical coordination |
+| `build_unilateral_dynamic_balance` | Build unilateral dynamic balance |
+| `maximise_rate_of_force_development` | Maximise rate of force development |
+
+#### mobility
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_overall_flexibility` | Improve overall flexibility |
+| `reduce_joint_tightness` | Reduce joint tightness |
+| `improve_posture` | Improve posture |
+| `move_with_less_discomfort` | Move with less discomfort |
+| `expand_active_range_of_motion` | Expand active range of motion |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_thoracic_spine_rotation` | Improve thoracic spine rotation |
+| `improve_hip_flexor_length` | Improve hip flexor length |
+| `improve_ankle_dorsiflexion` | Improve ankle dorsiflexion |
+| `balance_length_tension_relationships` | Balance length-tension relationships |
+| `resolve_positional_muscle_hypertonicity` | Resolve positional muscle hypertonicity |
+
+#### mental
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `reduce_daily_stress` | Reduce daily stress |
+| `improve_mood_and_outlook` | Improve mood and outlook |
+| `improve_sleep_quality` | Improve sleep quality |
+| `build_exercise_consistency` | Build exercise consistency |
+| `increase_self_confidence` | Increase self-confidence |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `stimulate_bdnf_through_movement` | Stimulate BDNF through movement |
+| `improve_hrv_trends` | Improve HRV trends |
+| `regulate_cortisol_through_training` | Regulate cortisol through training |
+| `shift_parasympathetic_balance` | Shift parasympathetic balance |
+| `improve_post_workout_cognitive_clarity` | Improve post-workout cognitive clarity |
+
+### Specialist goal sub-goals
+
+#### cardio
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_stamina_and_endurance` | Improve stamina and endurance |
+| `run_or_cycle_longer_distances` | Run or cycle longer distances |
+| `feel_less_breathless_daily` | Feel less breathless daily |
+| `improve_cardiorespiratory_health` | Improve cardiorespiratory health |
+| `increase_daily_step_count` | Increase daily step count |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_vo2_max_score` | Improve VO2 max score |
+| `improve_zone2_aerobic_threshold` | Improve Zone 2 aerobic threshold |
+| `increase_cardiac_stroke_volume` | Increase cardiac stroke volume |
+| `drive_mitochondrial_biogenesis` | Drive mitochondrial biogenesis |
+| `reduce_exercise_induced_arterial_stiffness` | Reduce exercise-induced arterial stiffness |
+
+#### aesthetics
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_muscle_definition_separation` | Improve muscle definition and separation |
+| `achieve_low_target_body_fat_pct` | Achieve low target body fat percentage |
+| `balance_muscle_symmetry` | Balance muscle symmetry |
+| `achieve_competition_physique` | Achieve competition physique |
+| `improve_visual_body_proportions` | Improve visual body proportions |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `correct_postural_imbalance_visual_lines` | Correct postural imbalance for visual lines |
+| `manage_subcutaneous_fluid_retention` | Manage subcutaneous fluid retention |
+| `selectively_hypertrophy_target_groups` | Selectively hypertrophy target muscle groups |
+| `monitor_muscle_dysmorphia_signs` | Monitor for muscle dysmorphia signs |
+| `maintain_hormonal_health_during_deficit` | Maintain hormonal health during deficit |
+
+#### aging
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `maintain_physical_independence` | Maintain physical independence |
+| `improve_balance_and_stability` | Improve balance and stability |
+| `keep_muscle_mass_long_term` | Keep muscle mass long-term |
+| `stay_active_and_mobile` | Stay active and mobile |
+| `reduce_fall_risk` | Reduce fall risk |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_single_leg_balance_time` | Improve single-leg balance time (≥30s eyes-closed) |
+| `track_gait_speed_improvement` | Track gait speed improvement (>1.0 m/s) |
+| `maintain_grip_strength_benchmarks` | Maintain grip strength benchmarks |
+| `support_bone_mineral_density` | Support bone mineral density |
+| `prevent_age_related_sarcopenia` | Prevent age-related sarcopenia |
+
+#### functional
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `lift_and_carry_without_pain` | Lift and carry without pain |
+| `climb_stairs_with_ease` | Climb stairs with ease |
+| `reduce_back_pain` | Reduce back pain |
+| `improve_walking_endurance` | Improve walking endurance |
+| `build_floor_to_stand_strength` | Build floor-to-stand strength |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_timed_up_and_go_score` | Improve Timed Up and Go (TUG) score (<12s) |
+| `build_unilateral_carry_capacity` | Build unilateral carry capacity |
+| `improve_3d_balance_under_fatigue` | Improve 3D balance under fatigue |
+| `develop_multi_planar_core_stability` | Develop multi-planar core stability |
+| `optimise_joint_biomechanics` | Optimise joint biomechanics |
+
+#### weight-mgmt
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `maintain_stable_healthy_weight` | Maintain a stable healthy weight |
+| `avoid_weight_regain` | Avoid weight regain |
+| `build_sustainable_habits` | Build sustainable habits |
+| `improve_metabolic_health` | Improve metabolic health |
+| `reduce_emotional_eating` | Reduce emotional eating |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `normalise_leptin_ghrelin_levels` | Normalise leptin and ghrelin levels |
+| `break_yo_yo_weight_cycling` | Break yo-yo weight cycling |
+| `build_neat_activity_habits` | Build NEAT activity habits |
+| `preserve_resting_metabolic_rate` | Preserve resting metabolic rate |
+| `support_long_term_hormonal_balance` | Support long-term hormonal balance |
+
+#### postnatal
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `stay_active_during_pregnancy` | Stay active and fit during pregnancy |
+| `prepare_body_for_labour_and_birth` | Prepare body for labour and birth |
+| `execute_safe_postpartum_return` | Execute safe postpartum return |
+| `rebuild_core_strength_after_birth` | Rebuild core strength after birth |
+| `reduce_discomfort_during_pregnancy` | Reduce discomfort during pregnancy |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `strengthen_transverse_abdominis` | Strengthen transverse abdominis |
+| `manage_prevent_diastasis_recti` | Manage and prevent Diastasis Recti |
+| `rehabilitate_pelvic_floor_dysfunction` | Rehabilitate pelvic floor dysfunction |
+| `manage_si_joint_pelvic_girdle_pain` | Manage SI joint and pelvic girdle pain |
+| `avoid_loaded_oblique_twisting` | Avoid loaded oblique twisting exercises |
+
+#### youth
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `build_physical_strength_safely` | Build physical strength safely |
+| `improve_speed_and_agility` | Improve speed and agility |
+| `develop_sport_skills` | Develop sport skills |
+| `build_movement_confidence` | Build movement confidence |
+| `improve_athletic_performance` | Improve athletic performance |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `progress_through_ltad_stage_model` | Progress through LTAD stage model |
+| `build_multi_sport_motor_coordination` | Build multi-sport motor coordination |
+| `increase_bone_mineral_density` | Increase bone mineral density |
+| `avoid_early_sports_specialisation` | Avoid early sports specialisation |
+| `develop_psychosocial_self_efficacy` | Develop psychosocial self-efficacy |
+
+#### underweight
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `increase_total_body_mass` | Increase total body mass |
+| `build_lean_muscle_tissue` | Build lean muscle tissue |
+| `improve_physical_presence` | Improve physical presence |
+| `gain_weight_healthily_and_steadily` | Gain weight healthily and steadily |
+| `improve_appetite_consistency` | Improve appetite consistency |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `maintain_positive_caloric_surplus` | Maintain positive caloric surplus (+250–500 kcal/day) |
+| `optimise_testosterone_cortisol_ratio` | Optimise testosterone-to-cortisol ratio |
+| `improve_gut_nutrient_absorption` | Improve gut nutrient absorption |
+| `shorten_overnight_fasting_window` | Shorten overnight fasting window |
+| `target_lean_mass_gain_per_week` | Target 0.5–1 lb/week lean mass gain |
+
+### Emerging goal sub-goals
+
+#### glp1
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `preserve_lean_muscle_during_weight_loss` | Preserve lean muscle during weight loss |
+| `maintain_physical_strength` | Maintain physical strength |
+| `protect_bone_density` | Protect bone density |
+| `keep_energy_levels_stable` | Keep energy levels stable |
+| `build_safe_exercise_habit` | Build a safe exercise habit |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `achieve_80pct_fat_to_muscle_ratio` | Achieve ≥80% fat-to-muscle loss ratio (Preservation Index ≤20%) |
+| `prevent_medication_induced_muscle_crisis` | Prevent medication-induced muscle crisis |
+| `manage_nausea_fatigue_around_sessions` | Manage nausea and fatigue around sessions |
+| `ensure_adequate_protein_hydration` | Ensure adequate protein and hydration |
+| `monitor_dxa_skeletal_mass_regularly` | Monitor DXA skeletal mass regularly |
+
+#### longevity
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `slow_biological_aging_process` | Slow biological aging process |
+| `preserve_cognitive_sharpness` | Preserve cognitive sharpness |
+| `extend_healthy_active_years` | Extend healthy active years |
+| `maintain_long_term_physical_independence` | Maintain long-term physical independence |
+| `improve_energy_and_vitality` | Improve energy and vitality |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_mitochondrial_health` | Improve mitochondrial health |
+| `reduce_dunedinpace_biological_age_rate` | Reduce DunedinPACE biological age rate |
+| `build_autonomic_nervous_system_resilience` | Build autonomic nervous system resilience |
+| `improve_gut_microbiome_through_exercise` | Improve gut microbiome through exercise |
+| `support_deep_sleep_architecture` | Support deep sleep architecture |
+
+#### neuro
+
+**Primary (client-stated)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `reduce_chronic_movement_pain` | Reduce chronic movement pain |
+| `improve_balance_and_coordination` | Improve balance and coordination |
+| `improve_physical_confidence` | Improve physical confidence |
+| `restore_full_movement_patterns` | Restore full movement patterns |
+| `reduce_dizziness_spatial_instability` | Reduce dizziness or spatial instability |
+
+**Secondary (trainer-assessed)**
+
+| Sub-goal ID | Label |
+|---|---|
+| `improve_vor_gaze_stabilisation` | Improve VOR gaze stabilisation |
+| `reduce_brain_threat_perception_movement` | Reduce brain threat perception of movement |
+| `reintegrate_sensory_triad` | Re-integrate visual-vestibular-proprioceptive sensory triad |
+| `improve_executive_attentional_control` | Improve executive attentional control |
+| `complete_calm_activate_prime_routines` | Complete Calm-Activate-Prime routines |
 
 ---
 
@@ -270,7 +624,7 @@ Safety flags are computed server-side from selected goal IDs and written atomica
 
 `intake_goal_program_mapping` is the **future queryable, data-driven source of truth** that maps intake goal IDs to recommended training program templates.
 
-It must **not** be implemented as scattered inline conditionals inside UI components or the program builder. All goal-to-program mapping logic must live in a single location: `lib/goals/program-map.ts` in MVP, and a database table queried at runtime in the long-term architecture.
+It must **not** be implemented as scattered inline conditionals inside UI components or the program builder. All goal-to-program mapping logic must live in a single location: `lib/goals/mapping.ts` in MVP, and a database table queried at runtime in the long-term architecture.
 
 The long-term architecture enables:
 - Per-tenant program customization
@@ -333,7 +687,7 @@ Missing mappings (resolved by adding new ProgramGoal values):
   neuro        → neuro_centric_movement   (NEW ProgramGoal added in Goal System 2.0)
 ```
 
-**Sub-goal refinement:** Sub-goals may shift the recommended program template within a ProgramGoal. For example, `rehab` with `back_pain` sub-goal recommends a spine-focused program variant within `rehab_return_to_training`. This refinement logic lives in `lib/goals/program-map.ts`.
+**Sub-goal refinement:** Sub-goals may shift the recommended program template within a ProgramGoal. For example, `rehab` with `return_to_sport_or_daily_activity` sub-goal recommends a return-to-training variant within `rehab_return_to_training`. This refinement logic lives in `lib/goals/mapping.ts`.
 
 **Safety gate on program generation:** When `client_index.safety_state` is `needs_review` or `blocked_downstream`, program generation must:
 - Skip auto-recommendation until the safety note is logged
@@ -362,7 +716,7 @@ The AI parse system (`lib/clients/ai-parse.ts`) extracts structured goal data fr
 
 ### Canonical allowed list
 
-`AI_PARSE_ALLOWED_GOALS` in `lib/clients/ai-parse.ts` must be **derived** from the single canonical source in `lib/goals/constants.ts` — not a manual copy. The drift-guard test in `lib/clients/__tests__/ai-parse.test.ts` is the safety net during the transition period before the derivation is wired.
+`AI_PARSE_ALLOWED_GOALS` in `lib/clients/ai-parse.ts` must be **derived** from the single canonical source in `lib/goals/taxonomy.ts` — not a manual copy. The drift-guard test in `lib/clients/__tests__/ai-parse.test.ts` is the safety net during the transition period before the derivation is wired.
 
 ### Confidence handling
 
@@ -444,9 +798,10 @@ Shown when `client_index.safety_state = 'needs_review'`:
 
 Goal System 2.0 is complete when:
 
-- [ ] `lib/goals/constants.ts` exports `GOALS` (19 entries with canonical IDs, labels, categories), `GoalValue`, `GOAL_CATEGORIES`, `SUB_GOALS`, `GOAL_SAFETY_FLAGS`
-- [ ] `components/ui/GoalSelect.tsx` and `GoalMultiSelect.tsx` import from `lib/goals/constants.ts` (no self-defined constants)
-- [ ] `AI_PARSE_ALLOWED_GOALS` is derived from `lib/goals/constants.ts`, not a manual copy
+- [ ] `lib/goals/taxonomy.ts` exports `GOALS` (19 entries), `IntakeGoalId`, `GoalSection`, `SubGoalLayer`, `SUB_GOALS`, `GOAL_SAFETY_FLAGS`, `LEGACY_GOAL_ALIASES`, `LEGACY_SUBGOAL_ALIASES`
+- [ ] `lib/goals/mapping.ts` exports `ProgramGoal`, `INTAKE_GOAL_PROGRAM_MAP`, `resolveProgramGoal`
+- [ ] `components/ui/GoalSelect.tsx` and `GoalMultiSelect.tsx` import from `lib/goals/taxonomy.ts` (no self-defined constants)
+- [ ] `AI_PARSE_ALLOWED_GOALS` is derived from `lib/goals/taxonomy.ts`, not a manual copy
 - [ ] `client_goal` table has `is_primary INTEGER NOT NULL DEFAULT 0` column
 - [ ] `client_goal` table has `trainer_sub_goal_ids_json TEXT NOT NULL DEFAULT '[]'` column
 - [ ] `createClientRow()` creates one `client_goal` row per selected goal, with exactly one `is_primary = 1`
@@ -456,7 +811,7 @@ Goal System 2.0 is complete when:
 - [ ] Soft conflict tips render inline in the Add Client goal section (non-blocking)
 - [ ] Hard conflicts (`underweight` + `fat-loss`) block submit until trainer resolves direction
 - [ ] Server-side hard conflict validation in `addClient()` rejects unresolved hard conflicts
-- [ ] `intake_goal_program_mapping` static version in `lib/goals/program-map.ts` covers all 19 goals with the 10+7+2 mapping split
+- [ ] `intake_goal_program_mapping` static version in `lib/goals/mapping.ts` covers all 19 goals with the 10+7+2 mapping split
 - [ ] `ProgramGoal` type has exactly 12 values including `youth_physical_literacy` and `neuro_centric_movement`
 - [ ] Program generation respects `safetyState`: suppresses high-intensity templates for `prenatal_postnatal` and `injury_risk` flags
 - [ ] Postnatal hard check: trainer must confirm prenatal/postnatal phase and medical clearance before program is recommended

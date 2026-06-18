@@ -26,10 +26,10 @@ These apply to every phase of this plan. Violating any of them requires explicit
 3. **No Client Hub or Dashboard redesign.** Goal System 2.0 adds a goal card and a safety panel to the existing Client Hub. It does not redesign the hub layout, the dashboard command center, or the action center.
 4. **No ERP schema changes without approval.** The ERP `Customer` DocType stores `custom_fitness_goals` as a free-text field. Changing that field type or adding new ERP custom fields requires explicit approval from the product owner and must go through the approved ERP execution service path.
 5. **No new auth systems, no new services.** The goal system uses the existing Drizzle/libsql local store, the existing ERP proxy, and the existing Better Auth session. No new services, queues, or databases.
-6. **No hardcoded goal mappings in UI components.** All goal constants live in `lib/goals/constants.ts` after Phase 4.1. UI components import from there.
+6. **No hardcoded goal mappings in UI components.** All goal constants live in `lib/goals/taxonomy.ts` after Phase 4.1. UI components import from there.
 7. **No fifth goal system.** The codebase has had multiple competing implementations (GoalSelect, GoalMultiSelect, GoalWithSubGoal, MultiGoalSelector). This plan consolidates to exactly one system. Do not introduce new goal selector variants.
 8. **No automatic side effects on Add Client.** The Add Client flow must not auto-send WhatsApp messages, auto-create invoices or sessions, or auto-run billing logic. The existing guardrails must be preserved.
-9. **No duplicate constants.** Goal IDs, goal labels, category groupings, sub-goal lists, and safety flag triggers must live in `lib/goals/constants.ts` only. No copies, no inline duplicates, no re-definitions in UI components, actions, or tests. All consumers import from the canonical module.
+9. **No duplicate constants.** Goal IDs, goal labels, category groupings, sub-goal lists, and safety flag triggers must live in `lib/goals/taxonomy.ts` only. No copies, no inline duplicates, no re-definitions in UI components, actions, or tests. All consumers import from the canonical module.
 10. **No direct ERP bypass.** All ERP I/O must go through the approved `erpFetch` proxy path (`lib/erpnext/client.ts`). Goal-system code must not call ERPNext DocType APIs directly, must not construct raw Frappe API URLs, and must not write to ERPNext from client components or outside the approved server-side path.
 
 ---
@@ -113,11 +113,11 @@ This is the main implementation phase. It is broken into sub-phases that are seq
 
 | Task | Notes |
 |---|---|
-| Create `lib/goals/constants.ts` | Export `GOALS` (19 entries with id, label, category), `GoalValue`, `GOAL_CATEGORIES`, `SUB_GOALS` map, `GOAL_SAFETY_FLAGS` map |
-| Update `components/ui/GoalSelect.tsx` to import from `lib/goals/constants.ts` | Remove self-defined `GOALS` const; pure re-export or import |
-| Update `components/ui/GoalMultiSelect.tsx` to import from `lib/goals/constants.ts` | Remove self-defined imports from GoalSelect |
-| Update `lib/clients/ai-parse.ts` to derive `AI_PARSE_ALLOWED_GOALS` from `lib/goals/constants.ts` | Remove manual copy; update drift-guard test |
-| Create `lib/goals/program-map.ts` | `ProgramGoal` type + `intake_goal_program_mapping` static object |
+| Create `lib/goals/taxonomy.ts` | Export `GOALS` (19 entries), `IntakeGoalId`, `GoalSection`, `SubGoalLayer`, `SUB_GOALS` map, `GOAL_SAFETY_FLAGS` map, `LEGACY_GOAL_ALIASES`, `LEGACY_SUBGOAL_ALIASES` |
+| Update `components/ui/GoalSelect.tsx` to import from `lib/goals/taxonomy.ts` | Remove self-defined `GOALS` const; pure re-export or import |
+| Update `components/ui/GoalMultiSelect.tsx` to import from `lib/goals/taxonomy.ts` | Remove self-defined imports from GoalSelect |
+| Update `lib/clients/ai-parse.ts` to derive `AI_PARSE_ALLOWED_GOALS` from `lib/goals/taxonomy.ts` | Remove manual copy; update drift-guard test |
+| Create `lib/goals/mapping.ts` | `ProgramGoal` type + `INTAKE_GOAL_PROGRAM_MAP` + `resolveProgramGoal` |
 
 **No schema changes in this sub-phase. No UI changes beyond import paths.**
 
@@ -145,7 +145,7 @@ This is the main implementation phase. It is broken into sub-phases that are seq
 |---|---|
 | Expand `GoalMultiSelect` to display 19 goals grouped by category (Core / Specialist / Emerging) | UI change; no schema change |
 | Add primary goal designation UI (first selected = primary; trainer can change) | UI state only |
-| Add sub-goals for all 19 goals (where defined in `lib/goals/constants.ts`) | Uses canonical SUB_GOALS map |
+| Add sub-goals for all 19 goals (where defined in `lib/goals/taxonomy.ts`) | Uses canonical SUB_GOALS map |
 | Wire sub-goal selection to form state; ensure sub-goal values are passed to `addClient()` payload | Form → action wire-up |
 | Add urgency selector per goal (optional; defaults to `active_focus` for primary, `background` for secondary) | UI + payload |
 
@@ -172,7 +172,7 @@ This is the main implementation phase. It is broken into sub-phases that are seq
 
 | Task | Notes |
 |---|---|
-| Implement `computeSafetyFlags(goalIds: string[]): SafetyFlag[]` in `lib/goals/safety.ts` | Pure function; uses `GOAL_SAFETY_FLAGS` map from `lib/goals/constants.ts` |
+| Implement `computeSafetyFlags(goalIds: string[]): SafetyFlag[]` in `lib/goals/safety.ts` | Pure function; uses `GOAL_SAFETY_FLAGS` map from `lib/goals/taxonomy.ts` |
 | Call `computeSafetyFlags()` in `buildClientCreateDraft()` | Sets `safetyFlags` on each goal draft |
 | Write safety flags to `client_goal.safety_flags_json` in `createClientRow()` | Already schema-supported |
 | Compute and write `safety_state` on `client_index` in `createClientRow()` | 'needs_review' if any flag present; else 'clear' |
@@ -196,7 +196,7 @@ End-to-end validation that the full goal persistence chain works:
 | Task | Notes |
 |---|---|
 | Update `buildParsePrompt()` in `lib/clients/ai-parse.ts` to list all 19 canonical goal IDs | Prompt update; model remains `claude-haiku-4-5-20251001` |
-| Update AI parse test suite with 19-goal drift guard | Replace hardcoded 7-goal list with derivation from `lib/goals/constants.ts` |
+| Update AI parse test suite with 19-goal drift guard | Replace hardcoded 7-goal list with derivation from `lib/goals/taxonomy.ts` |
 | Validate AI parse can correctly identify new goals (manual smoke test) | Not automated; spot-check with example trainer text |
 
 **Exit gate:** AI parse drift-guard test passes with 19 goals. Existing parse tests pass. `build:verify` clean.
