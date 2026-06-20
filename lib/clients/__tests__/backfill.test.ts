@@ -46,7 +46,9 @@ const CLIENT_TABLES_DDL = [
   `CREATE TABLE IF NOT EXISTS "client_goal" (
     "id" TEXT NOT NULL PRIMARY KEY, "tenant_id" TEXT NOT NULL,
     "client_index_id" TEXT NOT NULL, "erp_customer_id" TEXT NOT NULL,
-    "goal_id" TEXT NOT NULL, "sub_goal_ids_json" TEXT NOT NULL DEFAULT '[]',
+    "goal_id" TEXT NOT NULL, "is_primary" INTEGER NOT NULL DEFAULT 0,
+    "sub_goal_ids_json" TEXT NOT NULL DEFAULT '[]',
+    "trainer_sub_goal_ids_json" TEXT NOT NULL DEFAULT '[]',
     "urgency" TEXT NOT NULL DEFAULT 'active_focus', "confidence" TEXT NOT NULL DEFAULT 'unknown',
     "source" TEXT NOT NULL DEFAULT 'system_inferred', "safety_flags_json" TEXT NOT NULL DEFAULT '[]',
     "notes" TEXT, "status" TEXT NOT NULL DEFAULT 'active',

@@ -33,20 +33,22 @@ const baseIndex: ClientIndex = {
 }
 
 const baseGoal: ClientGoal = {
-  id:            'goal-1',
-  tenantId:      'tenant-a',
-  clientIndexId: 'ci-local-1',
-  erpCustomerId: 'CUST-100',
-  goalId:        'fat_loss',
-  subGoalIds:    [],
-  urgency:       'active_focus',
-  confidence:    'high',
-  source:        'trainer_manual',
-  safetyFlags:   [],
-  notes:         null,
-  status:        'active',
-  createdAtUtc:  NOW,
-  updatedAtUtc:  NOW,
+  id:                'goal-1',
+  tenantId:          'tenant-a',
+  clientIndexId:     'ci-local-1',
+  erpCustomerId:     'CUST-100',
+  goalId:            'fat_loss',
+  isPrimary:         true,
+  subGoalIds:        [],
+  trainerSubGoalIds: [],
+  urgency:           'active_focus',
+  confidence:        'high',
+  source:            'trainer_manual',
+  safetyFlags:       [],
+  notes:             null,
+  status:            'active',
+  createdAtUtc:      NOW,
+  updatedAtUtc:      NOW,
 }
 
 const baseIntent: ClientActionIntent = {

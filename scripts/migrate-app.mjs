@@ -138,6 +138,66 @@ for (const sql of statements) {
   }
 }
 
+// ── Phase 4.2 — additive column migrations (PRAGMA-guarded) ────────────────
+//
+// SQLite has no ADD COLUMN IF NOT EXISTS.
+// We use PRAGMA table_info to check for column existence before each ALTER.
+// Safe to re-run: the check prevents duplicate-column errors.
+
+async function columnExists(columnName) {
+  const { rows } = await client.execute(`PRAGMA table_info("client_goal")`)
+  return rows.some(r => r.name === columnName)
+}
+
+if (!(await columnExists('is_primary'))) {
+  try {
+    await client.execute(
+      `ALTER TABLE "client_goal" ADD COLUMN "is_primary" INTEGER NOT NULL DEFAULT 0`
+    )
+    console.log('✓ client_goal.is_primary column added')
+  } catch (err) {
+    console.error('[app-migration] ALTER client_goal (is_primary) failed:', err.message)
+    process.exit(1)
+  }
+} else {
+  console.log('✓ client_goal.is_primary already present')
+}
+
+if (!(await columnExists('trainer_sub_goal_ids_json'))) {
+  try {
+    await client.execute(
+      `ALTER TABLE "client_goal" ADD COLUMN "trainer_sub_goal_ids_json" TEXT NOT NULL DEFAULT '[]'`
+    )
+    console.log('✓ client_goal.trainer_sub_goal_ids_json column added')
+  } catch (err) {
+    console.error('[app-migration] ALTER client_goal (trainer_sub_goal_ids_json) failed:', err.message)
+    process.exit(1)
+  }
+} else {
+  console.log('✓ client_goal.trainer_sub_goal_ids_json already present')
+}
+
+// Backfill: mark existing client_goal rows as primary when goal_id matches
+// client_index.primary_goal_id. Tenant-correlated, idempotent (WHERE is_primary = 0).
+try {
+  await client.execute(`
+    UPDATE "client_goal"
+    SET "is_primary" = 1,
+        "updated_at_utc" = datetime('now')
+    WHERE "is_primary" = 0
+      AND EXISTS (
+        SELECT 1 FROM "client_index" ci
+        WHERE ci."id"              = "client_goal"."client_index_id"
+          AND ci."tenant_id"       = "client_goal"."tenant_id"
+          AND ci."primary_goal_id" = "client_goal"."goal_id"
+      )
+  `)
+  console.log('✓ client_goal.is_primary backfill complete')
+} catch (err) {
+  console.error('[app-migration] is_primary backfill failed:', err.message)
+  process.exit(1)
+}
+
 console.log('\nVerifying app tables...')
 const { rows } = await client.execute(
   `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`

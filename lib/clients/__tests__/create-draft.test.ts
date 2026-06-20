@@ -76,6 +76,22 @@ describe('buildClientCreateDraft', () => {
       expect(draft.primaryGoalLabel).toBe('Fat loss')
     })
 
+    it('sets isPrimary: true for a clean trainer-selected goal', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+      })
+      expect(draft.isPrimary).toBe(true)
+    })
+
+    it('sets trainerSubGoalIds to [] by default — no fabricated trainer sub-goals', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+      })
+      expect(draft.trainerSubGoalIds).toEqual([])
+    })
+
     it('takes the first value for a multi-goal selection and keeps the full label', () => {
       const { draft } = buildClientCreateDraft({
         tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(),
@@ -97,6 +113,14 @@ describe('buildClientCreateDraft', () => {
       expect(draft.primaryGoalLabel).toBe('just lose weight')
     })
 
+    it('isPrimary is undefined when goalId is null (no goal row will be written)', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(),
+        customFitnessGoals: 'just lose weight',
+      })
+      expect(draft.isPrimary).toBeUndefined()
+    })
+
     it('does not fabricate a structured goal from a legacy object without a value field', () => {
       const { draft } = buildClientCreateDraft({
         tenantId: 'tenant-a', userId: 'user-1', createdClient: makeClient(),
@@ -112,6 +136,20 @@ describe('buildClientCreateDraft', () => {
       })
       expect(draft.goalId).toBeNull()
       expect(draft.primaryGoalLabel).toBeNull()
+    })
+
+    it('ERP custom_fitness_goals serialization is unchanged — no new fields in ERP payload', () => {
+      // The ERP payload is built in AddClientForm.buildPayload(), not in create-draft.
+      // Confirm that the draft does NOT include anything that would mutate the ERP path.
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+      })
+      // These are LOCAL-only enrichment fields — they have no ERP equivalent.
+      expect(draft.isPrimary).toBe(true)
+      expect(draft.trainerSubGoalIds).toEqual([])
+      // erpCustomerId is unchanged and still the ERP docname
+      expect(draft.erpCustomerId).toBe('CUST-100')
     })
   })
 

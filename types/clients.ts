@@ -113,7 +113,9 @@ export type ClientGoal = {
   erpCustomerId: string
 
   goalId: string
+  isPrimary: boolean
   subGoalIds: string[]
+  trainerSubGoalIds: string[]
   urgency: GoalUrgency
   confidence: GoalConfidence
   source: GoalSource
@@ -198,7 +200,9 @@ export type ClientCreateDraft = {
   primaryGoalLabel: string | null
   primaryGoalId: string | null
   goalId: string | null
+  isPrimary?: boolean
   subGoalIds: string[]
+  trainerSubGoalIds?: string[]
   goalUrgency: GoalUrgency | null
   goalConfidence: GoalConfidence
   goalSource: GoalSource
