@@ -2,30 +2,17 @@
 
 import { Check, ChevronDown } from 'lucide-react'
 import { GOALS, type GoalValue } from './GoalSelect'
+import { normalizeGoalId, getSubGoals } from '@/lib/goals/taxonomy'
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const SUB_GOALS: Partial<Record<GoalValue, { label: string; value: string }[]>> = {
-  fat_loss: [
-    { label: 'Lose weight gradually', value: 'weight_loss' },
-    { label: 'Reduce body fat %',     value: 'fat_percentage' },
-    { label: 'Improve conditioning',  value: 'conditioning' },
-  ],
-  muscle_gain: [
-    { label: 'Hypertrophy', value: 'hypertrophy' },
-    { label: 'Lean muscle', value: 'lean_mass' },
-    { label: 'Bulking',     value: 'bulking' },
-  ],
-  strength: [
-    { label: 'Increase max strength', value: 'max_strength' },
-    { label: 'Powerlifting',          value: 'powerlifting' },
-  ],
-  rehabilitation: [
-    { label: 'Back pain recovery', value: 'back_pain' },
-    { label: 'Knee recovery',      value: 'knee_recovery' },
-    { label: 'Post injury',        value: 'injury_recovery' },
-  ],
+function getCanonicalSubGoalOptions(legacyGoalId: string): { label: string; value: string }[] {
+  const canonical = normalizeGoalId(legacyGoalId)
+  if (!canonical) return []
+  return getSubGoals(canonical, 'primary').map(sg => ({ label: sg.label, value: sg.id }))
 }
+
+// ─── Target label (goal-specific numeric target input, not sub-goals) ─────────
 
 const TARGET_LABEL: Partial<Record<GoalValue, string>> = {
   fat_loss:    'Target weight (kg)',
@@ -56,7 +43,7 @@ export function GoalMultiSelect({
   onSubGoalsChange,
   onTargetChange,
 }: GoalMultiSelectProps) {
-  const goalsWithFocus = goals.filter(g => SUB_GOALS[g as GoalValue]?.length)
+  const goalsWithFocus = goals.filter(g => getCanonicalSubGoalOptions(g).length > 0)
   const singleGoal     = goals.length === 1 ? (goals[0] as GoalValue) : null
   const targetLabel    = singleGoal ? (TARGET_LABEL[singleGoal] ?? null) : null
 
@@ -131,7 +118,7 @@ export function GoalMultiSelect({
         <div className="space-y-3">
           {goalsWithFocus.map(goalValue => {
             const goalLabel  = GOALS.find(g => g.value === goalValue)?.label ?? goalValue
-            const subOptions = SUB_GOALS[goalValue as GoalValue] ?? []
+            const subOptions = getCanonicalSubGoalOptions(goalValue)
             const current    = subGoals[goalValue] ?? ''
 
             return (

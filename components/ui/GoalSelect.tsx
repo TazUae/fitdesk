@@ -1,20 +1,35 @@
 'use client'
 
 import { ChevronDown } from 'lucide-react'
+import { normalizeGoalId } from '@/lib/goals/taxonomy'
+import { formatGoalLabel } from '@/lib/goals/format'
 
 // ─── Options ──────────────────────────────────────────────────────────────────
+//
+// VALUES are the 7 legacy underscore IDs written to ERP custom_fitness_goals.
+// LABELS are derived from the canonical taxonomy via normalizeGoalId + formatGoalLabel.
+// Backward compat: LEGACY_GOAL_ALIASES in taxonomy.ts maps these to canonical IDs.
 
-export const GOALS = [
-  { label: 'Fat Loss',               value: 'fat_loss' },
-  { label: 'Muscle Gain',            value: 'muscle_gain' },
-  { label: 'Strength',               value: 'strength' },
-  { label: 'General Fitness',        value: 'general_fitness' },
-  { label: 'Rehabilitation',         value: 'rehabilitation' },
-  { label: 'Sports Performance',     value: 'sports_performance' },
-  { label: 'Mobility & Flexibility', value: 'mobility' },
+const LEGACY_GOAL_IDS = [
+  'fat_loss',
+  'muscle_gain',
+  'strength',
+  'general_fitness',
+  'rehabilitation',
+  'sports_performance',
+  'mobility',
 ] as const
 
-export type GoalValue = (typeof GOALS)[number]['value']
+export type GoalValue = typeof LEGACY_GOAL_IDS[number]
+
+export const GOALS: readonly { label: string; value: GoalValue }[] =
+  LEGACY_GOAL_IDS.map(legacyId => {
+    const canonical = normalizeGoalId(legacyId)
+    return {
+      value: legacyId,
+      label: canonical ? formatGoalLabel(canonical) : legacyId,
+    }
+  })
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
