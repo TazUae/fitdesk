@@ -95,10 +95,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                       onClick={() =>
                         onChange(selected ? removeGoal(value, goal.id) : addGoal(value, goal.id))
                       }
-                      className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-all active:scale-[0.97]"
+                      className="flex min-h-[44px] items-start rounded-xl border px-3 py-3 text-left text-xs font-medium transition-all active:scale-[0.97]"
                       style={selected ? activeChip : inactiveChip}
                     >
-                      <span className="truncate leading-tight">{goal.label}</span>
+                      <span className="leading-snug">{goal.label}</span>
                     </button>
                   )
                 })}
