@@ -266,6 +266,57 @@ describe('addClient — tenant isolation', () => {
   })
 })
 
+// ─── addClient — clientStatedSubGoals (Phase 4.3) ────────────────────────────────
+
+describe('addClient — clientStatedSubGoals', () => {
+  it('persists canonical sub-goal ID in sub_goal_ids_json when a valid sub-goal is supplied', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD, { clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' } })
+
+    const { rows } = await dbClient.execute(`SELECT sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].sub_goal_ids_json))).toEqual(['reduce_total_body_fat'])
+  })
+
+  it('persists [] in sub_goal_ids_json when no sub-goals are supplied', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD)
+
+    const { rows } = await dbClient.execute(`SELECT sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].sub_goal_ids_json))).toEqual([])
+  })
+
+  it('keeps trainer_sub_goal_ids_json as [] — no trainer-assessed sub-goals at intake', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD, { clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' } })
+
+    const { rows } = await dbClient.execute(`SELECT trainer_sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].trainer_sub_goal_ids_json))).toEqual([])
+  })
+
+  it('ERP createClient receives the same payload — custom_fitness_goals is unchanged', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD, { clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' } })
+
+    const call = vi.mocked(erp.createClient).mock.calls[0][0]
+    expect(call.custom_fitness_goals).toBe(PAYLOAD.custom_fitness_goals)
+  })
+
+  it('does NOT trigger invoice/payment/session side effects when sub-goals are supplied', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(PAYLOAD, { clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' } })
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+})
+
 // ─── findClientDuplicates (Phase 6) ──────────────────────────────────────────────
 
 async function seedClient(tenantId: string, phoneE164: string, erpCustomerId: string) {

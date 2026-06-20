@@ -15,9 +15,10 @@
  */
 
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
+import { normalizeGoalId, normalizeSubGoalId } from '@/lib/goals/taxonomy'
 import { formatGoal } from '@/lib/format/goal'
 import type { Client } from '@/types'
-import type { BillingMode, ClientCreateDraft } from '@/types/clients'
+import type { BillingMode, ClientCreateDraft, ClientStatedSubGoals } from '@/types/clients'
 
 export type BuildClientCreateDraftInput = {
   /** Canonical tenant isolation key from getTenantContext(). */
@@ -41,6 +42,8 @@ export type BuildClientCreateDraftInput = {
   duplicateOverrideReason?: string | null
   /** Billing mode set by the trainer at add-time. Omit or null = 'unset'. */
   billingMode?: BillingMode | null
+  /** Client-stated sub-goals from the Add Client intake UI. Key = legacy goal ID; value = canonical sub-goal ID. */
+  clientStatedSubGoals?: ClientStatedSubGoals | null
 }
 
 export type BuildClientCreateDraftResult = {
@@ -77,6 +80,22 @@ function parseTrainerGoalId(raw: string | null | undefined): string | null {
 }
 
 /**
+ * Resolve the primary goal's client-stated sub-goal ID from the intake UI map.
+ * Returns a single-element canonical array, or [] if missing/invalid.
+ */
+function resolvePrimarySubGoalIds(
+  legacyGoalId: string,
+  map: ClientStatedSubGoals | null | undefined,
+): string[] {
+  const raw = map?.[legacyGoalId]
+  if (!raw) return []
+  const canonicalGoal = normalizeGoalId(legacyGoalId)
+  if (!canonicalGoal) return []
+  const canonicalSubGoal = normalizeSubGoalId(canonicalGoal, raw)
+  return canonicalSubGoal ? [canonicalSubGoal] : []
+}
+
+/**
  * Build the local ClientCreateDraft from the created ERP Customer and the
  * original Add Client payload. Pure and synchronous — no I/O.
  */
@@ -108,7 +127,7 @@ export function buildClientCreateDraft(
     primaryGoalId:    goalId,
     goalId,
     isPrimary:        goalId ? true : undefined,
-    subGoalIds:       [],
+    subGoalIds:       goalId ? resolvePrimarySubGoalIds(goalId, input.clientStatedSubGoals) : [],
     trainerSubGoalIds: [],
     goalUrgency:      null,
     goalConfidence:   goalId ? 'high' : 'unknown',

@@ -311,8 +311,9 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   async function runCreate(options?: AddClientOptions) {
     const result = await addClient(buildPayload(), {
       ...options,
-      whatsappEnabled: phoneValue?.has_whatsapp ?? false,
-      billingMode:     billingMode !== 'unset' ? billingMode : undefined,
+      whatsappEnabled:      phoneValue?.has_whatsapp ?? false,
+      billingMode:          billingMode !== 'unset' ? billingMode : undefined,
+      clientStatedSubGoals: subGoals,
     })
     if (result.success) {
       toast.success(`${result.data.name} added to your roster.`)

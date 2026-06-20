@@ -153,6 +153,80 @@ describe('buildClientCreateDraft', () => {
     })
   })
 
+  describe('clientStatedSubGoals — Phase 4.3 sub-goal resolution', () => {
+    it('persists the primary goal sub-goal as a canonical ID', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' },
+      })
+      expect(draft.subGoalIds).toEqual(['reduce_total_body_fat'])
+    })
+
+    it('resolves a legacy sub-goal alias to its canonical ID', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: { fat_loss: 'weight_loss' }, // legacy alias
+      })
+      expect(draft.subGoalIds).toEqual(['reduce_total_body_fat'])
+    })
+
+    it('drops an unknown/invalid sub-goal to []', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: { fat_loss: 'nonexistent_sub_goal' },
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('ignores sub-goals keyed to a non-primary goal', () => {
+      // goalId resolves to 'fat_loss'; map only has an entry for 'muscle_gain'
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: { muscle_gain: 'build_lean_muscle_mass' },
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('keeps subGoalIds [] when map is absent', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('keeps subGoalIds [] when map is null', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: null,
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('keeps subGoalIds [] when goalId is null (messy goal data)', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: 'just lose weight',
+        clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' },
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('trainerSubGoalIds remains [] — no trainer-assessed sub-goals at intake', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CLEAN_GOAL,
+        clientStatedSubGoals: { fat_loss: 'reduce_total_body_fat' },
+      })
+      expect(draft.trainerSubGoalIds).toEqual([])
+    })
+  })
+
   it('accepts a null userId', () => {
     const { draft } = buildClientCreateDraft({
       tenantId: 'tenant-a', userId: null, createdClient: makeClient(), customFitnessGoals: null,

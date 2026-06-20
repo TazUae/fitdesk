@@ -11,7 +11,7 @@ import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
 import type { ActionResult, Client } from '@/types'
-import type { BillingMode, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
+import type { BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -121,6 +121,8 @@ export async function addClient(
     whatsappEnabled?: boolean
     /** Billing mode set at add-time. Mapped to ERP custom_billing_mode on creation. */
     billingMode?: BillingMode
+    /** Client-stated sub-goals from the Add Client intake UI — forwarded to the local draft. */
+    clientStatedSubGoals?: ClientStatedSubGoals
   },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
@@ -167,9 +169,10 @@ export async function addClient(
       tenantId:           ctx.tenantId,
       userId:             ctx.userId ?? null,
       createdClient:      data,
-      customFitnessGoals: payload.custom_fitness_goals ?? null,
-      whatsappEnabled:    options?.whatsappEnabled ?? false,
-      billingMode:        options?.billingMode ?? null,
+      customFitnessGoals:    payload.custom_fitness_goals ?? null,
+      whatsappEnabled:       options?.whatsappEnabled ?? false,
+      billingMode:           options?.billingMode ?? null,
+      clientStatedSubGoals:  options?.clientStatedSubGoals ?? null,
       possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
       duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })

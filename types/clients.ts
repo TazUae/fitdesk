@@ -44,6 +44,9 @@ export type GoalUrgency = 'urgent' | 'active_focus' | 'background'
 
 export type GoalStatus = 'active' | 'archived'
 
+/** Map of legacy goal ID → canonical primary sub-goal ID, from the Add Client intake UI. */
+export type ClientStatedSubGoals = Record<string, string>
+
 // ─── Action intent literals ───────────────────────────────────────────────────
 
 export type ActionIntentType =
