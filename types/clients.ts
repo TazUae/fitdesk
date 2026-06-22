@@ -47,6 +47,21 @@ export type GoalStatus = 'active' | 'archived'
 /** Map of legacy goal ID → canonical primary sub-goal ID, from the Add Client intake UI. */
 export type ClientStatedSubGoals = Record<string, string>
 
+/**
+ * Structured primary-goal payload from the Add Client Smart Accordion (Phase 4C-B).
+ *
+ * goalId is a canonical IntakeGoalId. subGoalIds are client-stated (primary-layer)
+ * canonical sub-goal IDs; trainerSubGoalIds are trainer-assessed (secondary-layer)
+ * canonical sub-goal IDs. Persisted to the single client_goal row (is_primary = true);
+ * sub-goal arrays are validated by layer in buildClientCreateDraft before storage.
+ */
+export type AddClientPrimaryGoal = {
+  goalId: string
+  subGoalIds: string[]
+  trainerSubGoalIds: string[]
+  urgency: GoalUrgency
+}
+
 // ─── Action intent literals ───────────────────────────────────────────────────
 
 export type ActionIntentType =

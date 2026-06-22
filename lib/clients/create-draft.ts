@@ -15,10 +15,23 @@
  */
 
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
-import { normalizeGoalId, normalizeSubGoalId } from '@/lib/goals/taxonomy'
+import {
+  getSubGoals,
+  isIntakeGoalId,
+  normalizeGoalId,
+  normalizeSubGoalId,
+  type IntakeGoalId,
+  type SubGoalLayer,
+} from '@/lib/goals/taxonomy'
 import { formatGoal } from '@/lib/format/goal'
 import type { Client } from '@/types'
-import type { BillingMode, ClientCreateDraft, ClientStatedSubGoals } from '@/types/clients'
+import type {
+  AddClientPrimaryGoal,
+  BillingMode,
+  ClientCreateDraft,
+  ClientStatedSubGoals,
+  GoalUrgency,
+} from '@/types/clients'
 
 export type BuildClientCreateDraftInput = {
   /** Canonical tenant isolation key from getTenantContext(). */
@@ -44,6 +57,13 @@ export type BuildClientCreateDraftInput = {
   billingMode?: BillingMode | null
   /** Client-stated sub-goals from the Add Client intake UI. Key = legacy goal ID; value = canonical sub-goal ID. */
   clientStatedSubGoals?: ClientStatedSubGoals | null
+  /**
+   * Structured primary-goal payload from the Smart Accordion (Phase 4C-B).
+   * When present it supersedes clientStatedSubGoals for the primary goal: its
+   * client-stated and trainer-assessed sub-goals (validated by layer) and urgency
+   * are persisted to the single client_goal row.
+   */
+  primaryGoal?: AddClientPrimaryGoal | null
 }
 
 export type BuildClientCreateDraftResult = {
@@ -96,6 +116,29 @@ function resolvePrimarySubGoalIds(
 }
 
 /**
+ * Validate a list of raw sub-goal IDs against a goal AND a specific layer.
+ * Resolves legacy aliases, drops unknown / cross-layer / cross-goal IDs, and
+ * de-duplicates. Returns canonical IDs only. Used for the Smart Accordion path
+ * where client-stated (primary) and trainer-assessed (secondary) sub-goals must
+ * never be stored in the wrong column.
+ */
+function validateLayerSubGoals(
+  goalId: IntakeGoalId,
+  rawIds: string[],
+  layer: SubGoalLayer,
+): string[] {
+  const allowed = new Set(getSubGoals(goalId, layer).map(sg => sg.id))
+  const out: string[] = []
+  for (const raw of rawIds) {
+    const canonical = normalizeSubGoalId(goalId, raw)
+    if (canonical && allowed.has(canonical) && !out.includes(canonical)) {
+      out.push(canonical)
+    }
+  }
+  return out
+}
+
+/**
  * Build the local ClientCreateDraft from the created ERP Customer and the
  * original Add Client payload. Pure and synchronous — no I/O.
  */
@@ -117,6 +160,24 @@ export function buildClientCreateDraft(
   const goalId = parseTrainerGoalId(customFitnessGoals)
   const primaryGoalLabel = formatGoal(customFitnessGoals) || null
 
+  // Sub-goal / urgency enrichment for the single primary goal row. The Smart
+  // Accordion payload (primaryGoal) supersedes the Phase 4.3 clientStatedSubGoals
+  // bridge; both only apply when a clean primary goalId was parsed from ERP.
+  const primaryGoal = input.primaryGoal ?? null
+  let subGoalIds: string[] = []
+  let trainerSubGoalIds: string[] = []
+  let goalUrgency: GoalUrgency | null = null
+
+  if (goalId) {
+    if (primaryGoal && isIntakeGoalId(goalId)) {
+      subGoalIds        = validateLayerSubGoals(goalId, primaryGoal.subGoalIds, 'primary')
+      trainerSubGoalIds = validateLayerSubGoals(goalId, primaryGoal.trainerSubGoalIds, 'secondary')
+      goalUrgency       = primaryGoal.urgency
+    } else {
+      subGoalIds = resolvePrimarySubGoalIds(goalId, input.clientStatedSubGoals)
+    }
+  }
+
   const draft: ClientCreateDraft = {
     tenantId,
     erpCustomerId:    createdClient.id, // canonical ERP Customer docname — invariant
@@ -127,9 +188,9 @@ export function buildClientCreateDraft(
     primaryGoalId:    goalId,
     goalId,
     isPrimary:        goalId ? true : undefined,
-    subGoalIds:       goalId ? resolvePrimarySubGoalIds(goalId, input.clientStatedSubGoals) : [],
-    trainerSubGoalIds: [],
-    goalUrgency:      null,
+    subGoalIds,
+    trainerSubGoalIds,
+    goalUrgency,
     goalConfidence:   goalId ? 'high' : 'unknown',
     goalSource:       goalId ? 'trainer_manual' : 'system_inferred',
     safetyFlags:      [],

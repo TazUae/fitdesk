@@ -17,7 +17,11 @@ import { toast } from 'sonner'
 import { addClient, findClientDuplicates, parseClientDetails } from '@/actions/clients'
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
-import { GoalMultiSelect, type SubGoalsMap } from '@/components/ui/GoalMultiSelect'
+import { GoalAccordion, type GoalSelectionState } from '@/components/clients/GoalAccordion'
+import { emptyGoalState, addGoal, setPrimaryGoal } from '@/components/clients/GoalAccordion/types'
+import { hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
+import { formatGoalLabel } from '@/lib/goals/format'
+import { normalizeGoalId } from '@/lib/goals/taxonomy'
 import type { Client } from '@/types'
 import type { AiParseState, BillingMode, DuplicateClientMatch } from '@/types/clients'
 
@@ -38,6 +42,21 @@ function e164ToPhoneValue(e164: string, hasWhatsApp: boolean): PhoneValue | null
   } catch {
     return null
   }
+}
+
+/**
+ * Build a GoalSelectionState from AI-parsed legacy goal IDs. Legacy underscore
+ * IDs are normalized to canonical IntakeGoalId; unknown IDs are dropped. The
+ * first resolved goal becomes the primary so the trainer can adjust from there.
+ */
+function goalStateFromLegacyIds(ids: string[]): GoalSelectionState {
+  let next = emptyGoalState()
+  for (const raw of ids) {
+    const canonical = normalizeGoalId(raw)
+    if (canonical) next = addGoal(next, canonical)
+  }
+  const first = next.selected[0]
+  return first ? setPrimaryGoal(next, first.goalId) : next
 }
 
 type AddClientOptions = NonNullable<Parameters<typeof addClient>[1]>
@@ -231,8 +250,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   const [name,        setName]        = useState('')
   const [phoneValue,  setPhoneValue]  = useState<PhoneValue | undefined>()
   const [ageValue,    setAgeValue]    = useState<AgeValue>({})
-  const [goals,       setGoals]       = useState<string[]>([])
-  const [subGoals,    setSubGoals]    = useState<SubGoalsMap>({})
+  const [goalState,   setGoalState]   = useState<GoalSelectionState>(emptyGoalState)
   const [notes,       setNotes]       = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
 
@@ -253,8 +271,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     setName('')
     setPhoneValue(undefined)
     setAgeValue({})
-    setGoals([])
-    setSubGoals({})
+    setGoalState(emptyGoalState())
     setNotes('')
     setDetailsOpen(false)
     setError(null)
@@ -276,6 +293,19 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
   // ─── Payload ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Selected goal configs ordered with the primary goal first. Keeps the ERP
+   * custom_fitness_goals first value consistent with the local primary goal row.
+   */
+  function orderedGoalConfigs() {
+    const { selected, primaryGoalId } = goalState
+    if (!primaryGoalId) return selected
+    return [
+      ...selected.filter(s => s.goalId === primaryGoalId),
+      ...selected.filter(s => s.goalId !== primaryGoalId),
+    ]
+  }
+
   function buildPayload() {
     let trainerNotes = notes.trim()
     const ageParts: string[] = []
@@ -285,8 +315,10 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
       trainerNotes = `${ageParts.join(' | ')}${trainerNotes ? '\n' + trainerNotes : ''}`
     }
 
-    const fitnessGoalStr = goals.length > 0
-      ? JSON.stringify(goals.map(g => ({ label: g, value: g })))
+    // Canonical goal IDs as value; human label for display. Primary goal first.
+    const ordered = orderedGoalConfigs()
+    const fitnessGoalStr = ordered.length > 0
+      ? JSON.stringify(ordered.map(c => ({ label: formatGoalLabel(c.goalId), value: c.goalId })))
       : undefined
 
     const parsedRate = billingMode === 'pay_per_session' ? parseFloat(ppsRate) : NaN
@@ -309,11 +341,19 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   // ─── Submit ──────────────────────────────────────────────────────────────────
 
   async function runCreate(options?: AddClientOptions) {
+    // The primary goal (or first selected when none is flagged) drives the local
+    // client_goal row: its client-stated + trainer-assessed sub-goals and urgency.
+    const primary = orderedGoalConfigs()[0] ?? null
     const result = await addClient(buildPayload(), {
       ...options,
       whatsappEnabled:      phoneValue?.has_whatsapp ?? false,
       billingMode:          billingMode !== 'unset' ? billingMode : undefined,
-      clientStatedSubGoals: subGoals,
+      primaryGoal: primary ? {
+        goalId:            primary.goalId,
+        subGoalIds:        primary.primarySubGoalIds,
+        trainerSubGoalIds: primary.trainerSubGoalIds,
+        urgency:           primary.urgency,
+      } : undefined,
     })
     if (result.success) {
       toast.success(`${result.data.name} added to your roster.`)
@@ -336,6 +376,12 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     }
     if (!phoneValue?.phone_number) {
       setError('Phone number is required.')
+      return
+    }
+    // Hard conflict (e.g. Safe Weight Gain + Fat Loss) blocks creation; soft
+    // conflicts and safety advisories warn inside the accordion but never block.
+    if (hasUnresolvedHardConflict(goalState.selected.map(s => s.goalId))) {
+      setError('These goals can’t be combined. Remove one of the conflicting goals to continue.')
       return
     }
 
@@ -383,7 +429,9 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
         const pv = e164ToPhoneValue(fields.phone.value, fields.whatsappEnabled.value ?? true)
         if (pv) setPhoneValue(pv)
       }
-      if (fields.goals.value && fields.goals.value.length > 0) setGoals(fields.goals.value)
+      if (fields.goals.value && fields.goals.value.length > 0) {
+        setGoalState(goalStateFromLegacyIds(fields.goals.value))
+      }
       if (fields.notes.value) setNotes(prev => prev || fields.notes.value!)
       setAiState(state)
     })
@@ -392,6 +440,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   // ─── Render helpers ────────────────────────────────────────────────────────
 
   const isSheet = variant === 'sheet'
+  const hardConflictBlocked = hasUnresolvedHardConflict(goalState.selected.map(s => s.goalId))
 
   // ─── Success state ────────────────────────────────────────────────────────
 
@@ -548,12 +597,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
         {detailsOpen && (
           <div className="pt-5 space-y-5">
-            <GoalMultiSelect
-              goals={goals}
-              subGoals={subGoals}
-              onGoalsChange={setGoals}
-              onSubGoalsChange={setSubGoals}
-            />
+            <GoalAccordion value={goalState} onChange={setGoalState} />
 
             <AgeInput value={ageValue} onChange={setAgeValue} />
 
@@ -734,7 +778,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
           </button>
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || hardConflictBlocked}
             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-opacity active:opacity-60 disabled:opacity-50"
             style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
           >
@@ -756,7 +800,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
       <button
         type="submit"
-        disabled={isPending}
+        disabled={isPending || hardConflictBlocked}
         className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
         style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
       >

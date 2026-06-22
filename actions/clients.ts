@@ -11,7 +11,7 @@ import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
 import type { ActionResult, Client } from '@/types'
-import type { BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
+import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -123,6 +123,12 @@ export async function addClient(
     billingMode?: BillingMode
     /** Client-stated sub-goals from the Add Client intake UI — forwarded to the local draft. */
     clientStatedSubGoals?: ClientStatedSubGoals
+    /**
+     * Structured primary-goal payload from the Smart Accordion (Phase 4C-B).
+     * Supersedes clientStatedSubGoals for the primary goal; carries client-stated
+     * sub-goals, trainer-assessed sub-goals, and urgency for the local goal row.
+     */
+    primaryGoal?: AddClientPrimaryGoal
   },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
@@ -173,6 +179,7 @@ export async function addClient(
       whatsappEnabled:       options?.whatsappEnabled ?? false,
       billingMode:           options?.billingMode ?? null,
       clientStatedSubGoals:  options?.clientStatedSubGoals ?? null,
+      primaryGoal:           options?.primaryGoal ?? null,
       possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
       duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })

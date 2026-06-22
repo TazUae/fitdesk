@@ -317,6 +317,113 @@ describe('addClient — clientStatedSubGoals', () => {
   })
 })
 
+// ─── addClient — primaryGoal (Phase 4C-B Smart Accordion) ────────────────────────
+
+describe('addClient — primaryGoal', () => {
+  // The Smart Accordion serializes canonical goal IDs + a human label, primary first.
+  const CANONICAL_PAYLOAD = {
+    ...PAYLOAD,
+    custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]',
+  }
+
+  it('persists the primary goal row with is_primary = 1', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' },
+    })
+
+    const { rows } = await dbClient.execute(`SELECT goal_id, is_primary FROM client_goal LIMIT 1`)
+    expect(rows[0].goal_id).toBe('fat-loss')
+    expect(Number(rows[0].is_primary)).toBe(1)
+  })
+
+  it('persists client-stated sub-goals to sub_goal_ids_json', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: {
+        goalId: 'fat-loss',
+        subGoalIds: ['reduce_total_body_fat', 'boost_daily_energy_levels'],
+        trainerSubGoalIds: [],
+        urgency: 'active_focus',
+      },
+    })
+
+    const { rows } = await dbClient.execute(`SELECT sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].sub_goal_ids_json))).toEqual([
+      'reduce_total_body_fat', 'boost_daily_energy_levels',
+    ])
+  })
+
+  it('persists trainer-assessed sub-goals to trainer_sub_goal_ids_json', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: {
+        goalId: 'fat-loss',
+        subGoalIds: [],
+        trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+        urgency: 'active_focus',
+      },
+    })
+
+    const { rows } = await dbClient.execute(`SELECT trainer_sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].trainer_sub_goal_ids_json))).toEqual(['preserve_skeletal_muscle_mass'])
+  })
+
+  it('persists urgency from the primary goal config', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'urgent' },
+    })
+
+    const { rows } = await dbClient.execute(`SELECT urgency FROM client_goal LIMIT 1`)
+    expect(rows[0].urgency).toBe('urgent')
+  })
+
+  it('passes custom_fitness_goals through to ERP unchanged (canonical values)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' },
+    })
+
+    const call = vi.mocked(erp.createClient).mock.calls[0][0]
+    expect(call.custom_fitness_goals).toBe(CANONICAL_PAYLOAD.custom_fitness_goals)
+  })
+
+  it('writes a single client_goal row (non-primary goals reach ERP only, not local rows)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    // Two selected goals; the accordion lists the primary first in custom_fitness_goals.
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"},{"label":"Strength & Power","value":"strength"}]' },
+      { primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' } },
+    )
+
+    // Single-row model: only the primary goal is projected locally in this phase.
+    expect(await count('client_goal')).toBe(1)
+    const { rows } = await dbClient.execute(`SELECT goal_id, is_primary FROM client_goal LIMIT 1`)
+    expect(rows[0].goal_id).toBe('fat-loss')
+    expect(Number(rows[0].is_primary)).toBe(1)
+  })
+
+  it('does NOT trigger invoice/payment/session side effects', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(CANONICAL_PAYLOAD, {
+      primaryGoal: { goalId: 'fat-loss', subGoalIds: ['reduce_total_body_fat'], trainerSubGoalIds: [], urgency: 'urgent' },
+    })
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+})
+
 // ─── findClientDuplicates (Phase 6) ──────────────────────────────────────────────
 
 async function seedClient(tenantId: string, phoneE164: string, erpCustomerId: string) {

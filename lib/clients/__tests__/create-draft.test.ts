@@ -227,6 +227,133 @@ describe('buildClientCreateDraft', () => {
     })
   })
 
+  describe('primaryGoal — Phase 4C-B Smart Accordion payload', () => {
+    // The Smart Accordion serializes canonical goal IDs into custom_fitness_goals.
+    const CANONICAL_GOAL = '[{"label":"Fat Loss","value":"fat-loss"}]'
+
+    it('persists canonical primary goalId from the canonical ERP value', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' },
+      })
+      expect(draft.goalId).toBe('fat-loss')
+      expect(draft.isPrimary).toBe(true)
+    })
+
+    it('persists client-stated sub-goals to subGoalIds (primary layer)', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: ['reduce_total_body_fat', 'boost_daily_energy_levels'],
+          trainerSubGoalIds: [],
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.subGoalIds).toEqual(['reduce_total_body_fat', 'boost_daily_energy_levels'])
+    })
+
+    it('persists trainer-assessed sub-goals to trainerSubGoalIds (secondary layer)', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: [],
+          trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.trainerSubGoalIds).toEqual(['preserve_skeletal_muscle_mass'])
+    })
+
+    it('persists urgency from the primary goal config', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'urgent' },
+      })
+      expect(draft.goalUrgency).toBe('urgent')
+    })
+
+    it('drops a secondary-layer id passed as a client-stated sub-goal', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: ['preserve_skeletal_muscle_mass'], // secondary id in primary slot
+          trainerSubGoalIds: [],
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.subGoalIds).toEqual([])
+    })
+
+    it('drops a primary-layer id passed as a trainer-assessed sub-goal', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: [],
+          trainerSubGoalIds: ['reduce_total_body_fat'], // primary id in secondary slot
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.trainerSubGoalIds).toEqual([])
+    })
+
+    it('drops unknown sub-goal ids', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: ['nonexistent_sub_goal'],
+          trainerSubGoalIds: ['also_not_real'],
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.subGoalIds).toEqual([])
+      expect(draft.trainerSubGoalIds).toEqual([])
+    })
+
+    it('primaryGoal supersedes clientStatedSubGoals for the primary goal', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: CANONICAL_GOAL,
+        clientStatedSubGoals: { 'fat-loss': 'improve_nutrition_habits' },
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: ['reduce_total_body_fat'],
+          trainerSubGoalIds: [],
+          urgency: 'active_focus',
+        },
+      })
+      expect(draft.subGoalIds).toEqual(['reduce_total_body_fat'])
+    })
+
+    it('writes no structured goal when customFitnessGoals is messy, even with primaryGoal', () => {
+      const { draft } = buildClientCreateDraft({
+        tenantId: 'tenant-a', userId: 'user-1',
+        createdClient: makeClient(), customFitnessGoals: 'just lose weight',
+        primaryGoal: {
+          goalId: 'fat-loss',
+          subGoalIds: ['reduce_total_body_fat'],
+          trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+          urgency: 'urgent',
+        },
+      })
+      expect(draft.goalId).toBeNull()
+      expect(draft.subGoalIds).toEqual([])
+      expect(draft.trainerSubGoalIds).toEqual([])
+      expect(draft.goalUrgency).toBeNull()
+    })
+  })
+
   it('accepts a null userId', () => {
     const { draft } = buildClientCreateDraft({
       tenantId: 'tenant-a', userId: null, createdClient: makeClient(), customFitnessGoals: null,
