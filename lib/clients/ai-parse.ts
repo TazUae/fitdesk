@@ -17,17 +17,16 @@ import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import type { AiParseState, ClientParseFields, ClientParseResult } from '@/types/clients'
 
 // ─── Canonical goal IDs ───────────────────────────────────────────────────────
-// Keep in sync with components/ui/GoalSelect.tsx GOALS array.
+// Keep in sync with lib/goals/taxonomy.ts GOALS array.
 // Drift-guard test: lib/clients/__tests__/ai-parse.test.ts.
 
 export const AI_PARSE_ALLOWED_GOALS = [
-  'fat_loss',
-  'muscle_gain',
-  'strength',
-  'general_fitness',
-  'rehabilitation',
-  'sports_performance',
-  'mobility',
+  // Core (8)
+  'fat-loss', 'muscle', 'strength', 'general', 'rehab', 'sports', 'mobility', 'mental',
+  // Specialist (8)
+  'cardio', 'aesthetics', 'aging', 'functional', 'weight-mgmt', 'postnatal', 'youth', 'underweight',
+  // Emerging (3)
+  'glp1', 'longevity', 'neuro',
 ] as const satisfies readonly string[]
 
 const MAX_INPUT_LENGTH = 2000

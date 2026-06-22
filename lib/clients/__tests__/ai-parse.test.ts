@@ -28,7 +28,7 @@ const HIGH_CONFIDENCE_OUTPUT = {
   fullName:        { value: 'Sara Ahmad',              confidence: 'high' },
   phone:           { value: '+96170555000',             confidence: 'high' },
   whatsappEnabled: { value: true,                       confidence: 'high' },
-  goals:           { value: ['fat_loss'],               confidence: 'high' },
+  goals:           { value: ['fat-loss'],               confidence: 'high' },
   notes:           { value: 'Prefers morning sessions', confidence: 'medium' },
 }
 
@@ -130,7 +130,7 @@ describe('partial_success', () => {
     expect(result.fields.fullName.value).toBe('Sara Ahmad')
     expect(result.fields.fullName.confidence).toBe('high')
     expect(result.fields.fullName.source).toBe('ai_parse')
-    expect(result.fields.goals.value).toEqual(['fat_loss'])
+    expect(result.fields.goals.value).toEqual(['fat-loss'])
     expect(result.fields.notes.value).toBe('Prefers morning sessions')
     expect(result.fields.whatsappEnabled.value).toBe(true)
   })
@@ -162,12 +162,25 @@ describe('goal filtering', () => {
     fetchMock.mockResolvedValue(
       mockApiResponse({
         ...HIGH_CONFIDENCE_OUTPUT,
-        goals: { value: ['fat_loss', 'yoga', 'weight loss', 'muscle_gain'], confidence: 'high' },
+        goals: { value: ['fat-loss', 'yoga', 'weight loss', 'muscle'], confidence: 'high' },
       }),
     )
 
     const result = await parseClientText('test')
-    expect(result.fields.goals.value).toEqual(['fat_loss', 'muscle_gain'])
+    expect(result.fields.goals.value).toEqual(['fat-loss', 'muscle'])
+  })
+
+  it('drops legacy underscore IDs — they are no longer in the allowlist', async () => {
+    fetchMock.mockResolvedValue(
+      mockApiResponse({
+        ...HIGH_CONFIDENCE_OUTPUT,
+        goals: { value: ['fat_loss', 'muscle_gain', 'general_fitness', 'rehabilitation'], confidence: 'high' },
+      }),
+    )
+
+    const result = await parseClientText('test')
+    expect(result.fields.goals.value).toEqual([])
+    expect(result.fields.goals.confidence).toBe('unknown')
   })
 
   it('returns empty goals array when all are unknown', async () => {
@@ -229,18 +242,26 @@ describe('no safety, medical, or billing fields', () => {
 // ─── GOALS drift guard ────────────────────────────────────────────────────────
 
 describe('GOALS drift guard', () => {
-  it('AI_PARSE_ALLOWED_GOALS matches the canonical GoalSelect goal IDs', () => {
-    // Source of truth: components/ui/GoalSelect.tsx GOALS array.
-    // If you update GOALS there, also update AI_PARSE_ALLOWED_GOALS in ai-parse.ts.
-    const canonicalGoalIds = [
-      'fat_loss',
-      'muscle_gain',
-      'strength',
-      'general_fitness',
-      'rehabilitation',
-      'sports_performance',
-      'mobility',
+  it('AI_PARSE_ALLOWED_GOALS contains all 19 canonical hyphenated goal IDs from taxonomy.ts', () => {
+    // Source of truth: lib/goals/taxonomy.ts GOALS array.
+    // If you add or remove a goal there, also update AI_PARSE_ALLOWED_GOALS in ai-parse.ts.
+    const expectedCanonicalIds = [
+      // Core (8)
+      'fat-loss', 'muscle', 'strength', 'general', 'rehab', 'sports', 'mobility', 'mental',
+      // Specialist (8)
+      'cardio', 'aesthetics', 'aging', 'functional', 'weight-mgmt', 'postnatal', 'youth', 'underweight',
+      // Emerging (3)
+      'glp1', 'longevity', 'neuro',
     ]
-    expect([...AI_PARSE_ALLOWED_GOALS].sort()).toEqual(canonicalGoalIds.sort())
+    expect([...AI_PARSE_ALLOWED_GOALS].sort()).toEqual(expectedCanonicalIds.sort())
+    expect(AI_PARSE_ALLOWED_GOALS).toHaveLength(19)
+  })
+
+  it('legacy underscore IDs are NOT in AI_PARSE_ALLOWED_GOALS', () => {
+    const legacyIds = ['fat_loss', 'muscle_gain', 'general_fitness', 'rehabilitation', 'sports_performance']
+    const allowed = new Set<string>(AI_PARSE_ALLOWED_GOALS)
+    for (const legacy of legacyIds) {
+      expect(allowed.has(legacy)).toBe(false)
+    }
   })
 })
