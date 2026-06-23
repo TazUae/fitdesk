@@ -37,6 +37,7 @@ import type {
   OnboardingState,
   PaymentSummary,
   SafetyState,
+  SelectedGoalDraft,
 } from '@/types/clients'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -296,15 +297,22 @@ export class ClientRepository {
   /**
    * Create a complete local client record in a single transaction.
    *
-   * Creates: client_index + client_goal (if goalId present) + initial
-   * action intents + client_event:client.created.
+   * Creates: client_index + client_goal rows + initial action intents +
+   * client_event:client.created.
    *
-   * NOT wired into actions/clients.ts yet — that is Phase 4.
-   * Call only after ERP Customer has already been created successfully.
+   * Goal insertion supports two paths:
+   *   selectedGoals (non-empty) — multi-goal path: inserts one client_goal row per
+   *     entry; sub-goal layer validation must be applied by the caller before passing
+   *     (see sanitizeSelectedGoalDrafts in lib/clients/create-draft.ts).
+   *   selectedGoals absent/empty — legacy single-goal path: inserts one row from
+   *     draft.goalId when present.
+   *
+   * Call only after ERP Customer has already been created successfully (ADR-001).
    */
   async createClientRow(
     ctx: TenantCtx,
     draft: ClientCreateDraft,
+    selectedGoals?: SelectedGoalDraft[],
   ): Promise<ClientCreateResult> {
     const tenantId = assertTenantId(ctx)
     const now = new Date().toISOString()
@@ -315,6 +323,8 @@ export class ClientRepository {
     let createdGoal: ClientGoal | null = null
     let createdActions: ClientActionIntent[] = []
     let createdEvent!: ClientEvent
+
+    const useMultiGoalPath = selectedGoals !== undefined && selectedGoals.length > 0
 
     await this.db.transaction(async (tx) => {
       // 1. Insert client_index
@@ -340,8 +350,55 @@ export class ClientRepository {
         updatedAtUtc:             now,
       })
 
-      // 2. Insert client_goal if goalId is provided
-      if (draft.goalId) {
+      // 2a. Multi-goal path: insert one client_goal row per SelectedGoalDraft.
+      //     The primary goal row is tracked for the return value.
+      if (useMultiGoalPath) {
+        for (const g of selectedGoals!) {
+          const goalRowId = crypto.randomUUID()
+          await tx.insert(schema.clientGoal).values({
+            id:                    goalRowId,
+            tenantId,
+            clientIndexId,
+            erpCustomerId:         draft.erpCustomerId,
+            goalId:                g.goalId,
+            isPrimary:             g.isPrimary,
+            subGoalIdsJson:        JSON.stringify(g.clientSubGoalIds),
+            trainerSubGoalIdsJson: JSON.stringify(g.trainerSubGoalIds),
+            urgency:               g.urgency,
+            confidence:            'high',
+            source:                'trainer_manual',
+            safetyFlagsJson:       '[]',
+            notes:                 g.trainerNotes,
+            status:                'active',
+            createdAtUtc:          now,
+            updatedAtUtc:          now,
+          })
+          if (g.isPrimary) {
+            createdGoal = {
+              id:                goalRowId,
+              tenantId,
+              clientIndexId,
+              erpCustomerId:     draft.erpCustomerId,
+              goalId:            g.goalId,
+              isPrimary:         true,
+              subGoalIds:        g.clientSubGoalIds,
+              trainerSubGoalIds: g.trainerSubGoalIds,
+              urgency:           g.urgency as GoalUrgency,
+              confidence:        'high',
+              source:            'trainer_manual',
+              safetyFlags:       [],
+              notes:             g.trainerNotes,
+              status:            'active',
+              createdAtUtc:      now,
+              updatedAtUtc:      now,
+            }
+          }
+        }
+      }
+
+      // 2b. Legacy single-goal path: insert one row from draft.goalId when present.
+      //     Only runs when selectedGoals is absent or empty.
+      if (!useMultiGoalPath && draft.goalId) {
         const goalId = crypto.randomUUID()
         const isPrimary         = draft.isPrimary ?? true
         const trainerSubGoalIds = draft.trainerSubGoalIds ?? []

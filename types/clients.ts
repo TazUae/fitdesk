@@ -54,12 +54,34 @@ export type ClientStatedSubGoals = Record<string, string>
  * canonical sub-goal IDs; trainerSubGoalIds are trainer-assessed (secondary-layer)
  * canonical sub-goal IDs. Persisted to the single client_goal row (is_primary = true);
  * sub-goal arrays are validated by layer in buildClientCreateDraft before storage.
+ *
+ * @deprecated Legacy single-goal contract. Use SelectedGoalDraft[] + selectedGoals
+ * option for new multi-goal workspace submissions (Phase 4D+). The server action
+ * bridges this automatically when only primaryGoal is present.
  */
 export type AddClientPrimaryGoal = {
   goalId: string
   subGoalIds: string[]
   trainerSubGoalIds: string[]
   urgency: GoalUrgency
+}
+
+/**
+ * Structured goal payload for the multi-goal Add Client workspace (Phase 4D+).
+ *
+ * goalId             — canonical IntakeGoalId string; validated server-side
+ * isPrimary          — exactly one entry per submission must be true
+ * clientSubGoalIds   — client-stated sub-goals (taxonomy layer 'primary')
+ * trainerSubGoalIds  — trainer-assessed sub-goals (taxonomy layer 'secondary')
+ * trainerNotes       — per-goal trainer note entered in the goal inspector
+ */
+export type SelectedGoalDraft = {
+  goalId: string
+  isPrimary: boolean
+  urgency: GoalUrgency
+  clientSubGoalIds: string[]
+  trainerSubGoalIds: string[]
+  trainerNotes: string | null
 }
 
 // ─── Action intent literals ───────────────────────────────────────────────────

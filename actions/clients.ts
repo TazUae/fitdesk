@@ -10,8 +10,9 @@ import { findDuplicatesByPhone } from '@/lib/clients/duplicates'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
+import { sanitizeSelectedGoalDrafts } from '@/lib/clients/create-draft'
 import type { ActionResult, Client } from '@/types'
-import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult } from '@/types/clients'
+import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, SelectedGoalDraft } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -127,8 +128,22 @@ export async function addClient(
      * Structured primary-goal payload from the Smart Accordion (Phase 4C-B).
      * Supersedes clientStatedSubGoals for the primary goal; carries client-stated
      * sub-goals, trainer-assessed sub-goals, and urgency for the local goal row.
+     *
+     * @deprecated Pass selectedGoals for the multi-goal workspace (Phase 4D+).
+     * When only primaryGoal is present the server action bridges it automatically
+     * into a 1-item selectedGoals array so existing UI callers require no changes.
      */
     primaryGoal?: AddClientPrimaryGoal
+    /**
+     * Multi-goal workspace payload (Phase 4D+).
+     *
+     * Array of all goals the trainer selected in the goal workspace. Exactly one
+     * entry must have isPrimary === true. Sub-goals are sanitized server-side
+     * (cross-layer IDs are silently dropped). When absent, the legacy primaryGoal
+     * option is used as a 1-item bridge. When both are absent, no client_goal rows
+     * are written unless custom_fitness_goals contains a parseable goal ID.
+     */
+    selectedGoals?: SelectedGoalDraft[]
   },
 ): Promise<ActionResult<Client>> {
   const resolved = await resolveTrainerId()
@@ -141,6 +156,36 @@ export async function addClient(
     : null
   if (options?.overrideDuplicate && !overrideReason) {
     return { success: false, error: 'A reason is required to add a possible duplicate client.' }
+  }
+
+  // Legacy UI bridge: when only primaryGoal is provided (Smart Accordion / Phase 4C-B),
+  // wrap it in a 1-item SelectedGoalDraft[] so the repository always uses the same
+  // multi-goal insert path. GoalAccordion, AddClientForm, and AddClientSheet are
+  // completely unchanged — they still send primaryGoal, never selectedGoals.
+  let resolvedGoals: SelectedGoalDraft[] | undefined = options?.selectedGoals
+  if (!resolvedGoals && options?.primaryGoal) {
+    resolvedGoals = [{
+      goalId:           options.primaryGoal.goalId,
+      isPrimary:        true,
+      urgency:          options.primaryGoal.urgency,
+      clientSubGoalIds: options.primaryGoal.subGoalIds,
+      trainerSubGoalIds: options.primaryGoal.trainerSubGoalIds,
+      trainerNotes:     null,
+    }]
+  }
+
+  // Invariant: when goals are provided, exactly one must be primary.
+  // Checked before the ERP call so no Customer is created for an invalid payload.
+  if (resolvedGoals && resolvedGoals.length > 0) {
+    const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
+    if (primaryCount !== 1) {
+      return {
+        success: false,
+        error: `Exactly one goal must be marked as primary (got ${primaryCount}).`,
+      }
+    }
+    // Sanitize: drop unknown goalIds; strip cross-layer sub-goal IDs.
+    resolvedGoals = sanitizeSelectedGoalDrafts(resolvedGoals)
   }
 
   // Map app BillingMode to ERP Select option string (custom_default_session_rate flows via payload).
@@ -185,7 +230,11 @@ export async function addClient(
     })
 
     const repo = new ClientRepository(db)
-    await repo.createClientRow({ tenantId: ctx.tenantId }, draft)
+    await repo.createClientRow(
+      { tenantId: ctx.tenantId },
+      draft,
+      resolvedGoals && resolvedGoals.length > 0 ? resolvedGoals : undefined,
+    )
 
     // Audit-only: phone could not be normalized to E.164 and the raw value was
     // stored. Recorded so backfill/repair can fix it later. No PII beyond the flag.

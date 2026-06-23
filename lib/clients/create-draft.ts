@@ -31,6 +31,7 @@ import type {
   ClientCreateDraft,
   ClientStatedSubGoals,
   GoalUrgency,
+  SelectedGoalDraft,
 } from '@/types/clients'
 
 export type BuildClientCreateDraftInput = {
@@ -202,4 +203,29 @@ export function buildClientCreateDraft(
   }
 
   return { draft, phoneNormalized }
+}
+
+/**
+ * Sanitize a SelectedGoalDraft[] before repository insertion.
+ *
+ * For each draft:
+ *   - Drops entries whose goalId is not a known canonical IntakeGoalId.
+ *   - Strips clientSubGoalIds that do not belong to taxonomy layer 'primary'.
+ *   - Strips trainerSubGoalIds that do not belong to taxonomy layer 'secondary'.
+ *
+ * Returns a new array with the same ordering; does not mutate the input.
+ * Called server-side in addClient before the repository write.
+ */
+export function sanitizeSelectedGoalDrafts(drafts: SelectedGoalDraft[]): SelectedGoalDraft[] {
+  const out: SelectedGoalDraft[] = []
+  for (const d of drafts) {
+    if (!isIntakeGoalId(d.goalId)) continue
+    const goalId = d.goalId as IntakeGoalId
+    out.push({
+      ...d,
+      clientSubGoalIds:  validateLayerSubGoals(goalId, d.clientSubGoalIds,  'primary'),
+      trainerSubGoalIds: validateLayerSubGoals(goalId, d.trainerSubGoalIds, 'secondary'),
+    })
+  }
+  return out
 }

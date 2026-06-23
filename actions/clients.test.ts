@@ -424,6 +424,195 @@ describe('addClient — primaryGoal', () => {
   })
 })
 
+// ─── addClient — selectedGoals (multi-goal, Phase 4D) ────────────────────────────
+
+describe('addClient — selectedGoals (multi-goal)', () => {
+  const MULTI_GOAL_PAYLOAD = {
+    ...PAYLOAD,
+    custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"},{"label":"Strength & Power","value":"strength"}]',
+  }
+
+  it('legacy bridge: primaryGoal alone maps to 1 client_goal row with the correct fields', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      { primaryGoal: { goalId: 'fat-loss', subGoalIds: [], trainerSubGoalIds: [], urgency: 'urgent' } },
+    )
+
+    expect(await count('client_goal')).toBe(1)
+    const { rows } = await dbClient.execute(`SELECT goal_id, is_primary, urgency FROM client_goal LIMIT 1`)
+    expect(rows[0].goal_id).toBe('fat-loss')
+    expect(Number(rows[0].is_primary)).toBe(1)
+    expect(rows[0].urgency).toBe('urgent')
+  })
+
+  it('isPrimary invariant: returns error before ERP call when 0 goals are primary', async () => {
+    const result = await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: false, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: false, urgency: 'background',   clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toContain('primary')
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(await count('client_goal')).toBe(0)
+  })
+
+  it('isPrimary invariant: returns error before ERP call when 2 goals are both primary', async () => {
+    const result = await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: true, urgency: 'background',   clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toContain('primary')
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(await count('client_goal')).toBe(0)
+  })
+
+  it('persists N client_goal rows when selectedGoals has N items', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: true,  urgency: 'urgent',       clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: false, urgency: 'background',   clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    expect(await count('client_goal')).toBe(2)
+    expect(await count('client_goal', `goal_id = 'fat-loss' AND is_primary = 1`)).toBe(1)
+    expect(await count('client_goal', `goal_id = 'strength' AND is_primary = 0`)).toBe(1)
+  })
+
+  it('persists per-goal urgency independently', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: true,  urgency: 'urgent',     clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: false, urgency: 'background', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    const { rows } = await dbClient.execute(`SELECT goal_id, urgency FROM client_goal ORDER BY is_primary DESC`)
+    const byGoal = Object.fromEntries(rows.map(r => [r.goal_id, r.urgency]))
+    expect(byGoal['fat-loss']).toBe('urgent')
+    expect(byGoal['strength']).toBe('background')
+  })
+
+  it('persists per-goal trainerNotes to the notes column', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [{
+          goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus',
+          clientSubGoalIds: [], trainerSubGoalIds: [],
+          trainerNotes: 'focus on deficit phase',
+        }],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT notes FROM client_goal WHERE goal_id = 'fat-loss'`)
+    expect(rows[0].notes).toBe('focus on deficit phase')
+  })
+
+  it('persists clientSubGoalIds to sub_goal_ids_json (layer:primary)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [{
+          goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus',
+          clientSubGoalIds: ['reduce_total_body_fat'],
+          trainerSubGoalIds: [],
+          trainerNotes: null,
+        }],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].sub_goal_ids_json))).toEqual(['reduce_total_body_fat'])
+  })
+
+  it('persists trainerSubGoalIds to trainer_sub_goal_ids_json (layer:secondary)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [{
+          goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus',
+          clientSubGoalIds: [],
+          trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+          trainerNotes: null,
+        }],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT trainer_sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].trainer_sub_goal_ids_json))).toEqual(['preserve_skeletal_muscle_mass'])
+  })
+
+  it('cross-layer sub-goals are silently dropped server-side (layer integrity enforced)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    // preserve_skeletal_muscle_mass is layer:'secondary' — invalid as a clientSubGoalId
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [{
+          goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus',
+          clientSubGoalIds: ['preserve_skeletal_muscle_mass'],
+          trainerSubGoalIds: [],
+          trainerNotes: null,
+        }],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT sub_goal_ids_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(rows[0].sub_goal_ids_json))).toEqual([])
+  })
+
+  it('ERP createClient receives custom_fitness_goals unchanged (ERP proxy untouched)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: true,  urgency: 'urgent',     clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: false, urgency: 'background', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    const call = vi.mocked(erp.createClient).mock.calls[0][0]
+    expect(call.custom_fitness_goals).toBe(MULTI_GOAL_PAYLOAD.custom_fitness_goals)
+  })
+
+  it('does NOT trigger invoice/payment/session/WhatsApp side effects', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(MULTI_GOAL_PAYLOAD, {
+      selectedGoals: [
+        { goalId: 'fat-loss', isPrimary: true,  urgency: 'urgent',     clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        { goalId: 'strength', isPrimary: false, urgency: 'background', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+      ],
+    })
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+})
+
 // ─── findClientDuplicates (Phase 6) ──────────────────────────────────────────────
 
 async function seedClient(tenantId: string, phoneE164: string, erpCustomerId: string) {
