@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useReducer, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -19,6 +19,13 @@ import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { GoalAccordion, type GoalSelectionState } from '@/components/clients/GoalAccordion'
 import { emptyGoalState, addGoal, setPrimaryGoal } from '@/components/clients/GoalAccordion/types'
+import {
+  AddClientGoalWorkspace,
+  workspaceReducer,
+  INITIAL_WORKSPACE_STATE,
+  toSelectedGoalDrafts,
+  hasWorkspaceHardConflict,
+} from '@/components/clients/GoalWorkspace'
 import { hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
 import { formatGoalLabel } from '@/lib/goals/format'
 import { normalizeGoalId } from '@/lib/goals/taxonomy'
@@ -240,6 +247,10 @@ function PageSuccessState({ client }: { client: Client }) {
 
 // ─── Main shared form ──────────────────────────────────────────────────────────
 
+// Feature flag: set NEXT_PUBLIC_GOAL_WORKSPACE=1 to enable the Pop-and-Split workspace.
+// When unset (or '0'), the legacy GoalAccordion renders unchanged.
+const GOAL_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_GOAL_WORKSPACE === '1'
+
 export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputRef }: AddClientFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -251,6 +262,8 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   const [phoneValue,  setPhoneValue]  = useState<PhoneValue | undefined>()
   const [ageValue,    setAgeValue]    = useState<AgeValue>({})
   const [goalState,   setGoalState]   = useState<GoalSelectionState>(emptyGoalState)
+  // Workspace reducer — always initialized (hooks must not be called conditionally)
+  const [workspaceState, workspaceDispatch] = useReducer(workspaceReducer, INITIAL_WORKSPACE_STATE)
   const [notes,       setNotes]       = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
 
@@ -272,6 +285,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     setPhoneValue(undefined)
     setAgeValue({})
     setGoalState(emptyGoalState())
+    workspaceDispatch({ type: 'RESET' })
     setNotes('')
     setDetailsOpen(false)
     setError(null)
@@ -296,6 +310,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   /**
    * Selected goal configs ordered with the primary goal first. Keeps the ERP
    * custom_fitness_goals first value consistent with the local primary goal row.
+   * Used by the legacy GoalAccordion path only.
    */
   function orderedGoalConfigs() {
     const { selected, primaryGoalId } = goalState
@@ -315,11 +330,22 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
       trainerNotes = `${ageParts.join(' | ')}${trainerNotes ? '\n' + trainerNotes : ''}`
     }
 
-    // Canonical goal IDs as value; human label for display. Primary goal first.
-    const ordered = orderedGoalConfigs()
-    const fitnessGoalStr = ordered.length > 0
-      ? JSON.stringify(ordered.map(c => ({ label: formatGoalLabel(c.goalId), value: c.goalId })))
-      : undefined
+    // Build ERP custom_fitness_goals: primary goal first for both paths.
+    let fitnessGoalStr: string | undefined
+    if (GOAL_WORKSPACE_ENABLED) {
+      const { selectedGoalIds, primaryGoalId } = workspaceState
+      const orderedIds = primaryGoalId
+        ? [primaryGoalId, ...selectedGoalIds.filter(id => id !== primaryGoalId)]
+        : selectedGoalIds
+      fitnessGoalStr = orderedIds.length > 0
+        ? JSON.stringify(orderedIds.map(id => ({ label: formatGoalLabel(id), value: id })))
+        : undefined
+    } else {
+      const ordered = orderedGoalConfigs()
+      fitnessGoalStr = ordered.length > 0
+        ? JSON.stringify(ordered.map(c => ({ label: formatGoalLabel(c.goalId), value: c.goalId })))
+        : undefined
+    }
 
     const parsedRate = billingMode === 'pay_per_session' ? parseFloat(ppsRate) : NaN
 
@@ -341,20 +367,29 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   // ─── Submit ──────────────────────────────────────────────────────────────────
 
   async function runCreate(options?: AddClientOptions) {
-    // The primary goal (or first selected when none is flagged) drives the local
-    // client_goal row: its client-stated + trainer-assessed sub-goals and urgency.
-    const primary = orderedGoalConfigs()[0] ?? null
-    const result = await addClient(buildPayload(), {
+    const sharedOptions = {
       ...options,
-      whatsappEnabled:      phoneValue?.has_whatsapp ?? false,
-      billingMode:          billingMode !== 'unset' ? billingMode : undefined,
-      primaryGoal: primary ? {
-        goalId:            primary.goalId,
-        subGoalIds:        primary.primarySubGoalIds,
-        trainerSubGoalIds: primary.trainerSubGoalIds,
-        urgency:           primary.urgency,
-      } : undefined,
-    })
+      whatsappEnabled: phoneValue?.has_whatsapp ?? false,
+      billingMode:     billingMode !== 'unset' ? billingMode : undefined,
+    }
+
+    // Workspace path: pass all selected goals via selectedGoals (Phase 4D+).
+    // Legacy path: derive primaryGoal from the accordion state (unchanged).
+    const goalOption = GOAL_WORKSPACE_ENABLED
+      ? { selectedGoals: toSelectedGoalDrafts(workspaceState) }
+      : (() => {
+          const primary = orderedGoalConfigs()[0] ?? null
+          return {
+            primaryGoal: primary ? {
+              goalId:            primary.goalId,
+              subGoalIds:        primary.primarySubGoalIds,
+              trainerSubGoalIds: primary.trainerSubGoalIds,
+              urgency:           primary.urgency,
+            } : undefined,
+          }
+        })()
+
+    const result = await addClient(buildPayload(), { ...sharedOptions, ...goalOption })
     if (result.success) {
       toast.success(`${result.data.name} added to your roster.`)
       setCreatedClient(result.data)
@@ -379,9 +414,12 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
       return
     }
     // Hard conflict (e.g. Safe Weight Gain + Fat Loss) blocks creation; soft
-    // conflicts and safety advisories warn inside the accordion but never block.
-    if (hasUnresolvedHardConflict(goalState.selected.map(s => s.goalId))) {
-      setError('These goals can’t be combined. Remove one of the conflicting goals to continue.')
+    // conflicts and safety advisories warn inside the workspace/accordion but never block.
+    const goalIdsForConflict = GOAL_WORKSPACE_ENABLED
+      ? workspaceState.selectedGoalIds
+      : goalState.selected.map(s => s.goalId)
+    if (hasUnresolvedHardConflict(goalIdsForConflict)) {
+      setError("These goals can’t be combined. Remove one of the conflicting goals to continue.")
       return
     }
 
@@ -430,7 +468,14 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
         if (pv) setPhoneValue(pv)
       }
       if (fields.goals.value && fields.goals.value.length > 0) {
-        setGoalState(goalStateFromLegacyIds(fields.goals.value))
+        if (GOAL_WORKSPACE_ENABLED) {
+          for (const raw of fields.goals.value) {
+            const canonical = normalizeGoalId(raw)
+            if (canonical) workspaceDispatch({ type: 'ADD_GOAL', goalId: canonical })
+          }
+        } else {
+          setGoalState(goalStateFromLegacyIds(fields.goals.value))
+        }
       }
       if (fields.notes.value) setNotes(prev => prev || fields.notes.value!)
       setAiState(state)
@@ -440,7 +485,9 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   // ─── Render helpers ────────────────────────────────────────────────────────
 
   const isSheet = variant === 'sheet'
-  const hardConflictBlocked = hasUnresolvedHardConflict(goalState.selected.map(s => s.goalId))
+  const hardConflictBlocked = GOAL_WORKSPACE_ENABLED
+    ? hasWorkspaceHardConflict(workspaceState)
+    : hasUnresolvedHardConflict(goalState.selected.map(s => s.goalId))
 
   // ─── Success state ────────────────────────────────────────────────────────
 
@@ -597,7 +644,10 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
         {detailsOpen && (
           <div className="pt-5 space-y-5">
-            <GoalAccordion value={goalState} onChange={setGoalState} />
+            {GOAL_WORKSPACE_ENABLED
+              ? <AddClientGoalWorkspace state={workspaceState} dispatch={workspaceDispatch} />
+              : <GoalAccordion value={goalState} onChange={setGoalState} />
+            }
 
             <AgeInput value={ageValue} onChange={setAgeValue} />
 
