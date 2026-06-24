@@ -3,3 +3,6 @@
 //
 // Suggested first components for FitDesk:
 //   npx shadcn@latest add button card badge sheet toast dialog
+
+export { WorkspaceShell } from './WorkspaceShell'
+export type { WorkspaceShellProps } from './WorkspaceShell'
