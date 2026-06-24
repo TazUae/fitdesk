@@ -1,71 +1,67 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   FITDESK DESIGN TOKENS
-   Raw hex values — use directly in custom CSS or as var(--fd-*)
-   ───────────────────────────────────────────────────────────────────────── */
+/* FITDESK DESIGN TOKENS — ADR-UX-004 / ADR-UX-006 v1.1
+   OKLCH is canonical. HEX values are legacy references only.
+*/
 :root {
-  --fd-bg:      #0F1117;
-  --fd-surface: #1A1D27;
-  --fd-card:    #21253A;
-  --fd-accent:  #E8C547;
-  --fd-text:    #F0EDE6;
-  --fd-muted:   #8A8FA8;
-  --fd-border:  #2E3248;
-  --fd-green:   #4ECBA0;
-  --fd-red:     #E85C6A;
-  --fd-blue:    #5B9CF6;
+  /* Core Neutrals */
+  --fd-bg: oklch(0.98 0.004 80);              /* #FAFAF7 */
+  --fd-surface: oklch(1 0 0);                 /* #FFFFFF */
+  --fd-card: oklch(0.96 0.004 80);            /* #F4F4EF */
+  --fd-text: oklch(0.19 0.008 240);           /* #18181B */
+  --fd-muted: oklch(0.53 0.012 245);          /* #71717A */
+  --fd-border: oklch(0.92 0.008 240);         /* #E4E4E7 */
 
-  /* Subtle tints — used by Badge variants */
-  --fd-blue-subtle:  rgba(91, 156, 246, 0.12);  /* blue at 12% opacity */
-  --fd-card-hover:   #2A2E45;                    /* slightly lighter than --fd-card */
-  --fd-warning:      #E37400;                    /* amber for pending/overdue states */
+  /* Actions */
+  --fd-primary: oklch(0.54 0.22 260);         /* #2563EB */
+  --fd-primary-soft: oklch(0.93 0.04 255);    /* #DBEAFE */
+
+  /* Signals */
+  --fd-success: oklch(0.63 0.17 145);         /* #16A34A */
+  --fd-warning: oklch(0.76 0.15 75);          /* #F59E0B */
+  --fd-danger: oklch(0.57 0.21 25);           /* #DC2626 */
+  --fd-information: oklch(0.58 0.16 235);     /* #0284C7 */
+
+  --fd-card-hover: oklch(0.94 0.006 80);
+  --fd-blue-subtle: oklch(0.93 0.04 255);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   SHADCN / TAILWIND VARIABLE MAPPING
-   Values are in HSL channel format (no wrapper) so Tailwind can compose them:
-   hsl(var(--background)), hsl(var(--primary)), etc.
-   ───────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background:           225 21% 7%;       /* #0F1117 */
-    --foreground:           42  25% 92%;      /* #F0EDE6 */
+    --background: 0.98 0.004 80;
+    --foreground: 0.19 0.008 240;
 
-    --card:                 230 27% 18%;      /* #21253A */
-    --card-foreground:      42  25% 92%;
+    --card: 1 0 0;
+    --card-foreground: 0.19 0.008 240;
 
-    --popover:              226 20% 13%;      /* #1A1D27 */
-    --popover-foreground:   42  25% 92%;
+    --popover: 1 0 0;
+    --popover-foreground: 0.19 0.008 240;
 
-    --primary:              47  78% 59%;      /* #E8C547 accent gold */
-    --primary-foreground:   225 21% 7%;
+    --primary: 0.54 0.22 260;
+    --primary-foreground: 1 0 0;
 
-    --secondary:            226 20% 13%;      /* #1A1D27 surface */
-    --secondary-foreground: 42  25% 92%;
+    --secondary: 0.96 0.004 80;
+    --secondary-foreground: 0.19 0.008 240;
 
-    --muted:                231 22% 23%;      /* #2E3248 */
-    --muted-foreground:     230 15% 60%;      /* #8A8FA8 */
+    --muted: 0.96 0.004 80;
+    --muted-foreground: 0.53 0.012 245;
 
-    --accent:               47  78% 59%;      /* #E8C547 */
-    --accent-foreground:    225 21% 7%;
+    --accent: 0.93 0.04 255;
+    --accent-foreground: 0.19 0.008 240;
 
-    --destructive:          354 75% 64%;      /* #E85C6A */
-    --destructive-foreground: 42 25% 92%;
+    --destructive: 0.57 0.21 25;
+    --destructive-foreground: 1 0 0;
 
-    --border:               231 22% 23%;      /* #2E3248 */
-    --input:                226 20% 13%;      /* #1A1D27 */
-    --ring:                 47  78% 59%;      /* accent for focus rings */
+    --border: 0.92 0.008 240;
+    --input: 0.92 0.008 240;
+    --ring: 0.54 0.22 260;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   BASE STYLES
-   ───────────────────────────────────────────────────────────────────────── */
 @layer base {
   *,
   *::before,
@@ -74,12 +70,9 @@
   }
 
   html {
-    /* Prevent iOS font size inflation on orientation change */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    /* Smooth anchor scrolling */
     scroll-behavior: smooth;
-    /* Use dynamic viewport height on mobile (avoids address-bar overflow) */
     height: 100%;
   }
 
@@ -91,47 +84,41 @@
     min-height: 100dvh;
     @apply antialiased;
 
-    /* Mobile tap highlight removal */
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-
-    /* iPhone notch / home bar padding */
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Text selection — accent gold on dark bg */
   ::selection {
-    background-color: var(--fd-accent);
-    color: var(--fd-bg);
+    background-color: var(--fd-primary-soft);
+    color: var(--fd-text);
   }
 
-  /* Thin scrollbar on desktop */
   ::-webkit-scrollbar {
     width: 5px;
     height: 5px;
   }
+
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+
   ::-webkit-scrollbar-thumb {
     background: var(--fd-border);
     border-radius: 99px;
   }
+
   ::-webkit-scrollbar-thumb:hover {
     background: var(--fd-muted);
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   COMPONENT UTILITIES
-   Reusable class names shared across form inputs throughout the app.
-   ───────────────────────────────────────────────────────────────────────── */
 @layer components {
   .input-base {
     width: 100%;
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
     border: 1px solid var(--fd-border);
-    background-color: var(--fd-card);
+    background-color: var(--fd-surface);
     color: var(--fd-text);
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
@@ -145,7 +132,7 @@
   }
 
   .input-base:focus {
-    border-color: var(--fd-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fd-accent) 20%, transparent);
+    border-color: var(--fd-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--fd-primary) 20%, transparent);
   }
 }
