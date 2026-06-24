@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowRight, Mail, MessageCircle, Phone, Target, X } from 'lucide-react'
+import { ArrowRight, Clock, Mail, MessageCircle, Phone, Target, X } from 'lucide-react'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
@@ -55,11 +55,22 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
           <div className="flex items-center gap-3 min-w-0">
             <Avatar name={client.name} size="md" />
             <div className="min-w-0">
-              <p className="text-sm font-bold truncate" style={{ color: 'var(--fd-text)' }}>
+              <p className="text-[15px] font-semibold truncate" style={{ color: 'var(--fd-text)' }}>
                 {client.name}
               </p>
-              <div className="mt-0.5">
+              <div className="mt-0.5 flex items-center gap-1.5">
                 <Badge variant={client.status === 'active' ? 'active' : 'inactive'} />
+                {hub && hub.client.safetyState !== 'clear' && (
+                  <span
+                    className="h-2 w-2 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: hub.client.safetyState === 'blocked_downstream'
+                        ? 'var(--fd-danger)'
+                        : 'var(--fd-warning)',
+                    }}
+                    aria-label={hub.client.safetyState === 'blocked_downstream' ? 'Blocked' : 'Needs review'}
+                  />
+                )}
               </div>
               {headerMeta && (
                 <p className="mt-0.5 text-xs truncate" style={{ color: 'var(--fd-muted)' }}>
@@ -91,7 +102,11 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
             <Link
               href={`/dashboard/messages/${encodeURIComponent(client.id)}`}
               className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-opacity active:opacity-70"
-              style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
+              style={{
+                backgroundColor: 'var(--fd-card)',
+                border:          '1px solid var(--fd-border)',
+                color:           'var(--fd-success)',
+              }}
             >
               <MessageCircle className="h-4 w-4" />
               Send WhatsApp
@@ -101,7 +116,7 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
           <Link
             href={`/dashboard/clients/${encodeURIComponent(client.id)}`}
             className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-opacity active:opacity-70"
-            style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+            style={{ backgroundColor: 'var(--fd-primary)', color: 'var(--fd-bg)' }}
           >
             Open full profile
             <ArrowRight className="h-4 w-4" />
@@ -116,22 +131,30 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
           <>
             {/* Contact snapshot — phone and email only; skipped when both absent */}
             {(client.phone || client.email) && (
-              <div
-                className="rounded-2xl border p-4 space-y-2"
-                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-              >
-                {client.phone && (
-                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-                    <Phone className="h-3.5 w-3.5 shrink-0" />
-                    {client.phone}
-                  </div>
-                )}
-                {client.email && (
-                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-                    <Mail className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{client.email}</span>
-                  </div>
-                )}
+              <div className="space-y-1.5">
+                <p
+                  className="px-1 text-[11px] font-semibold uppercase tracking-widest"
+                  style={{ color: 'var(--fd-muted)' }}
+                >
+                  Contact
+                </p>
+                <div
+                  className="rounded-2xl border p-4 space-y-2.5"
+                  style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+                >
+                  {client.phone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+                      <span style={{ color: 'var(--fd-text)' }}>{client.phone}</span>
+                    </div>
+                  )}
+                  {client.email && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Mail className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+                      <span className="truncate" style={{ color: 'var(--fd-text)' }}>{client.email}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -140,14 +163,14 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
               <div
                 className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
                 style={{
-                  backgroundColor: 'rgba(232,197,71,0.08)',
-                  border:          '1px solid rgba(232,197,71,0.35)',
-                  color:           '#d4a017',
+                  backgroundColor: 'color-mix(in oklch, var(--fd-warning) 8%, transparent)',
+                  border:          '1px solid color-mix(in oklch, var(--fd-warning) 35%, transparent)',
+                  color:           'var(--fd-warning)',
                 }}
               >
                 <span
                   className="h-1.5 w-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: '#d4a017' }}
+                  style={{ backgroundColor: 'var(--fd-warning)' }}
                 />
                 {needsAttentionCount}{' '}
                 {needsAttentionCount === 1 ? 'item needs' : 'items need'} attention
@@ -159,19 +182,21 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
 
             {/* Trainer notes — only in the hub-present path; fallback path shows notes inline */}
             {client.notes && (
-              <div
-                className="rounded-2xl border p-4"
-                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-              >
+              <div className="space-y-1.5">
                 <p
-                  className="text-xs font-semibold uppercase tracking-wide mb-2"
+                  className="px-1 text-[11px] font-semibold uppercase tracking-widest"
                   style={{ color: 'var(--fd-muted)' }}
                 >
-                  Trainer notes
+                  Notes
                 </p>
-                <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
-                  {client.notes}
-                </p>
+                <div
+                  className="rounded-2xl border p-4"
+                  style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+                >
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--fd-text)' }}>
+                    {client.notes}
+                  </p>
+                </div>
               </div>
             )}
           </>
@@ -181,25 +206,28 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
             className="rounded-2xl border p-4 space-y-3"
             style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
           >
-            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-              Client command center is still preparing
-            </p>
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                Client command center is still preparing
+              </p>
+            </div>
             {client.phone && (
-              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-                <Phone className="h-3.5 w-3.5 shrink-0" />
-                {client.phone}
+              <div className="flex items-center gap-2 text-sm">
+                <Phone className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+                <span style={{ color: 'var(--fd-text)' }}>{client.phone}</span>
               </div>
             )}
             {client.email && (
-              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-                <Mail className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{client.email}</span>
+              <div className="flex items-center gap-2 text-sm">
+                <Mail className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+                <span className="truncate" style={{ color: 'var(--fd-text)' }}>{client.email}</span>
               </div>
             )}
             {goalDisplay && (
-              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-                <Target className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{goalDisplay}</span>
+              <div className="flex items-center gap-2 text-sm">
+                <Target className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+                <span className="truncate" style={{ color: 'var(--fd-text)' }}>{goalDisplay}</span>
               </div>
             )}
             {client.notes && (
@@ -207,12 +235,12 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
                 <div className="border-t" style={{ borderColor: 'var(--fd-border)' }} />
                 <div>
                   <p
-                    className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+                    className="text-[11px] font-semibold uppercase tracking-widest mb-1.5"
                     style={{ color: 'var(--fd-muted)' }}
                   >
                     Trainer notes
                   </p>
-                  <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--fd-text)' }}>
                     {client.notes}
                   </p>
                 </div>
