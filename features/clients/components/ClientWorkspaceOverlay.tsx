@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Mail, MessageCircle, Phone, Target, X } from 'lucide-react'
+import { ArrowRight, Mail, MessageCircle, Phone, Target, X } from 'lucide-react'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
@@ -65,18 +65,31 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
       }
       footer={
         <div
-          className="border-t px-5 py-4"
+          className="border-t px-5 py-4 space-y-3"
           style={{
             borderColor:   'var(--fd-border)',
             paddingBottom: 'max(env(safe-area-inset-bottom), 16px)',
           }}
         >
+          {/* Secondary CTA — only when phone is available */}
+          {client.phone && (
+            <Link
+              href={`/dashboard/messages/${encodeURIComponent(client.id)}`}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-opacity active:opacity-70"
+              style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
+            >
+              <MessageCircle className="h-4 w-4" />
+              Send WhatsApp
+            </Link>
+          )}
+          {/* Primary CTA — always present */}
           <Link
             href={`/dashboard/clients/${encodeURIComponent(client.id)}`}
             className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-opacity active:opacity-70"
             style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
           >
-            Open full profile →
+            Open full profile
+            <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
       }
@@ -101,26 +114,35 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
               <span className="truncate">{client.email}</span>
             </div>
           )}
-          {goal && (
+          {/* Goal only when hub is absent — otherwise ClientHubPanel already shows it */}
+          {!hub && goal && (
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
               <Target className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{goal}</span>
             </div>
           )}
-          {client.phone && (
-            <Link
-              href={`/dashboard/messages/${encodeURIComponent(client.id)}`}
-              className="mt-1 flex items-center justify-center gap-2 rounded-xl py-2 text-sm font-semibold"
-              style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
-            >
-              <MessageCircle className="h-4 w-4" />
-              Send WhatsApp
-            </Link>
-          )}
         </div>
 
         {/* Client Hub — rendered only when feature flag is on for this tenant */}
         {hub && <ClientHubPanel overview={hub} />}
+
+        {/* Trainer notes — surfaced from already-fetched client data */}
+        {client.notes && (
+          <div
+            className="rounded-2xl border p-4"
+            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+          >
+            <p
+              className="text-xs font-semibold uppercase tracking-wide mb-2"
+              style={{ color: 'var(--fd-muted)' }}
+            >
+              Trainer notes
+            </p>
+            <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
+              {client.notes}
+            </p>
+          </div>
+        )}
 
       </div>
     </WorkspaceShell>
