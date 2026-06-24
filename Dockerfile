@@ -9,6 +9,10 @@ FROM base AS deps
 
 COPY package.json package-lock.json ./
 RUN npm ci --frozen-lockfile
+# Workaround: npm ci on Linux with a Windows-generated lockfile skips optional
+# platform-native binaries (npm/cli#4828). libsql needs its native .node file
+# at module-load time, so we install it explicitly here.
+RUN npm install --no-save --no-package-lock @libsql/linux-x64-gnu@0.5.28
 
 # ─── Stage 2: Build ───────────────────────────────────────────────────────────
 FROM base AS builder
