@@ -30,7 +30,17 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
     setTimeout(() => router.back(), 310)
   }, [router])
 
-  const goal = formatGoal(client.goal)
+  // Hub's enriched label takes priority; falls back to ERP goal string
+  const goalDisplay = hub?.client.primaryGoalLabel ?? formatGoal(client.goal)
+  const clientSince = (() => {
+    try {
+      return new Date(client.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    } catch { return null }
+  })()
+  const headerMeta = [goalDisplay, clientSince ? `Since ${clientSince}` : null]
+    .filter((s): s is string => Boolean(s))
+    .join(' · ')
+  const needsAttentionCount = hub?.pendingActions.length ?? 0
 
   return (
     <WorkspaceShell
@@ -51,6 +61,11 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
               <div className="mt-0.5">
                 <Badge variant={client.status === 'active' ? 'active' : 'inactive'} />
               </div>
+              {headerMeta && (
+                <p className="mt-0.5 text-xs truncate" style={{ color: 'var(--fd-muted)' }}>
+                  {headerMeta}
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -97,50 +112,112 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
-        {/* Contact snapshot */}
-        <div
-          className="rounded-2xl border p-4 space-y-2"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          {client.phone && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Phone className="h-3.5 w-3.5 shrink-0" />
-              {client.phone}
-            </div>
-          )}
-          {client.email && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Mail className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{client.email}</span>
-            </div>
-          )}
-          {/* Goal only when hub is absent — otherwise ClientHubPanel already shows it */}
-          {!hub && goal && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
-              <Target className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{goal}</span>
-            </div>
-          )}
-        </div>
+        {hub ? (
+          <>
+            {/* Contact snapshot — phone and email only; skipped when both absent */}
+            {(client.phone || client.email) && (
+              <div
+                className="rounded-2xl border p-4 space-y-2"
+                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+              >
+                {client.phone && (
+                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    {client.phone}
+                  </div>
+                )}
+                {client.email && (
+                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{client.email}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-        {/* Client Hub — rendered only when feature flag is on for this tenant */}
-        {hub && <ClientHubPanel overview={hub} />}
+            {/* Needs attention strip — establishes action-first hierarchy before hub panel */}
+            {needsAttentionCount > 0 && (
+              <div
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
+                style={{
+                  backgroundColor: 'rgba(232,197,71,0.08)',
+                  border:          '1px solid rgba(232,197,71,0.35)',
+                  color:           '#d4a017',
+                }}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: '#d4a017' }}
+                />
+                {needsAttentionCount}{' '}
+                {needsAttentionCount === 1 ? 'item needs' : 'items need'} attention
+              </div>
+            )}
 
-        {/* Trainer notes — surfaced from already-fetched client data */}
-        {client.notes && (
+            {/* Client Hub panel — internals unchanged */}
+            <ClientHubPanel overview={hub} />
+
+            {/* Trainer notes — only in the hub-present path; fallback path shows notes inline */}
+            {client.notes && (
+              <div
+                className="rounded-2xl border p-4"
+                style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+              >
+                <p
+                  className="text-xs font-semibold uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--fd-muted)' }}
+                >
+                  Trainer notes
+                </p>
+                <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
+                  {client.notes}
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Hub-null fallback — intentional, not empty */
           <div
-            className="rounded-2xl border p-4"
+            className="rounded-2xl border p-4 space-y-3"
             style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
           >
-            <p
-              className="text-xs font-semibold uppercase tracking-wide mb-2"
-              style={{ color: 'var(--fd-muted)' }}
-            >
-              Trainer notes
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Client command center is still preparing
             </p>
-            <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
-              {client.notes}
-            </p>
+            {client.phone && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                <Phone className="h-3.5 w-3.5 shrink-0" />
+                {client.phone}
+              </div>
+            )}
+            {client.email && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{client.email}</span>
+              </div>
+            )}
+            {goalDisplay && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
+                <Target className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{goalDisplay}</span>
+              </div>
+            )}
+            {client.notes && (
+              <>
+                <div className="border-t" style={{ borderColor: 'var(--fd-border)' }} />
+                <div>
+                  <p
+                    className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+                    style={{ color: 'var(--fd-muted)' }}
+                  >
+                    Trainer notes
+                  </p>
+                  <p className="text-sm" style={{ color: 'var(--fd-text)' }}>
+                    {client.notes}
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         )}
 
