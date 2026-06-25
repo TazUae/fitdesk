@@ -1,0 +1,73 @@
+/**
+ * Billing domain types — Package Template layer.
+ *
+ * These types describe the FitDesk local billing model.
+ * ERP accounting documents (Sales Invoice, Payment Entry) remain authoritative
+ * for all financial truth (ADR FITDESK_BILLING_PACKAGE_ERP_DECISION §1).
+ *
+ * price_amount is stored in minor currency units (e.g. USD cents = 1/100 USD).
+ */
+
+import type { TemplateType, PackageTemplateStatus } from '@/lib/billing/taxonomy'
+
+/**
+ * Trainer-facing reusable package template.
+ *
+ * Once first_sold_at_utc is set, priced/service fields are frozen.
+ * Archiving is always permitted (lifecycle metadata, not financial mutation).
+ */
+export type PackageTemplate = {
+  id: string
+  tenantId: string
+  name: string
+  description: string | null
+  templateType: TemplateType
+  sessionCount: number
+  priceAmount: number
+  currency: string
+  expiryDays: number | null
+  erpItemCode: string | null
+  status: PackageTemplateStatus
+  firstSoldAtUtc: string | null
+  supersedesTemplateId: string | null
+  archivedAtUtc: string | null
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+/**
+ * Input for creating a new package template.
+ *
+ * Always creates as status='draft'. templateType defaults to 'standard_block'.
+ * priceAmount defaults to 0 (minor units — use 0 for complimentary templates).
+ */
+export type PackageTemplateDraft = {
+  name: string
+  description?: string | null
+  templateType?: TemplateType
+  sessionCount: number
+  priceAmount?: number
+  currency: string
+  expiryDays?: number | null
+  erpItemCode?: string | null
+  supersedesTemplateId?: string | null
+}
+
+/**
+ * Partial update for an unused (first_sold_at_utc IS NULL) package template.
+ *
+ * All fields are optional. Only provided keys are updated.
+ * Rejected if first_sold_at_utc is set (immutability rule, ADR §7).
+ * Rejected if status is 'archived'.
+ */
+export type PackageTemplateUpdate = {
+  name?: string
+  description?: string | null
+  templateType?: TemplateType
+  sessionCount?: number
+  priceAmount?: number
+  currency?: string
+  expiryDays?: number | null
+  erpItemCode?: string | null
+  supersedesTemplateId?: string | null
+}
