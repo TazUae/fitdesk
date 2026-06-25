@@ -285,7 +285,7 @@ constraints at the disk layer. Neither alone is sufficient.
 
 ---
 
-## 7. Package Catalog model (template)
+## 7. Package Template model
 
 A trainer-facing, reusable **package template**. Greenfield — **no such model exists on disk**
 (verified 2026-06-25).
@@ -317,7 +317,7 @@ Greenfield — **no such model exists on disk** (verified 2026-06-25).
 
 - **Client-specific package contract** — one row per package a client buys.
 - **Links:** `clientIndexId` / `erpCustomerId` (canonical client identity, `ADR-001`),
-  `packageCatalogId` (+ version), the **ERP Sales Invoice reference** (Sales Invoice docname),
+  `packageTemplateId` (+ version), the **ERP Sales Invoice reference** (Sales Invoice docname),
   payment state, and activation/expiration timestamps.
 - **Read-only after financial confirmation** — once the linked Sales Invoice is submitted/confirmed,
   the purchase row is immutable **except** for validated status transitions (e.g. `active` →
@@ -399,7 +399,7 @@ approval:
 ### Phase B — Production-hardening soon (schema + ERP, each approval-gated)
 
 - `lib/db/schema.ts` — add **CHECK constraints** to existing enum columns (`billing_mode`, statuses);
-  add `package_catalog` and `client_package_purchase` tables (tenant-scoped) — `§7`, `§8`.
+  add `package_template` and `client_package_purchase` tables (tenant-scoped) — `§7`, `§8`.
 - `package_ledger` table — **append-only**, with an **idempotency key** column; balance is a derived
   view/projection, never an authoritative counter (`§5.3`, `§6`, `§8`).
 - Package assignment workflow (server action) — creates the **Sales Invoice on explicit trainer
