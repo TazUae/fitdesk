@@ -128,11 +128,9 @@ export function ProvisioningStatus({ initialRecord }: ProvisioningStatusProps) {
   };
 
   if (!initialRecord) {
-    return (
-      <div className="rounded-xl border p-4 text-sm">
-        No provisioning job found yet. Please contact support if this persists.
-      </div>
-    );
+    // The onboarding page routes users with no row to the setup form before
+    // rendering this component, so this branch should not be reached in normal flow.
+    return null;
   }
 
   if (status === "failed") {

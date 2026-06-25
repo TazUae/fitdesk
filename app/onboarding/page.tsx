@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ProvisioningStatus } from "@/components/onboarding/provisioning-status";
+import { WorkspaceSetupForm } from "@/components/onboarding/workspace-setup-form";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
@@ -18,26 +19,31 @@ export default async function OnboardingPage() {
     orderBy: [desc(workspaceProvisioning.createdAt)],
   });
 
+  // Completed → server-side redirect (closes D3: completed users no longer stuck on spinner)
+  if (latestProvisioning?.status === "completed") {
+    redirect("/dashboard");
+  }
+
+  // No row → workspace setup form (closes D4/D6: new users and reset users see the form)
+  if (!latestProvisioning) {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-6 py-10">
+        <WorkspaceSetupForm />
+      </main>
+    );
+  }
+
+  // Active (queued/running), Failed, or any unknown status → provisioning status component.
+  // Unknown statuses fall through here (conservative: keep polling, never auto-redirect).
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-6 py-10">
-      <h1 className="text-2xl font-semibold">Setting up your workspace</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        We are preparing your FitDesk workspace. This usually takes a minute or two.
-      </p>
-
-      <div className="mt-8">
-        <ProvisioningStatus
-          initialRecord={
-            latestProvisioning
-              ? {
-                  jobId: latestProvisioning.jobId,
-                  status: latestProvisioning.status,
-                  failureReason: latestProvisioning.failureReason,
-                }
-              : null
-          }
-        />
-      </div>
+      <ProvisioningStatus
+        initialRecord={{
+          jobId: latestProvisioning.jobId,
+          status: latestProvisioning.status,
+          failureReason: latestProvisioning.failureReason,
+        }}
+      />
     </main>
   );
 }
