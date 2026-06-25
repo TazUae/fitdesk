@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { MessageCircle, User, SlidersHorizontal, LifeBuoy, LogOut, X } from 'lucide-react'
 import { signOut } from '@/lib/auth-client'
 import { Avatar } from './Avatar'
@@ -15,8 +14,6 @@ interface UserMenuSheetProps {
 }
 
 export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSheetProps) {
-  const router = useRouter()
-
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [signingOut,        setSigningOut]        = useState(false)
 
@@ -53,7 +50,7 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
     if (signingOut) return
     setSigningOut(true)
     await signOut()
-    router.replace('/auth/login')
+    window.location.assign('/auth/login')
   }
 
   const itemBase =

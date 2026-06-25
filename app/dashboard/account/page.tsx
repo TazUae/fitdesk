@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Camera, Check, Loader2, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient, signOut, useSession } from '@/lib/auth-client'
@@ -27,7 +26,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
-  const router = useRouter()
   const { data: session, isPending: sessionLoading } = useSession()
 
   const [name,      setName]      = useState('')
@@ -75,7 +73,7 @@ export default function AccountPage() {
   async function handleSignOut() {
     setSigningOut(true)
     await signOut()
-    router.replace('/auth/login')
+    window.location.assign('/auth/login')
   }
 
   if (sessionLoading) {
