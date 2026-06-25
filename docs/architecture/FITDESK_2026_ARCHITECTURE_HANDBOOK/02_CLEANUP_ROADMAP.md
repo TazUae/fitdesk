@@ -24,6 +24,32 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 - **Gate (GO):** no detached HEADs; `provisioning_api` clean & not-behind; every worktree justified;
   `git fsck` shows no lost objects; safety tags exist in all repos.
 
+### Phase B0 — Graphify Knowledge Graph Audit (post-A, pre-B)
+- **Objective:** Generate a read-only repository knowledge graph (Graphify) on a freshly stabilised
+  repo to surface high-blast-radius files, duplicate logic paths, feature boundary violations, and
+  code/doc drift. Use findings as **evidence** to sharpen Phases B–F. No code changes in this phase.
+- **Entry condition:** Phase A gate GREEN (clean repo, no detached HEADs, `provisioning_api` clean).
+- **Audit questions Graphify must answer:**
+  1. Which files connect client creation to ERP?
+  2. Which files connect session completion to billing?
+  3. Which files own scheduling conflict logic?
+  4. Which UI components import business actions directly?
+  5. Where are duplicate money formatters, trainer resolvers, or invoice status predicates?
+  6. Which files have the highest blast radius?
+  7. Which docs disagree with current code structure?
+  8. Which modules violate the target feature-based architecture?
+- **Governing rules:**
+  - Read-only — must not modify application code, tests, package files, Docker files, or branches.
+  - Graphify output is **evidence only**, never source of truth. Architecture decisions still require
+    handbook rules, ADR review, tests, lint, and build.
+  - Must not auto-delete files, branches, or migrations.
+  - Output location must be decided **before** running: add to `.gitignore` (generated, ephemeral) or
+    commit as a one-off audit artifact (`docs/audit/`). Default: gitignore.
+  - Sensitive repo content stays local; no AI-provider mode without explicit approval.
+- **Risk:** Very Low (read-only tool invocation; zero code changes).
+- **Gate (GO):** run completed; all 8 audit questions answered; output location resolved (gitignored or
+  archived); no application file changed.
+
 ### Phase B — Deployment Contract Cleanup
 - **Objective:** One canonical local compose, one env template, per-service Dockerfiles aligned to Dokploy.
 - **Targets:** root compose set, `.env`/`.env.local` divergence, `.env.bak`, per-service Dockerfiles.
@@ -76,8 +102,8 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 
 ## Architecture rules
 
-- Dependency order: `A → (B ∥ C ∥ D) → E → F → G → H → I`. A precedes all; I is terminal.
-- Horizons: **MVP-now** = A, C, D, B-hygiene · **hardening-soon** = B-full, E, F, G, H · **future** = multi-bench, ERP↔local reconciliation, full multi-tenant frontend.
+- Dependency order: `A → B0 → (B ∥ C ∥ D) → E → F → G → H → I`. A precedes all; B0 follows A and precedes the parallel block; I is terminal.
+- Horizons: **MVP-now** = A, B0, C, D, B-hygiene · **hardening-soon** = B-full, E, F, G, H · **future** = multi-bench, ERP↔local reconciliation, full multi-tenant frontend.
 
 ## Do-not-touch areas
 
@@ -99,4 +125,4 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 
 ## Next actions
 
-- Read `03` for the execution order and gates; start at Phase A.
+- Read `03` for the execution order and gates; start at Phase A, then B0.

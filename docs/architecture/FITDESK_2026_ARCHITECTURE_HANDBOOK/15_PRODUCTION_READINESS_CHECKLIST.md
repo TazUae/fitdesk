@@ -22,6 +22,13 @@ FitDesk production readiness across all architecture domains. This is the termin
 - [ ] `fitdesk-app` classified; `FitDesk;C` resolved.
 - [ ] FitDesk `main` reconciled with origin (the ahead-17 intentionally pushed under instruction).
 
+## Knowledge graph audit (Phase B0)
+- [ ] Graphify run completed on clean post-Phase-A repo.
+- [ ] All 8 audit questions answered (ERP chain; billing chain; scheduling conflict ownership; UI↔action imports; duplicate formatters/resolvers/predicates; blast-radius ranking; doc/code drift; feature boundary violations).
+- [ ] Output location resolved: gitignored (generated) or committed as audit artifact (`docs/audit/`).
+- [ ] No application code, test, package, or Docker file changed during B0.
+- [ ] Findings classified as evidence; no cleanup action taken solely on Graphify output without handbook rules, ADR review, tests, lint, and build.
+
 ## Deployment
 - [ ] `npm run local:up` + `npm run local:check` green on the canonical compose/`.env`.
 - [ ] One documented env template; no stray `.env`/compose variants in the deploy path.

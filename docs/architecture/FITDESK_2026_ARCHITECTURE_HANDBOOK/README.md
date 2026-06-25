@@ -43,8 +43,8 @@ It exists to end a specific failure mode the team experienced in 2026:
 |---|---|---|
 | 00 | Architecture Constitution | What may never be violated; what is protected |
 | 01 | Architecture Truth Audit | What is proven vs. assumed (with confidence) |
-| 02 | Cleanup Roadmap | The phased cleanup program A–I |
-| 03 | Execution Plan | The order and the gates (no time estimates) |
+| 02 | Cleanup Roadmap | The phased cleanup program A, B0, B–I |
+| 03 | Execution Plan | The order and the gates (no time estimates); includes B0 knowledge graph step |
 | 04 | Source Control Strategy | Worktrees, branches, untracked-ERP, push rules |
 | 05 | Repository Architecture | Current vs. target repo layout; canonical repos |
 | 06 | Frontend / UI Architecture | App Router, feature folders, shell/overlays, mobile-first |
@@ -91,4 +91,5 @@ and the live repository state.
 
 - Resolve the **Open Decisions** consolidated in `01` and `09` (notably **PT Session vs FD Session**).
 - Begin the cleanup at **Phase A** (`02`/`03`) once decisions are acknowledged.
+- After Phase A is GREEN, run **Phase B0** — Graphify knowledge graph audit — before starting B, C, or D.
 - Backfill the **missing ADRs** listed in `14`.

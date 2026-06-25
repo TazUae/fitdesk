@@ -47,6 +47,21 @@ npx tsc --noEmit   # if configured — type integrity (use during Phase E migrat
   (`npm test` + `npm run test:integration`); `provisioning_api` (`pytest`).
 - Add the local-stack smoke (`check-local-stack.mjs`) and the token-governance lint (`07`) as gates.
 
+### Dev audit tooling — Graphify (Phase B0, read-only)
+
+Graphify runs **once** after Phase A to generate a repository knowledge graph. It is not a CI
+check and must never be wired into the Dokploy pipeline or any per-commit gate.
+
+- **Read-only:** must not modify code, tests, package files, Docker files, or branches.
+- **Output location** must be decided before running:
+  - Default: add the output path to `.gitignore` (generated, ephemeral, local-only).
+  - Alternative: commit as a one-off audit artifact under `docs/audit/` with a `docs(audit):` commit.
+  - Never leave output untracked and unignored.
+- **Not source of truth:** Graphify findings are evidence. Every cleanup action they surface still
+  requires handbook rules, ADR review, tests, lint, and build before merging.
+- **Sensitive content stays local.** No AI-provider mode without explicit approval.
+- See `02` Phase B0 and `03` for the full governing rules and audit questions.
+
 ## Do-not-touch areas
 
 - Production env values and secrets; the Dokploy deploy source contract.

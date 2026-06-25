@@ -80,3 +80,5 @@ The workspace **root is not a git repo**. Seven `.git` repos exist, plus worktre
 ## Next actions
 
 - Resolve the two DECISION items; collapse worktrees in Phase A per `04`.
+- After Phase A: run Phase B0 Graphify knowledge graph audit (`02`/`03`) to map high-blast-radius
+  files and feature boundary violations before the Phase E migration work begins.

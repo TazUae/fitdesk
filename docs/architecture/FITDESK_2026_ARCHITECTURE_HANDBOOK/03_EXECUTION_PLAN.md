@@ -11,28 +11,29 @@ guidance** (the shape of commits) — not literal commits.
 
 ## Current known state
 
-Program progress: **0 / 9 phases started.** Recommended next phase: **A**.
+Program progress: **0 / 10 phases started.** Recommended next phase: **A**.
 
 ## Execution order & gates
 
 Execute strictly in this order. Do not begin a phase until the prior gate is **GREEN**.
 
 ```text
-A → C → B → D → E1 → E2 → E3 → F0 → F1 → E4 → H → I
-                                   └─ G branches off AFTER F1, only when unfrozen
+A → B0 → C → B → D → E1 → E2 → E3 → F0 → F1 → E4 → H → I
+                                        └─ G branches off AFTER F1, only when unfrozen
 ```
 
-> Note: B and D may run in parallel with C if capacity allows, but A must finish first and E4 must
-> follow F1.
+> B0 (knowledge graph audit) must complete after A and before B, C, D begin.
+> B, C, and D may then run in parallel if capacity allows, but E4 must follow F1.
 
 ### Gate sequence (each must be GREEN to advance)
 
 | Step | Entry condition | Exit gate (GREEN means…) |
 |---|---|---|
 | **A** Source Control | safety tags created in all repos | no detached HEADs; `provisioning_api` clean & not-behind; worktrees justified; `git fsck` clean |
-| **C** Token Repair | A green | shadcn utilities render correct palette (screenshot); build + tests green |
-| **B** Deploy Contract | A green | `local:up` + `local:check` green on canonical compose/env; one env template; no prod edits |
-| **D** Dead Code | A green | every removal grep-proven; build/tests green; scheduler primitives untouched |
+| **B0** Knowledge Graph | A green | Graphify run complete; all 8 audit questions answered; output location decided (gitignored or committed artifact); no code changed |
+| **C** Token Repair | B0 green | shadcn utilities render correct palette (screenshot); build + tests green |
+| **B** Deploy Contract | B0 green | `local:up` + `local:check` green on canonical compose/env; one env template; no prod edits |
+| **D** Dead Code | B0 green | every removal grep-proven; build/tests green; scheduler primitives untouched |
 | **E1** Migration Audit | D green | a file-by-file `features/*` move map + shim plan exists |
 | **E2** Clients Migration | E1 green | clients build/test green; no `UI→ERP` direct calls |
 | **E3** Dashboard Migration | E2 green | dashboard build/test green |
@@ -49,6 +50,10 @@ A → C → B → D → E1 → E2 → E3 → F0 → F1 → E4 → H → I
 - **Phase A:** prefer git *operations* (re-attach via `switch`, `worktree remove`, snapshot tags)
   over commits; the few commits are: track `provisioning_api` ERP backend (classify each file first;
   approval-gated), and gitignore/track the two FitDesk untracked items.
+- **Phase B0:** no application code commits. Exactly one of: (a) add Graphify output path to
+  `.gitignore` (`chore(gitignore): ignore Graphify output`), or (b) commit findings as an audit
+  artifact (`docs(audit): Graphify knowledge graph findings`). No code, test, package, or Docker
+  changes. Graphify tool invocation is local and ephemeral.
 - **Phase C:** a single `fix(ui): correct OKLCH token bridge` commit; optional separate lint-guard commit.
 - **Phase D:** one commit per confirmed dead item; archive junk (root, unversioned) as a separate op.
 - **Phase E (each sub-phase):** move → add re-export shim → update importers → green, one feature per commit.
@@ -85,4 +90,4 @@ A → C → B → D → E1 → E2 → E3 → F0 → F1 → E4 → H → I
 
 ## Next actions
 
-- Create safety tags, then begin Phase A.
+- Create safety tags, then begin Phase A; run Phase B0 Graphify audit once A is GREEN.
