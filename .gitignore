@@ -1,5 +1,6 @@
 # Claude Code — local permissions
 .claude/settings.local.json
+.claude/launch.json
 
 # Dependencies
 node_modules/
@@ -39,3 +40,6 @@ npm-debug.log*
 
 # Local development database
 local.db
+
+# Generated exports
+docs/architecture/*.zip
