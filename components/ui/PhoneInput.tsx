@@ -312,36 +312,54 @@ interface WhatsAppToggleProps {
 
 function WhatsAppToggle({ checked, onChange, disabled }: WhatsAppToggleProps) {
   return (
-    <label
-      className="flex cursor-pointer select-none items-center gap-2.5"
-      style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+    <div
+      className="flex min-h-[68px] items-center justify-between gap-4 rounded-2xl border px-4 py-3"
+      style={{
+        borderColor:     'var(--fd-border)',
+        backgroundColor: 'var(--fd-card)',
+      }}
     >
+      {/* Left group: icon + text */}
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: 'rgba(78,203,160,0.10)' }}
+        >
+          <MessageCircle
+            className="h-4 w-4 transition-colors"
+            style={{ color: checked ? 'var(--fd-green)' : 'var(--fd-muted)' }}
+          />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-medium" style={{ color: 'var(--fd-text)' }}>
+            WhatsApp reminders
+          </p>
+          <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--fd-muted)' }}>
+            Use this number for reminders and client messages.
+          </p>
+        </div>
+      </div>
+
+      {/* Right group: switch */}
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
-        className="relative h-5 w-9 rounded-full transition-colors duration-200 outline-none focus-visible:ring-2"
-        style={{ backgroundColor: checked ? 'var(--fd-green)' : 'var(--fd-border)' }}
+        className="relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 outline-none focus-visible:ring-2"
+        style={{
+          backgroundColor: checked ? 'var(--fd-green)' : 'var(--fd-border)',
+          cursor:          disabled ? 'not-allowed' : 'pointer',
+        }}
       >
         <span
-          className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200"
-          style={{ transform: checked ? 'translateX(1.125rem)' : 'translateX(0.125rem)' }}
+          className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200"
+          style={{ transform: checked ? 'translateX(1rem)' : 'translateX(0)' }}
         />
       </button>
-
-      <MessageCircle
-        className="h-3.5 w-3.5 shrink-0 transition-colors"
-        style={{ color: checked ? 'var(--fd-green)' : 'var(--fd-muted)' }}
-      />
-      <span
-        className="text-xs transition-colors"
-        style={{ color: checked ? 'var(--fd-text)' : 'var(--fd-muted)' }}
-      >
-        Available on WhatsApp
-      </span>
-    </label>
+    </div>
   )
 }
 
@@ -517,7 +535,7 @@ export function PhoneInput({
         disabled={disabled}
       />}
 
-      {hint && (
+      {hint && !showWhatsApp && (
         <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>{hint}</p>
       )}
     </div>
