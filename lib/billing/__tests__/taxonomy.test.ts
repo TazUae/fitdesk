@@ -9,6 +9,8 @@ import {
   LEDGER_EVENT_TYPES,
   BILLING_SESSION_STATUSES,
   PACKAGE_TEMPLATE_STATUSES,
+  PACKAGE_PAYMENT_STATUSES,
+  PACKAGE_PURCHASE_STATUSES,
   isBillingMode,
   isActiveBillingMode,
   isReservedBillingMode,
@@ -17,6 +19,8 @@ import {
   isLedgerEventType,
   isBillingSessionStatus,
   isPackageTemplateStatus,
+  isPackagePaymentStatus,
+  isPackagePurchaseStatus,
 } from '../taxonomy'
 
 describe('Billing mode constants', () => {
@@ -219,5 +223,63 @@ describe('Package template status', () => {
     expect(isPackageTemplateStatus(null)).toBe(false)
     expect(isPackageTemplateStatus(undefined)).toBe(false)
     expect(isPackageTemplateStatus(42)).toBe(false)
+  })
+})
+
+describe('Package payment status', () => {
+  it('PACKAGE_PAYMENT_STATUSES contains exactly the five canonical values', () => {
+    expect([...PACKAGE_PAYMENT_STATUSES]).toEqual([
+      'pending',
+      'unpaid',
+      'partially_paid',
+      'paid',
+      'refunded',
+    ])
+  })
+
+  it('isPackagePaymentStatus returns true for all canonical values', () => {
+    expect(isPackagePaymentStatus('pending')).toBe(true)
+    expect(isPackagePaymentStatus('unpaid')).toBe(true)
+    expect(isPackagePaymentStatus('partially_paid')).toBe(true)
+    expect(isPackagePaymentStatus('paid')).toBe(true)
+    expect(isPackagePaymentStatus('refunded')).toBe(true)
+  })
+
+  it('isPackagePaymentStatus returns false for unknown strings', () => {
+    expect(isPackagePaymentStatus('failed')).toBe(false)
+    expect(isPackagePaymentStatus('overdue')).toBe(false)
+    expect(isPackagePaymentStatus('')).toBe(false)
+    expect(isPackagePaymentStatus(null)).toBe(false)
+    expect(isPackagePaymentStatus(undefined)).toBe(false)
+    expect(isPackagePaymentStatus(42)).toBe(false)
+  })
+})
+
+describe('Package purchase status', () => {
+  it('PACKAGE_PURCHASE_STATUSES contains exactly the five canonical values', () => {
+    expect([...PACKAGE_PURCHASE_STATUSES]).toEqual([
+      'pending_activation',
+      'active',
+      'expired',
+      'refunded',
+      'cancelled',
+    ])
+  })
+
+  it('isPackagePurchaseStatus returns true for all canonical values', () => {
+    expect(isPackagePurchaseStatus('pending_activation')).toBe(true)
+    expect(isPackagePurchaseStatus('active')).toBe(true)
+    expect(isPackagePurchaseStatus('expired')).toBe(true)
+    expect(isPackagePurchaseStatus('refunded')).toBe(true)
+    expect(isPackagePurchaseStatus('cancelled')).toBe(true)
+  })
+
+  it('isPackagePurchaseStatus returns false for unknown strings', () => {
+    expect(isPackagePurchaseStatus('draft')).toBe(false)
+    expect(isPackagePurchaseStatus('archived')).toBe(false)
+    expect(isPackagePurchaseStatus('')).toBe(false)
+    expect(isPackagePurchaseStatus(null)).toBe(false)
+    expect(isPackagePurchaseStatus(undefined)).toBe(false)
+    expect(isPackagePurchaseStatus(42)).toBe(false)
   })
 })

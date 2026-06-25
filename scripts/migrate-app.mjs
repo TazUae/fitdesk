@@ -157,6 +157,41 @@ const statements = [
     ON "package_template" ("tenant_id", "status")`,
   `CREATE INDEX IF NOT EXISTS "package_template_tenant_type_idx"
     ON "package_template" ("tenant_id", "template_type")`,
+
+  // ── Billing Phase B3a — client_package_purchase ──────────────────────────
+  // One row per package sold to a client.
+  // template_snapshot_json is written once at purchase and never rewritten.
+  // Two orthogonal status axes: payment_status (financial) + package_status (lifecycle).
+  // json_valid() requires SQLite JSON1 extension (compiled in libsql by default).
+  `CREATE TABLE IF NOT EXISTS "client_package_purchase" (
+    "id"                     TEXT NOT NULL PRIMARY KEY,
+    "tenant_id"              TEXT NOT NULL,
+    "client_index_id"        TEXT NOT NULL,
+    "erp_customer_id"        TEXT NOT NULL,
+    "package_template_id"    TEXT NOT NULL,
+    "template_snapshot_json" TEXT NOT NULL
+                               CHECK (length("template_snapshot_json") > 0
+                                      AND json_valid("template_snapshot_json")),
+    "erp_sales_invoice_id"   TEXT,
+    "payment_status"         TEXT NOT NULL DEFAULT 'pending'
+                               CHECK ("payment_status" IN ('pending','unpaid','partially_paid','paid','refunded')),
+    "package_status"         TEXT NOT NULL DEFAULT 'pending_activation'
+                               CHECK ("package_status" IN ('pending_activation','active','expired','refunded','cancelled')),
+    "purchased_at_utc"       TEXT NOT NULL,
+    "activated_at_utc"       TEXT CHECK ("activated_at_utc" IS NULL OR "activated_at_utc" >= "purchased_at_utc"),
+    "expires_at_utc"         TEXT CHECK ("expires_at_utc" IS NULL OR "expires_at_utc" >= "purchased_at_utc"),
+    "created_at_utc"         TEXT NOT NULL,
+    "updated_at_utc"         TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "client_package_purchase_tenant_client_idx"
+    ON "client_package_purchase" ("tenant_id", "client_index_id")`,
+  `CREATE INDEX IF NOT EXISTS "client_package_purchase_tenant_template_idx"
+    ON "client_package_purchase" ("tenant_id", "package_template_id")`,
+  `CREATE INDEX IF NOT EXISTS "client_package_purchase_tenant_status_idx"
+    ON "client_package_purchase" ("tenant_id", "package_status")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_invoice_uq"
+    ON "client_package_purchase" ("tenant_id", "erp_sales_invoice_id")
+    WHERE "erp_sales_invoice_id" IS NOT NULL`,
 ]
 
 for (const sql of statements) {
@@ -241,6 +276,7 @@ const requiredTables = [
   'client_action_intent',
   'client_event',
   'package_template',
+  'client_package_purchase',
 ]
 
 const missing = requiredTables.filter((t) => !tables.includes(t))

@@ -262,3 +262,39 @@ export const packageTemplate = sqliteTable(
     index('package_template_tenant_type_idx').on(t.tenantId, t.templateType),
   ],
 )
+
+// ─── Billing — Client Package Purchase ───────────────────────────────────────
+// One row per package sold to a client.
+// CHECK constraints and the partial unique index on erp_sales_invoice_id are
+// enforced by scripts/migrate-app.mjs DDL only (Drizzle cannot express them).
+// template_snapshot_json is written once at purchase creation and never rewritten.
+
+/**
+ * Records a package sale to a specific client.
+ * Carries both local (clientIndexId) and ERP (erpCustomerId) identity.
+ * templateSnapshotJson is the serialised PackageTemplateSnapshot (immutable after write).
+ */
+export const clientPackagePurchase = sqliteTable(
+  'client_package_purchase',
+  {
+    id:                   text('id').primaryKey().notNull(),
+    tenantId:             text('tenant_id').notNull(),
+    clientIndexId:        text('client_index_id').notNull(),
+    erpCustomerId:        text('erp_customer_id').notNull(),
+    packageTemplateId:    text('package_template_id').notNull(),
+    templateSnapshotJson: text('template_snapshot_json').notNull(),
+    erpSalesInvoiceId:    text('erp_sales_invoice_id'),
+    paymentStatus:        text('payment_status').notNull().default('pending'),
+    packageStatus:        text('package_status').notNull().default('pending_activation'),
+    purchasedAtUtc:       text('purchased_at_utc').notNull(),
+    activatedAtUtc:       text('activated_at_utc'),
+    expiresAtUtc:         text('expires_at_utc'),
+    createdAtUtc:         text('created_at_utc').notNull(),
+    updatedAtUtc:         text('updated_at_utc').notNull(),
+  },
+  (t) => [
+    index('client_package_purchase_tenant_client_idx').on(t.tenantId, t.clientIndexId),
+    index('client_package_purchase_tenant_template_idx').on(t.tenantId, t.packageTemplateId),
+    index('client_package_purchase_tenant_status_idx').on(t.tenantId, t.packageStatus),
+  ],
+)

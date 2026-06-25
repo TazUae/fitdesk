@@ -110,3 +110,33 @@ export type PackageTemplateStatus = typeof PACKAGE_TEMPLATE_STATUSES[number]
 export function isPackageTemplateStatus(value: unknown): value is PackageTemplateStatus {
   return typeof value === 'string' && (PACKAGE_TEMPLATE_STATUSES as readonly string[]).includes(value)
 }
+
+// ─── Package purchase — payment status ───────────────────────────────────────
+
+export const PACKAGE_PAYMENT_STATUSES = [
+  'pending',
+  'unpaid',
+  'partially_paid',
+  'paid',
+  'refunded',
+] as const
+export type PackagePaymentStatus = typeof PACKAGE_PAYMENT_STATUSES[number]
+
+export function isPackagePaymentStatus(value: unknown): value is PackagePaymentStatus {
+  return typeof value === 'string' && (PACKAGE_PAYMENT_STATUSES as readonly string[]).includes(value)
+}
+
+// ─── Package purchase — service lifecycle status ──────────────────────────────
+
+export const PACKAGE_PURCHASE_STATUSES = [
+  'pending_activation',
+  'active',
+  'expired',
+  'refunded',
+  'cancelled',
+] as const
+export type PackagePurchaseStatus = typeof PACKAGE_PURCHASE_STATUSES[number]
+
+export function isPackagePurchaseStatus(value: unknown): value is PackagePurchaseStatus {
+  return typeof value === 'string' && (PACKAGE_PURCHASE_STATUSES as readonly string[]).includes(value)
+}
