@@ -9,15 +9,9 @@ import { workspaceProvisioning } from '@/lib/db/schema'
 import { abbreviateWorkspaceName } from '@/lib/workspace/abbr'
 import { slugifyWorkspaceName } from '@/lib/workspace/slug'
 
-// Countries accepted by the detected-locale mapping in the onboarding form.
-// Validated server-side so only known values reach the Control Plane.
-const ALLOWED_COUNTRIES = new Set([
-  'United Arab Emirates',
-  'Saudi Arabia',
-  'Lebanon',
-  'Kuwait',
-  'Qatar',
-])
+// ISO 3166-1 alpha-2 codes accepted by the Control Plane.
+// Must stay in sync with the MENA_TZ_MAP in lib/workspace/locale.ts.
+const ALLOWED_COUNTRY_CODES = new Set(['AE', 'SA', 'LB', 'KW', 'QA'])
 
 export type StartWorkspaceResult =
   | { success: true; jobId: string; status: string }
@@ -25,23 +19,24 @@ export type StartWorkspaceResult =
 
 type StartWorkspaceInput = {
   workspaceName: string
-  country: string
+  countryCode: string
 }
 
 /**
  * Explicitly starts workspace provisioning for the authenticated user.
  *
  * Payload sent to the Control Plane (real runtime contract):
- *   { slug, country, companyName, companyAbbr }
+ *   { slug, country: countryCode, companyName, companyAbbr }
  *
- * Country is transmitted because the existing Control Plane contract requires it.
+ * country is sent as an ISO 3166-1 alpha-2 code (e.g. 'LB') — required by the
+ * Control Plane. The UI displays the full country name but it is never submitted.
  * Timezone and currency are NOT transmitted.
  * No locale fields are persisted in the local FitDesk schema.
  *
  * Is idempotent: resumes an existing active/completed row instead of duplicating.
  */
 export async function startWorkspace(input: StartWorkspaceInput): Promise<StartWorkspaceResult> {
-  const { workspaceName, country } = input
+  const { workspaceName, countryCode } = input
 
   // 1. Require authenticated session
   const session = await auth.api.getSession({ headers: headers() })
@@ -57,9 +52,9 @@ export async function startWorkspace(input: StartWorkspaceInput): Promise<StartW
     return { success: false, error: 'Workspace name is required.' }
   }
 
-  // 3. Validate country (must be a known detected default — not arbitrary user input)
-  const trimmedCountry = country.trim()
-  if (!ALLOWED_COUNTRIES.has(trimmedCountry)) {
+  // 3. Validate country code (ISO alpha-2; must be a known MENA detected default)
+  const trimmedCode = countryCode.trim().toUpperCase()
+  if (!ALLOWED_COUNTRY_CODES.has(trimmedCode)) {
     return { success: false, error: 'Invalid country. Please reload the page and try again.' }
   }
 
@@ -92,12 +87,12 @@ export async function startWorkspace(input: StartWorkspaceInput): Promise<StartW
   const companyAbbr = abbreviateWorkspaceName(trimmedName)
 
   // 7. Create tenant — sends real Control Plane contract fields only.
-  //    Timezone and currency are NOT included. Country is required by the contract.
+  //    country is the ISO 3166-1 alpha-2 code. Timezone and currency are NOT included.
   let tenant: { tenantId: string; jobId: string; status: string }
   try {
     tenant = await createTenant({
       slug,
-      country: trimmedCountry,
+      country: trimmedCode,
       companyName: trimmedName,
       companyAbbr,
     })

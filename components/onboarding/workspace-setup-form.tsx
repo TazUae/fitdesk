@@ -4,28 +4,8 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { startWorkspace } from '@/app/onboarding/actions'
+import { DEFAULT_LOCALE, detectLocale, type LocaleInfo } from '@/lib/workspace/locale'
 import { slugifyWorkspaceName } from '@/lib/workspace/slug'
-
-// MENA timezone → country/currency mapping.
-// Country is transmitted to the Control Plane as a detected setup default.
-// Timezone and currency are display-only — not transmitted or persisted.
-const MENA_TZ_MAP: Record<string, { country: string; currency: string }> = {
-  'Asia/Dubai':  { country: 'United Arab Emirates', currency: 'AED' },
-  'Asia/Riyadh': { country: 'Saudi Arabia',          currency: 'SAR' },
-  'Asia/Beirut': { country: 'Lebanon',               currency: 'USD' },
-  'Asia/Kuwait': { country: 'Kuwait',                currency: 'KWD' },
-  'Asia/Qatar':  { country: 'Qatar',                 currency: 'QAR' },
-}
-
-const DEFAULT_LOCALE = { country: 'United Arab Emirates', currency: 'AED' }
-
-type LocaleInfo = { timezone: string; country: string; currency: string }
-
-function detectLocale(): LocaleInfo {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  const match = MENA_TZ_MAP[timezone] ?? DEFAULT_LOCALE
-  return { timezone, ...match }
-}
 
 export function WorkspaceSetupForm() {
   const router = useRouter()
@@ -47,7 +27,7 @@ export function WorkspaceSetupForm() {
     startTransition(async () => {
       const result = await startWorkspace({
         workspaceName,
-        country: locale?.country ?? DEFAULT_LOCALE.country,
+        countryCode: locale?.countryCode ?? DEFAULT_LOCALE.countryCode,
       })
 
       if (!result.success) {
@@ -102,7 +82,7 @@ export function WorkspaceSetupForm() {
           )}
         </div>
 
-        {/* Locale preview — country is sent to workspace setup; timezone and currency are preview-only */}
+        {/* Locale preview — countryCode sent to workspace setup; timezone and currency are preview-only */}
         {locale !== null && (
           <div
             className="rounded-xl border p-4 space-y-3"
@@ -114,7 +94,12 @@ export function WorkspaceSetupForm() {
             <dl className="space-y-1 text-sm" style={{ color: 'var(--fd-text)' }}>
               <div className="flex gap-2">
                 <dt style={{ color: 'var(--fd-muted)', minWidth: '5rem' }}>Country</dt>
-                <dd>{locale.country}</dd>
+                <dd>
+                  {locale.countryName}{' '}
+                  <span className="font-mono text-xs" style={{ color: 'var(--fd-muted)' }}>
+                    ({locale.countryCode})
+                  </span>
+                </dd>
               </div>
               <div className="flex gap-2">
                 <dt style={{ color: 'var(--fd-muted)', minWidth: '5rem' }}>Timezone</dt>
@@ -126,7 +111,7 @@ export function WorkspaceSetupForm() {
               </div>
             </dl>
             <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-              Country is sent to workspace setup. Timezone and currency are preview-only for now.
+              Country code is sent to workspace setup. Timezone and currency are preview-only for now.
             </p>
           </div>
         )}
