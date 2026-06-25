@@ -43,3 +43,6 @@ local.db
 
 # Generated exports
 docs/architecture/*.zip
+
+# Graphify local audit output
+graphify-out/
