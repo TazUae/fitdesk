@@ -36,6 +36,19 @@ type StartWorkspaceInput = {
  * Is idempotent: resumes an existing active/completed row instead of duplicating.
  */
 export async function startWorkspace(input: StartWorkspaceInput): Promise<StartWorkspaceResult> {
+  // 0. Guard: reject malformed/undefined input before touching any string methods.
+  //    Needed because stale client action calls (e.g. during signature transitions)
+  //    can arrive as undefined or partial objects at runtime.
+  const raw = input as unknown
+  if (
+    raw == null ||
+    typeof raw !== 'object' ||
+    typeof (raw as Record<string, unknown>).workspaceName !== 'string' ||
+    typeof (raw as Record<string, unknown>).countryCode !== 'string'
+  ) {
+    return { success: false, error: 'Workspace name is required.' }
+  }
+
   const { workspaceName, countryCode } = input
 
   // 1. Require authenticated session
