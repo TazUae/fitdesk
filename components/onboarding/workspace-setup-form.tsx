@@ -6,8 +6,9 @@ import { toast } from 'sonner'
 import { startWorkspace } from '@/app/onboarding/actions'
 import { slugifyWorkspaceName } from '@/lib/workspace/slug'
 
-// Lightweight MENA timezone → country/currency mapping.
-// Display-only — never persisted or transmitted.
+// MENA timezone → country/currency mapping.
+// Country is transmitted to the Control Plane as a detected setup default.
+// Timezone and currency are display-only — not transmitted or persisted.
 const MENA_TZ_MAP: Record<string, { country: string; currency: string }> = {
   'Asia/Dubai':  { country: 'United Arab Emirates', currency: 'AED' },
   'Asia/Riyadh': { country: 'Saudi Arabia',          currency: 'SAR' },
@@ -44,7 +45,10 @@ export function WorkspaceSetupForm() {
     if (!workspaceName.trim()) return
 
     startTransition(async () => {
-      const result = await startWorkspace(workspaceName)
+      const result = await startWorkspace({
+        workspaceName,
+        country: locale?.country ?? DEFAULT_LOCALE.country,
+      })
 
       if (!result.success) {
         toast.error(result.error)
@@ -98,14 +102,14 @@ export function WorkspaceSetupForm() {
           )}
         </div>
 
-        {/* Display-only locale preview — never submitted, never persisted */}
+        {/* Locale preview — country is sent to workspace setup; timezone and currency are preview-only */}
         {locale !== null && (
           <div
             className="rounded-xl border p-4 space-y-3"
             style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-surface)' }}
           >
             <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--fd-muted)' }}>
-              Detected workspace defaults — Display-only in Phase 1 (Not persisted / Not transmitted)
+              Detected workspace defaults — Used for setup
             </p>
             <dl className="space-y-1 text-sm" style={{ color: 'var(--fd-text)' }}>
               <div className="flex gap-2">
@@ -121,6 +125,9 @@ export function WorkspaceSetupForm() {
                 <dd>{locale.currency}</dd>
               </div>
             </dl>
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Country is sent to workspace setup. Timezone and currency are preview-only for now.
+            </p>
           </div>
         )}
 

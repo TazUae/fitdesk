@@ -14,9 +14,14 @@ export type ProvisioningStep =
   | "warmup_completed"
   | "completed";
 
+// Updated 2026-06-25 to reflect real running Control Plane contract.
+// Manual QA returned 422 when sending only { workspaceName, ownerEmail }.
+// Required fields confirmed at runtime: slug, country, companyName, companyAbbr.
 export type CreateTenantInput = {
-  workspaceName: string;
-  ownerEmail: string;
+  slug: string;
+  country: string;
+  companyName: string;
+  companyAbbr: string;
 };
 
 export type CreateTenantResponse = {

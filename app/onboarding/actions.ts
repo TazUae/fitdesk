@@ -6,20 +6,43 @@ import { auth } from '@/lib/auth'
 import { createTenant } from '@/lib/controlplane/client'
 import { db } from '@/lib/db'
 import { workspaceProvisioning } from '@/lib/db/schema'
+import { abbreviateWorkspaceName } from '@/lib/workspace/abbr'
 import { slugifyWorkspaceName } from '@/lib/workspace/slug'
+
+// Countries accepted by the detected-locale mapping in the onboarding form.
+// Validated server-side so only known values reach the Control Plane.
+const ALLOWED_COUNTRIES = new Set([
+  'United Arab Emirates',
+  'Saudi Arabia',
+  'Lebanon',
+  'Kuwait',
+  'Qatar',
+])
 
 export type StartWorkspaceResult =
   | { success: true; jobId: string; status: string }
   | { success: false; error: string }
 
+type StartWorkspaceInput = {
+  workspaceName: string
+  country: string
+}
+
 /**
  * Explicitly starts workspace provisioning for the authenticated user.
  *
- * Sends ONLY { workspaceName, ownerEmail } to the Control Plane.
- * Does NOT persist or transmit country / timezone / currency.
+ * Payload sent to the Control Plane (real runtime contract):
+ *   { slug, country, companyName, companyAbbr }
+ *
+ * Country is transmitted because the existing Control Plane contract requires it.
+ * Timezone and currency are NOT transmitted.
+ * No locale fields are persisted in the local FitDesk schema.
+ *
  * Is idempotent: resumes an existing active/completed row instead of duplicating.
  */
-export async function startWorkspace(workspaceName: string): Promise<StartWorkspaceResult> {
+export async function startWorkspace(input: StartWorkspaceInput): Promise<StartWorkspaceResult> {
+  const { workspaceName, country } = input
+
   // 1. Require authenticated session
   const session = await auth.api.getSession({ headers: headers() })
   if (!session?.user?.id) {
@@ -27,7 +50,6 @@ export async function startWorkspace(workspaceName: string): Promise<StartWorksp
   }
 
   const userId = session.user.id
-  const ownerEmail = session.user.email
 
   // 2. Validate workspace name
   const trimmedName = workspaceName.trim()
@@ -35,7 +57,13 @@ export async function startWorkspace(workspaceName: string): Promise<StartWorksp
     return { success: false, error: 'Workspace name is required.' }
   }
 
-  // 3. Idempotency — resume if an active or completed row already exists for this user
+  // 3. Validate country (must be a known detected default — not arbitrary user input)
+  const trimmedCountry = country.trim()
+  if (!ALLOWED_COUNTRIES.has(trimmedCountry)) {
+    return { success: false, error: 'Invalid country. Please reload the page and try again.' }
+  }
+
+  // 4. Idempotency — resume if an active or completed row already exists for this user
   const existingRow = await db.query.workspaceProvisioning.findFirst({
     where: and(
       eq(workspaceProvisioning.userId, userId),
@@ -48,7 +76,7 @@ export async function startWorkspace(workspaceName: string): Promise<StartWorksp
     return { success: true, jobId: existingRow.jobId, status: existingRow.status }
   }
 
-  // 4. Generate slug + app-level collision check against WorkspaceProvisioning.slug
+  // 5. Generate slug + app-level collision check against WorkspaceProvisioning.slug
   let slug = slugifyWorkspaceName(trimmedName)
 
   for (let attempt = 2; attempt <= 6; attempt++) {
@@ -60,16 +88,25 @@ export async function startWorkspace(workspaceName: string): Promise<StartWorksp
     slug = `${slugifyWorkspaceName(trimmedName)}-${attempt}`
   }
 
-  // 5. Create tenant via existing Control Plane client — sends ONLY workspaceName + ownerEmail
+  // 6. Derive company abbreviation
+  const companyAbbr = abbreviateWorkspaceName(trimmedName)
+
+  // 7. Create tenant — sends real Control Plane contract fields only.
+  //    Timezone and currency are NOT included. Country is required by the contract.
   let tenant: { tenantId: string; jobId: string; status: string }
   try {
-    tenant = await createTenant({ workspaceName: trimmedName, ownerEmail })
+    tenant = await createTenant({
+      slug,
+      country: trimmedCountry,
+      companyName: trimmedName,
+      companyAbbr,
+    })
   } catch (err) {
     console.error('[start-workspace] createTenant failed', { userId }, err)
     return { success: false, error: 'Failed to create workspace. Please try again.' }
   }
 
-  // 6. Insert WorkspaceProvisioning row immediately after Control Plane responds
+  // 8. Insert WorkspaceProvisioning row immediately after Control Plane responds.
   //    If this insert fails after a successful tenant creation, log the orphan data
   //    so it can be reconciled manually (per spec §6.5).
   const now = new Date().toISOString()

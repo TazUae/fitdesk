@@ -8,6 +8,8 @@
 
 > **How to read this document:** Sections 1–12 describe *current truth* and *target behavior*. Sections 13–21 describe the *implementation blueprint, boundaries, and gates* for a later, separately-approved coding phase. Nothing in this document is an instruction to execute now. Every "implement" verb below is conditional on Phase 1 approval.
 
+> **QA Correction — 2026-06-25:** Manual QA after Phase 1 implementation revealed the real running Control Plane contract requires `slug`, `country`, `companyName`, and `companyAbbr` — not `{ workspaceName, ownerEmail }` as originally stated in `types/controlplane.ts`. This document originally described locale as **display-only and not transmitted**. That was incorrect — **country is required by the existing Control Plane contract and is transmitted** as a detected setup default. Timezone and currency remain display-only and are not transmitted or persisted. `types/controlplane.ts` `CreateTenantInput` has been corrected to reflect the real runtime contract. See D1 in §1.1 for the updated discrepancy note.
+
 ---
 
 ## 1. Executive Summary
@@ -30,8 +32,8 @@ This is achievable in Phase 1 **without** a schema migration, **without** new de
 
 | # | Discrepancy | Where | Impact | Handling |
 |---|-------------|-------|--------|----------|
-| D1 | `createTenant()` accepts only `{ workspaceName, ownerEmail }` — no country/timezone/currency | [types/controlplane.ts:17](types/controlplane.ts), [lib/controlplane/client.ts:57](lib/controlplane/client.ts) | Locale has no transmission sink | Phase 1: locale is **display-only** (not a collected input), not sent/stored. Persisting deferred to hardening (§5, §20). |
-| D2 | `WorkspaceProvisioning` has no country/timezone/currency columns | [lib/db/schema.ts:109](lib/db/schema.ts) | Cannot persist locale without migration | Out of Phase 1 scope (no migration). Display-only in Phase 1. §5, §20. |
+| D1 | ~~`createTenant()` accepts only `{ workspaceName, ownerEmail }`~~ → **QA Correction:** real running CP contract requires `{ slug, country, companyName, companyAbbr }` | [types/controlplane.ts](types/controlplane.ts) (corrected 2026-06-25) | Country must be transmitted; slug and companyAbbr must be derived | **Corrected in Phase 1:** `CreateTenantInput` updated. Country is transmitted as a detected default. Timezone and currency remain display-only. No locale is persisted in local schema. |
+| D2 | `WorkspaceProvisioning` has no country/timezone/currency columns | [lib/db/schema.ts:109](lib/db/schema.ts) | Cannot persist locale without migration | Out of Phase 1 scope (no migration). Timezone and currency display-only. Country is transmitted but not persisted. §5, §20. |
 | D3 | `/onboarding` does **not** server-redirect a *completed* user to `/dashboard`; `ProvisioningStatus` only redirects on a live poll transition, and its poll early-returns when `status === "completed"` | [app/onboarding/page.tsx:9](app/onboarding/page.tsx), [components/onboarding/provisioning-status.tsx:54](components/onboarding/provisioning-status.tsx) | A completed user re-entering `/onboarding` is stuck on a spinner | Fixed by Phase 1E server-side redirect. §6, §12. |
 | D4 | `ProvisioningStatus` renders "No provisioning job found yet. Please contact support" when `initialRecord` is `null` | [components/onboarding/provisioning-status.tsx:130](components/onboarding/provisioning-status.tsx) | Decoupled new users (no row) hit a dead-end instead of a setup form | Replaced by the setup form path. §6, §10. |
 | D5 | `slugifyWorkspaceName` lives privately in `lib/auth.ts`, has no length cap, and is duplicated nowhere reusable | [lib/auth.ts:38](lib/auth.ts) | Slug logic must be shared by the Start Workspace action and the live preview | Extract to a shared util; add length cap. §7, §13. |
