@@ -32,10 +32,6 @@ export default async function DashboardPage() {
   const greeting   = timeGreeting(now.getUTCHours())
   const monthStart = today.slice(0, 8) + '01'
 
-  // ── Local backend warning ───────────────────────────────────────────────────
-  const isLocalBackend =
-    (process.env.NEXT_PUBLIC_FRAPPE_URL ?? '').includes('localhost')
-
   // ── Parallel data fetch ─────────────────────────────────────────────────────
   // Promise.allSettled — a single ERP failure must not blank the whole dashboard.
   const [sessionsResult, invoicesResult, clientsResult] = await Promise.allSettled([
@@ -80,7 +76,6 @@ export default async function DashboardPage() {
       moneySnapshot={moneySnapshot}
       upcoming={upcoming}
       attentionItems={attentionItems}
-      isLocalBackend={isLocalBackend}
       activeClientsCount={activeClientsCount}
     />
   )

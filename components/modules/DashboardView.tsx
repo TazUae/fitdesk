@@ -28,7 +28,6 @@ import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
 import { UpcomingList }  from '@/components/modules/dashboard/UpcomingList'
 import { QuickActions }  from '@/components/modules/dashboard/QuickActions'
 import { AiCopilotRail } from '@/components/modules/dashboard/AiCopilotRail'
-import { LocalBackendWarning } from '@/components/dev/LocalBackendWarning'
 import type {
   NextUpData,
   TodaySection,
@@ -48,7 +47,6 @@ interface DashboardViewProps {
   moneySnapshot:      MoneySnapshotData
   upcoming:           Session[]
   attentionItems:     AttentionItem[]
-  isLocalBackend:     boolean
   activeClientsCount: number | null
 }
 
@@ -63,7 +61,6 @@ export function DashboardView({
   moneySnapshot,
   upcoming,
   attentionItems,
-  isLocalBackend,
   activeClientsCount,
 }: DashboardViewProps) {
   const firstName    = trainerName.split(' ')[0] ?? trainerName
@@ -86,9 +83,6 @@ export function DashboardView({
       {/* ── Main Workspace ──────────────────────────────────────────────────── */}
       <div className="xl:flex-1 xl:min-w-0">
         <div className="space-y-5 p-4 pb-24 lg:space-y-6 lg:p-6 lg:pb-8 xl:max-w-4xl">
-
-          {/* Dev warning */}
-          <LocalBackendWarning show={isLocalBackend} />
 
           {/* 1. Daily Brief */}
           <div className="space-y-3">

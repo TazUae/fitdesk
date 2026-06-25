@@ -1,7 +1,5 @@
 'use server'
 
-import { headers } from 'next/headers'
-import { auth } from '@/lib/auth'
 import {
   createAndSubmitPaymentEntry,
   createInvoice,
@@ -69,8 +67,8 @@ export async function fetchInvoiceById(id: string): Promise<ActionResult<Invoice
 export async function addInvoice(
   payload: CreateInvoicePayload,
 ): Promise<ActionResult<Invoice>> {
-  const session = await auth.api.getSession({ headers: headers() })
-  if (!session?.user) return { success: false, error: 'Not authenticated.' }
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
 
   try {
     const data = await createInvoice(payload)
