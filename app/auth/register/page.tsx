@@ -10,6 +10,7 @@ export default function RegisterPage() {
   const router = useRouter()
   const { data: session, isPending: sessionLoading } = useSession()
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -24,14 +25,7 @@ export default function RegisterPage() {
 
     const name = fd.get('name') as string
     const email = fd.get('email') as string
-    const phone = fd.get('phone') as string
     const password = fd.get('password') as string
-    const confirm = fd.get('confirmPassword') as string
-
-    if (password !== confirm) {
-      toast.error('Passwords do not match.')
-      return
-    }
 
     if (password.length < 8) {
       toast.error('Password must be at least 8 characters.')
@@ -43,7 +37,6 @@ export default function RegisterPage() {
       name,
       email,
       password,
-      phone: phone || undefined,
     })
     setLoading(false)
 
@@ -52,7 +45,7 @@ export default function RegisterPage() {
       return
     }
 
-    toast.success('Account created! Signing you in…')
+    toast.success('Workspace created! Signing you in...')
     router.replace('/onboarding')
   }
 
@@ -68,12 +61,15 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm space-y-8">
 
         {/* Wordmark */}
-        <div className="text-center space-y-1">
+        <div className="text-center space-y-2">
           <p className="text-3xl font-bold tracking-tight" style={{ color: 'var(--fd-accent)' }}>
             FitDesk
           </p>
+          <p className="text-lg font-semibold" style={{ color: 'var(--fd-text)' }}>
+            Create your trainer workspace
+          </p>
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-            Create your trainer account
+            Clients, scheduling, and billing in one calm workspace.
           </p>
         </div>
 
@@ -105,46 +101,40 @@ export default function RegisterPage() {
               />
             </Field>
 
-            <Field label="Phone number">
-              <input
-                type="tel"
-                name="phone"
-                autoComplete="tel"
-                placeholder="+1 555 000 0000"
-                className="input-base"
-              />
-            </Field>
-
             <Field label="Password">
-              <input
-                type="password"
-                name="password"
-                required
-                autoComplete="new-password"
-                placeholder="Min. 8 characters"
-                minLength={8}
-                className="input-base"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  required
+                  autoComplete="new-password"
+                  placeholder="Min. 8 characters"
+                  minLength={8}
+                  className="input-base pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 transition-opacity hover:opacity-70"
+                  style={{ color: 'var(--fd-muted)' }}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
             </Field>
 
-            <Field label="Confirm password">
-              <input
-                type="password"
-                name="confirmPassword"
-                required
-                autoComplete="new-password"
-                placeholder="••••••••"
-                className="input-base"
-              />
-            </Field>
-
-            <SubmitButton loading={loading}>Create account</SubmitButton>
+            <SubmitButton loading={loading}>Create workspace</SubmitButton>
           </form>
 
           <Divider />
 
           <GoogleButton onClick={handleGoogle} />
         </div>
+
+        <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
+          Built for personal trainers. ERP-backed billing. Mobile-ready.
+        </p>
 
         <p className="text-center text-sm" style={{ color: 'var(--fd-muted)' }}>
           Already have an account?{' '}
@@ -182,7 +172,7 @@ function SubmitButton({ loading, children }: { loading: boolean; children: React
       className="w-full rounded-xl py-3 text-sm font-semibold transition-opacity active:scale-[0.98] disabled:opacity-50"
       style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
     >
-      {loading ? 'Please wait…' : children}
+      {loading ? 'Please wait...' : children}
     </button>
   )
 }
@@ -234,6 +224,25 @@ function GoogleIcon() {
         fill="#EA4335"
         d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"
       />
+    </svg>
+  )
+}
+
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   )
 }
