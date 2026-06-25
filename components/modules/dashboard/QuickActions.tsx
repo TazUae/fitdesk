@@ -3,7 +3,6 @@
  * Always rendered at the bottom of the dashboard, below all content sections.
  */
 
-import Link from 'next/link'
 import { CalendarPlus, UserPlus, MessageCircle, Receipt } from 'lucide-react'
 
 const ACTIONS = [
@@ -35,7 +34,7 @@ export function QuickActions() {
       </div>
 
       {ACTIONS.map(({ href, Icon, label }) => (
-        <Link
+        <a
           key={href}
           href={href}
           className="flex flex-col items-center gap-2 rounded-2xl border bg-[var(--fd-card)] py-3.5 transition-all hover:bg-[var(--fd-card-hover)] active:scale-[0.97] active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fd-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fd-bg)]"
@@ -50,7 +49,7 @@ export function QuickActions() {
           <span className="text-[10px] font-semibold" style={{ color: 'var(--fd-text)' }}>
             {label}
           </span>
-        </Link>
+        </a>
       ))}
     </div>
   )
