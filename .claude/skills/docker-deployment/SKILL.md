@@ -37,10 +37,11 @@ BETTER_AUTH_URL=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
-# ERPNext
-ERPNEXT_URL=
-ERPNEXT_API_KEY=
-ERPNEXT_API_SECRET=
+# ERP Proxy / Control Plane
+# FitDesk never stores ERPNext/Frappe credentials.
+CONTROL_PLANE_URL=
+FITDESK_JWT_SECRET=
+CONTROL_PLANE_API_KEY=
 
 # Evolution API
 EVOLUTION_API_URL=
@@ -80,8 +81,8 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "server.js"]
 ```
@@ -100,10 +101,10 @@ services:
     image: fitdesk-app:latest
     restart: unless-stopped
     env_file: .env
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -1,9 +1,8 @@
 const MARKERS = [
   'Not Configured',
-  'ERPNEXT_BASE_URL',
-  'ERPNEXT_API_KEY',
-  'ERPNEXT_API_SECRET',
+  'FITDESK_JWT_SECRET',
   'CONTROL_PLANE_URL',
+  'Control Plane',
   'No Tenant',
 ]
 

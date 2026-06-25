@@ -46,8 +46,7 @@ npm run dev
 
 The app starts at http://localhost:3000.
 
-Without ERPNext credentials the app starts normally — all ERP-backed pages show
-"Not Configured" errors which are displayed in the UI rather than crashing.
+Without Control Plane ERP proxy configuration the app starts normally — ERP-backed pages show clear "Not Configured" or "workspace still connecting" messages rather than crashing.
 
 ---
 
@@ -64,15 +63,15 @@ Copy `.env.example` to `.env` and fill in the required values.
 | `INTERNAL_API_URL` | Internal same-container URL for server-side self-calls (recommended: `http://127.0.0.1:3000`) |
 | `DATABASE_URL` | LibSQL connection string. Local: `file:./auth.db`. Docker: `file:/app/data/auth.db`. Turso: `libsql://your-db.turso.io` |
 
-### ERPNext (required for all business data)
+### ERP Proxy / Control Plane (required for all business data)
+
+FitDesk does **not** store ERPNext/Frappe API credentials. Per-tenant ERP credentials live in the Control Plane. FitDesk signs a short-lived tenant JWT and calls the Control Plane ERP proxy.
 
 | Variable | Description |
 |---|---|
-| `ERPNEXT_BASE_URL` | Base URL of your ERPNext instance, no trailing slash |
-| `ERPNEXT_API_KEY` | ERPNext API key from User → API Access |
-| `ERPNEXT_API_SECRET` | ERPNext API secret |
-
-To generate ERPNext keys: ERPNext → Settings → Users → select user → API Access → Generate Keys.
+| `CONTROL_PLANE_URL` | Base URL of the Control Plane API, no trailing slash |
+| `FITDESK_JWT_SECRET` | Shared signing secret used to sign tenant JWTs for the ERP proxy |
+| `CONTROL_PLANE_API_KEY` | Optional server-side API key for Control Plane helper endpoints |
 
 ### Optional integrations
 
@@ -133,7 +132,9 @@ docker compose logs -f app
 # Stop
 docker compose down
 
-# Stop and remove the database volume (destructive — loses auth.db data)
+# Stop and remove the database volume
+# DANGER: destructive — removes db_data and loses local auth.db data.
+# Only run after a verified backup/export, and never as a routine restart command.
 docker compose down -v
 ```
 
@@ -197,12 +198,12 @@ server {
 
 ### Dokploy
 
-1. Create a new **Docker Compose** service.
-2. Paste the contents of `docker-compose.yml`.
+1. Create a Docker Compose service connected to the Git repository.
+2. Use the tracked `docker-compose.yml` from `main` as the source of truth.
 3. Set the domain in the Dokploy UI — it handles Traefik labels and SSL automatically.
-4. Set environment variables in the Dokploy UI (do not commit `.env`).
-5. Important: in Dokploy, change the port binding from `127.0.0.1:3000:3000` to
-   just `3000` (no host binding) and let Traefik route traffic.
+4. Set environment variables in the Dokploy UI or secure env store; do not commit `.env`.
+5. Do not manually edit production compose files on the server. Change Git first, then let Dokploy redeploy from Git.
+6. The compose file exposes container port `3000`; let Traefik/Dokploy route traffic internally.
 
 ---
 
@@ -271,7 +272,7 @@ Browser → Next.js (App Router)
            │
            ├── Server Components   → fetch data via server actions
            ├── Server Actions      → call typed adapters
-           │                           ├── lib/erpnext/client.ts  → ERPNext REST API
+           │                           ├── lib/erpnext/client.ts  → Control Plane ERP proxy
            │                           ├── lib/evolution.ts       → Evolution API (WhatsApp)
            │                           ├── lib/whish.ts           → Whish Money
            │                           └── lib/claude.ts          → Claude API

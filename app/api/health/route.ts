@@ -12,7 +12,8 @@
  */
 export function GET() {
   const configured = {
-    erpnext:   !!(process.env.ERPNEXT_BASE_URL && process.env.ERPNEXT_API_KEY),
+    // ERP proxy readiness: FitDesk uses Control Plane + tenant JWT, never direct ERP credentials.
+    erpnext:   !!(process.env.CONTROL_PLANE_URL && process.env.FITDESK_JWT_SECRET),
     evolution: !!(process.env.EVOLUTION_API_URL && process.env.EVOLUTION_API_KEY),
     whish:     !!(process.env.WHISH_API_URL     && process.env.WHISH_API_KEY),
     claude:    !!process.env.ANTHROPIC_API_KEY,
