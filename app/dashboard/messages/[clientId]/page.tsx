@@ -4,7 +4,7 @@ import { ArrowLeft }      from 'lucide-react'
 import { getClientById } from '@/lib/business-data'
 import { getMessages }     from '@/actions/messages'
 import { MessagesView }    from '@/components/modules/MessagesView'
-import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
+import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 
 interface Props {
   params:      { clientId: string }

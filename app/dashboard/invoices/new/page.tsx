@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createInvoice, getClients } from '@/lib/business-data'
-import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
+import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import type { Client } from '@/types'
 
 interface LineItem {

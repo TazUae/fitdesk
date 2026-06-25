@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { getInvoiceById } from '@/lib/business-data'
-import { isErpUnavailableError } from '@/lib/erpnext/is-unavailable-error'
+import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { RecordPaymentForm } from './RecordPaymentForm'
 
 type Props = { params: { id: string } }
