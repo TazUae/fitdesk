@@ -127,6 +127,36 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "client_event_tenant_client_idx"
     ON "client_event" ("tenant_id", "client_index_id")`,
+
+  // ── Billing Phase B1 — package_template ────────────────────────────────────
+  // Trainer-facing reusable package template (the "catalog" concept).
+  // Immutable once first_sold_at_utc is set.
+  // price_amount in minor currency units (e.g. cents).
+  // CHECK constraints enforce the canonical taxonomy vocabulary.
+  `CREATE TABLE IF NOT EXISTS "package_template" (
+    "id"                     TEXT NOT NULL PRIMARY KEY,
+    "tenant_id"              TEXT NOT NULL,
+    "name"                   TEXT NOT NULL,
+    "description"            TEXT,
+    "template_type"          TEXT NOT NULL DEFAULT 'standard_block'
+                               CHECK ("template_type" IN ('standard_block','complimentary','promotional')),
+    "session_count"          INTEGER NOT NULL CHECK ("session_count" > 0),
+    "price_amount"           INTEGER NOT NULL DEFAULT 0 CHECK ("price_amount" >= 0),
+    "currency"               TEXT NOT NULL CHECK (length("currency") = 3),
+    "expiry_days"            INTEGER CHECK ("expiry_days" IS NULL OR "expiry_days" > 0),
+    "erp_item_code"          TEXT,
+    "status"                 TEXT NOT NULL DEFAULT 'draft'
+                               CHECK ("status" IN ('draft','active','archived')),
+    "first_sold_at_utc"      TEXT,
+    "supersedes_template_id" TEXT,
+    "archived_at_utc"        TEXT,
+    "created_at_utc"         TEXT NOT NULL,
+    "updated_at_utc"         TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "package_template_tenant_status_idx"
+    ON "package_template" ("tenant_id", "status")`,
+  `CREATE INDEX IF NOT EXISTS "package_template_tenant_type_idx"
+    ON "package_template" ("tenant_id", "template_type")`,
 ]
 
 for (const sql of statements) {
@@ -210,6 +240,7 @@ const requiredTables = [
   'client_goal',
   'client_action_intent',
   'client_event',
+  'package_template',
 ]
 
 const missing = requiredTables.filter((t) => !tables.includes(t))

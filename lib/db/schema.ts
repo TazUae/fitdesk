@@ -226,3 +226,39 @@ export const clientEvent = sqliteTable('client_event', {
   createdByUserId: text('created_by_user_id'),
   createdAtUtc:    text('created_at_utc').notNull(),
 })
+
+// ─── Billing — Package Template ───────────────────────────────────────────────
+// Trainer-facing reusable package template (the "catalog" concept).
+// Immutable once first_sold_at_utc is set — see ADR FITDESK_BILLING_PACKAGE_ERP_DECISION §7.
+// CHECK constraints (template_type, status, numeric) are enforced by scripts/migrate-app.mjs DDL.
+
+/**
+ * Reusable package template created by the trainer.
+ * Once sold (first_sold_at_utc set), priced fields are frozen.
+ * price_amount is stored in minor currency units (e.g. cents).
+ */
+export const packageTemplate = sqliteTable(
+  'package_template',
+  {
+    id:                   text('id').primaryKey().notNull(),
+    tenantId:             text('tenant_id').notNull(),
+    name:                 text('name').notNull(),
+    description:          text('description'),
+    templateType:         text('template_type').notNull().default('standard_block'),
+    sessionCount:         integer('session_count').notNull(),
+    priceAmount:          integer('price_amount').notNull().default(0),
+    currency:             text('currency').notNull(),
+    expiryDays:           integer('expiry_days'),
+    erpItemCode:          text('erp_item_code'),
+    status:               text('status').notNull().default('draft'),
+    firstSoldAtUtc:       text('first_sold_at_utc'),
+    supersedesTemplateId: text('supersedes_template_id'),
+    archivedAtUtc:        text('archived_at_utc'),
+    createdAtUtc:         text('created_at_utc').notNull(),
+    updatedAtUtc:         text('updated_at_utc').notNull(),
+  },
+  (t) => [
+    index('package_template_tenant_status_idx').on(t.tenantId, t.status),
+    index('package_template_tenant_type_idx').on(t.tenantId, t.templateType),
+  ],
+)

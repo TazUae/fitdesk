@@ -101,3 +101,12 @@ export function isBillingSessionStatus(value: unknown): value is BillingSessionS
 export function assertNever(value: never): never {
   throw new Error(`Unhandled value: ${String(value)}`)
 }
+
+// ─── Package template status ──────────────────────────────────────────────────
+
+export const PACKAGE_TEMPLATE_STATUSES = ['draft', 'active', 'archived'] as const
+export type PackageTemplateStatus = typeof PACKAGE_TEMPLATE_STATUSES[number]
+
+export function isPackageTemplateStatus(value: unknown): value is PackageTemplateStatus {
+  return typeof value === 'string' && (PACKAGE_TEMPLATE_STATUSES as readonly string[]).includes(value)
+}

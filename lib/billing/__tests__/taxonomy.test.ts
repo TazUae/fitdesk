@@ -8,6 +8,7 @@ import {
   TEMPLATE_TYPES,
   LEDGER_EVENT_TYPES,
   BILLING_SESSION_STATUSES,
+  PACKAGE_TEMPLATE_STATUSES,
   isBillingMode,
   isActiveBillingMode,
   isReservedBillingMode,
@@ -15,6 +16,7 @@ import {
   isTemplateType,
   isLedgerEventType,
   isBillingSessionStatus,
+  isPackageTemplateStatus,
 } from '../taxonomy'
 
 describe('Billing mode constants', () => {
@@ -195,5 +197,27 @@ describe('isBillingSessionStatus', () => {
     expect(isBillingSessionStatus('unknown')).toBe(false)
     expect(isBillingSessionStatus(null)).toBe(false)
     expect(isBillingSessionStatus(undefined)).toBe(false)
+  })
+})
+
+describe('Package template status', () => {
+  it('PACKAGE_TEMPLATE_STATUSES contains exactly the three canonical values', () => {
+    expect([...PACKAGE_TEMPLATE_STATUSES]).toEqual(['draft', 'active', 'archived'])
+  })
+
+  it('isPackageTemplateStatus returns true for all canonical values', () => {
+    expect(isPackageTemplateStatus('draft')).toBe(true)
+    expect(isPackageTemplateStatus('active')).toBe(true)
+    expect(isPackageTemplateStatus('archived')).toBe(true)
+  })
+
+  it('isPackageTemplateStatus returns false for unknown strings', () => {
+    expect(isPackageTemplateStatus('inactive')).toBe(false)
+    expect(isPackageTemplateStatus('deleted')).toBe(false)
+    expect(isPackageTemplateStatus('pending')).toBe(false)
+    expect(isPackageTemplateStatus('')).toBe(false)
+    expect(isPackageTemplateStatus(null)).toBe(false)
+    expect(isPackageTemplateStatus(undefined)).toBe(false)
+    expect(isPackageTemplateStatus(42)).toBe(false)
   })
 })
