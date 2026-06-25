@@ -251,6 +251,9 @@ function PageSuccessState({ client }: { client: Client }) {
 // When unset (or '0'), the legacy GoalAccordion renders unchanged.
 const GOAL_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_GOAL_WORKSPACE === '1'
 
+const PACKAGE_BILLING_UNAVAILABLE_MESSAGE =
+  'Package billing is not available yet. Use Pay-per-session for now. Package mode will be enabled after package invoice, Paid Now/Pay Later, and session decrement are verified.'
+
 export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputRef }: AddClientFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -413,6 +416,11 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
       setError('Phone number is required.')
       return
     }
+    if (billingMode === 'package') {
+      setError(PACKAGE_BILLING_UNAVAILABLE_MESSAGE)
+      return
+    }
+
     // Hard conflict (e.g. Safe Weight Gain + Fat Loss) blocks creation; soft
     // conflicts and safety advisories warn inside the workspace/accordion but never block.
     const goalIdsForConflict = GOAL_WORKSPACE_ENABLED
@@ -717,9 +725,20 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
               )}
 
               {billingMode === 'package' && (
-                <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                  Set up sessions and package details on the client profile.
-                </p>
+                <div
+                  className="rounded-xl border px-3 py-2 text-xs leading-relaxed"
+                  style={{
+                    borderColor: 'var(--fd-border)',
+                    backgroundColor: 'var(--fd-card)',
+                    color: 'var(--fd-text)',
+                  }}
+                >
+                  <p className="font-semibold">Package billing is not available yet.</p>
+                  <p className="mt-1" style={{ color: 'var(--fd-muted)' }}>
+                    Use Pay-per-session for now. Package mode will be enabled after package invoice,
+                    Paid Now/Pay Later, and session decrement are verified.
+                  </p>
+                </div>
               )}
             </div>
 
