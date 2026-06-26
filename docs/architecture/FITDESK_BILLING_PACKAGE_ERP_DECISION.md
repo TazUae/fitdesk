@@ -408,10 +408,13 @@ approval:
   completion-driven billing (`session_consumed`, PPS invoice-on-completion).
 - Refund path via **Credit Note** (`§9`).
 
-### Phase C — Future platform later (separate planning + approval)
+### Phase D — Future platform later (separate planning + approval)
 
 - Subscriptions; automated revenue recognition (Journal Entry); breakage/`expiration_sweep`; wallet;
   package sharing/family/corporate; webhook-based ERP→local reconciliation; direct ERP Item creation.
+
+> **Note:** "Phase C" is now the Assign Package / ERP Invoice / Ledger Boundary plan (see `§15`).
+> The future-platform items above are relabelled Phase D to avoid numbering collision.
 
 ---
 
@@ -540,6 +543,162 @@ Scenario: Early cancellation never recognizes revenue
 
 ---
 
+## 15. Phase C — Assign Package / ERP Invoice / Ledger Boundary
+
+> **Status:** LOCKED — decisions recorded 2026-06-26. Implementation approval required per sub-phase.
+> **Authority:** This addendum extends `§12` (Phase B implementation complete locally; Phase C is the
+> next wave). The "Phase C" label in the original `§12` is now relabelled "Phase D" (see `§12` note).
+
+---
+
+### 15.1 Approved Phase C split
+
+| Sub-phase | Scope | ERP writes? | Gate |
+|---|---|---|---|
+| **C0** | This ADR addendum (documentation lock only). | No | Done |
+| **C1** | `package_ledger` table + `client_package_purchase.idempotency_key` column. Additive DDL, CHECK-constrained, append-only by design. Mirrors B3a pattern. | No | Approval-gated |
+| **C2** | `PackageLedgerRepository` (append-only writes, balance derivation) + `attachInvoiceAndActivate` / `findByIdempotencyKey` methods on `ClientPackagePurchaseRepository`. Local-only. Mirrors B2/B3b pattern. | No | Approval-gated |
+| **C3** | `lib/billing/package-assignment-service.ts` + `actions/packages.ts`: intent row -> ERP draft invoice -> submit -> attach + activate + `purchase_activation` ledger row. **Pay-later only.** | **Yes** | Approval-gated |
+| **C4** | Paid-now path (`createAndSubmitPaymentEntry`) + `payment_status` projection from ERP re-fetch. | **Yes** | Approval-gated |
+| **C5** | Mobile bottom-sheet Assign Package UI (confirmation-gated, pay-now / pay-later choice). | via C3/C4 | Approval-gated |
+| **C6** | Session deduction (`session_consumed`). **Hard-deferred** — blocked on PT Session DocType (`§3`, `§5.3`). | — | Deferred |
+
+Implementing C1 or C2 does not authorize C3. Each sub-phase requires its own approval per `CLAUDE.md §4`.
+
+---
+
+### 15.2 Ordering decision — Option C (locked)
+
+`client_package_purchase` is the **assignment intent anchor**. No separate `package_assignment_intent` table is planned.
+
+The assignment sequence is:
+
+1. Write the `client_package_purchase` row with `package_status = 'pending_activation'` and `erp_sales_invoice_id = null` (local intent, no ERP yet).
+2. Call `createInvoice` via the **existing `erp-adapter` -> `erpFetch()` -> Control Plane proxy path only** — no new ERP HTTP client, no proxy bypass.
+3. **Persist the returned ERP invoice docname on the intent row immediately** after `createInvoice` returns and before submission. This makes any failure at step 4+ recoverable by idempotency-key replay.
+4. Submit the invoice via `submitSalesInvoice`.
+5. Inside a single local DB transaction: attach `erp_sales_invoice_id`, set `package_status = 'active'`, stamp `activated_at_utc`.
+6. Inside the same transaction: write one `purchase_activation` ledger row.
+
+> **Rationale:** persisting the invoice docname before submission means the purchase row always reflects furthest progress. The existing `(tenant_id, erp_sales_invoice_id)` partial unique index (B3a) prevents double-attach on retry.
+
+---
+
+### 15.3 Idempotency decision (locked)
+
+C1 must add to `client_package_purchase`:
+
+- `idempotency_key TEXT` (nullable column, added via PRAGMA-guarded `ALTER TABLE` in `scripts/migrate-app.mjs`)
+- Partial unique index `(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL`
+
+The UI generates a UUIDv4 idempotency key per confirmed assignment attempt. The key is passed into the `assignPackage` server action and stored on the purchase intent row at creation time.
+
+On replay (same idempotency key): return the existing purchase result — no second invoice, no second purchase row, no duplicate ledger event.
+
+The **existing** partial unique index `(tenant_id, erp_sales_invoice_id) WHERE erp_sales_invoice_id IS NOT NULL` (added in B3a) is unchanged and remains the invoice-attachment guard.
+
+---
+
+### 15.4 Ledger decision (locked)
+
+`package_ledger` is **required before package activation is real**. The ledger must be:
+
+- **Append-only** — no in-place edits or deletes. Corrections are new compensating rows (e.g. `refund_credit`). No `updated_at` column.
+- **Balance = derived** — `SUM(delta_units)` per `package_purchase_id`, never a stored mutable counter.
+
+Sub-phase assignment for the ledger:
+
+- **C1** — schema only (`package_ledger` table with `event_type` CHECK constraint and signed `delta_units`).
+- **C2** — `PackageLedgerRepository`: `appendEvent` (append-only insert), `deriveBalance` (per-purchase sum).
+- **C3** — write exactly one `purchase_activation` event (step 6 of `§15.2`), inside the same local DB transaction as purchase finalization.
+
+All consumption events (`session_consumed`, `late_cancel_penalty`, `expiration_sweep`) are deferred to C6+ and remain blocked on the PT Session DocType (`§3`, `§5.3`).
+
+---
+
+### 15.5 Activation timing (locked)
+
+- `package_status: pending_activation -> active` transitions **after the ERP Sales Invoice is submitted** via `submitSalesInvoice` — not after it is paid.
+- Activation is **not payment-driven**.
+- **Pay Later (C3):** activates with `payment_status = 'unpaid'`. The trainer collects later via the existing `collectPayment` / `recordPayment` flow against that invoice.
+- **Paid Now (C4):** the Payment Entry is created and submitted after invoice submission; `payment_status` is then projected from the ERP invoice re-fetch (`Unpaid -> 'unpaid'`, `Partly Paid -> 'partially_paid'`, `Paid -> 'paid'`). ERP remains the source of truth for payment state (`§1` rule 6).
+
+---
+
+### 15.6 ERP invoice boundary (locked)
+
+All ERP I/O follows the existing chain with no exceptions:
+
+```text
+assignPackage (server action)
+  -> package-assignment-service
+  -> lib/business-data/erp-adapter (re-exports lib/erpnext/client.ts)
+  -> erpFetch()  [HMAC-HS256 JWT, server-side only, no ERP api_key in FitDesk]
+  -> Control Plane ERP proxy
+  -> ERPNext
+```
+
+Binding rules for the Sales Invoice line created during package assignment:
+
+| Field | Value | Source |
+|---|---|---|
+| `customer` | `erp_customer_id` from the intent row | `client_index.erp_customer_id` |
+| `item_code` | `package_template.erp_item_code` | Must be non-empty; activation gate enforces this |
+| `qty` | `1` | One package sold as a unit; session credits are ledger-granted, not invoice quantity |
+| `rate` | `price_amount / currency_exponent` (e.g. 50000 cents / 100 = 500.00 USD) | **Mandatory minor->major conversion before any ERP write** |
+| `description` | Template name + session count | Snapshot |
+| `posting_date` | UTC date at assignment time | Server |
+| `currency` | `snapshot.currency` | Frozen in the immutable template snapshot |
+| Taxes / discounts | Deferred | Flat single-line price in MVP |
+
+The `rate` conversion is the highest-risk field. Passing raw minor units (e.g. 50000) to ERP would create an invoice 100x the correct price. A currency-exponent helper (`USD -> divide by 100`) must be unit-tested before any ERP write in C3.
+
+The invoice must be **submitted** (via `submitSalesInvoice`) before package activation. A draft invoice is not a receivable and cannot take a Payment Entry.
+
+FitDesk must not auto-create ERPNext Items. The ERP Item referenced by `erp_item_code` must pre-exist.
+
+---
+
+### 15.7 Zero-value complimentary packages (locked)
+
+True zero-value assignments (`template_type = 'complimentary'` with `price_amount = 0`) must avoid phantom revenue.
+
+Decision: **skip the ERP Sales Invoice** for zero-value assignments. Record a local `client_package_purchase` and write a `bonus_granted` ledger event directly — no `createInvoice` call, no `purchase_activation` event. A zero-revenue Sales Invoice must never be created (`§5.5` rule 2, `§9`).
+
+This path is part of C3. The assignment service must check `price_amount > 0` before calling `createInvoice`.
+
+---
+
+### 15.8 `first_sold_at_utc` clarification (locked)
+
+`package_template.first_sold_at_utc` is a **conservative immutability gate**, not a confirmed-sale timestamp.
+
+It may be stamped when the first local `client_package_purchase` intent row is created — before the ERP Sales Invoice exists or is submitted. It must not be interpreted as "invoice confirmed" or "payment received."
+
+Its sole purpose is to freeze the template's financial and service fields (`price_amount`, `currency`, `session_count`, `expiry_days`, `erp_item_code`, `template_type`) once the template enters an assignment flow. This protects the immutable `template_snapshot_json` written into the purchase row at intent creation time from diverging if the template is later edited.
+
+---
+
+### 15.9 Explicit non-goals for C0, C1, and C2 (locked)
+
+The following are **out of scope** for Phase C0, C1, and C2. None may be implemented as part of those sub-phases without a separate approval per `CLAUDE.md §4`:
+
+- ERP Sales Invoice creation
+- ERP Payment Entry creation
+- Whish or any payment-link flow
+- Payment reconciliation or ERP payment-status projection
+- Session deduction (`session_consumed`, `late_cancel_penalty`)
+- Revenue recognition
+- Expiration sweep (`expiration_sweep`)
+- Subscriptions
+- Package sharing
+- Any UI component or page
+- Any server action (`actions/packages.ts` or similar)
+
+C3 and later sub-phases each require their own explicit approval before implementation begins.
+
+---
+
 ## Open decisions
 
 1. **Promote to `ADR-BILL-001`?** Recommended; pending product-owner confirmation of this document.
@@ -581,4 +740,5 @@ Scenario: Early cancellation never recognizes revenue
 
 - Obtain product-owner confirmation of this document; then (recommended) promote to `ADR-BILL-001`.
 - Resolve the PT Session DocType decision (Handbook `09`) before any completion-driven billing.
-- Sequence Phase A (no-schema) work; gate Phases B/C on explicit per-step approval.
+- **Phase C0 complete** (this addendum). Next: request approval for Phase C1 (`package_ledger` schema
+  + `idempotency_key` column) before any implementation begins (`§15.1`, `CLAUDE.md §4`).
