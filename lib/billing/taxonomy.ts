@@ -102,6 +102,27 @@ export function assertNever(value: never): never {
   throw new Error(`Unhandled value: ${String(value)}`)
 }
 
+// ─── Ledger event direction map ───────────────────────────────────────────────
+// Positive = credits/grants; negative = debits/consumptions.
+// SQL enforces only delta_units != 0; direction belongs in domain logic.
+
+export const LEDGER_EVENT_DIRECTIONS: Record<LedgerEventType, 'positive' | 'negative'> = {
+  purchase_activation: 'positive',
+  bonus_granted:       'positive',
+  refund_credit:       'negative',
+  session_consumed:    'negative',
+  late_cancel_penalty: 'negative',
+  expiration_sweep:    'negative',
+}
+
+/** Returns true if deltaUnits has the correct sign for the given eventType. */
+export function ledgerDeltaMatchesDirection(
+  eventType: LedgerEventType,
+  deltaUnits: number,
+): boolean {
+  return LEDGER_EVENT_DIRECTIONS[eventType] === 'positive' ? deltaUnits > 0 : deltaUnits < 0
+}
+
 // ─── Package template status ──────────────────────────────────────────────────
 
 export const PACKAGE_TEMPLATE_STATUSES = ['draft', 'active', 'archived'] as const

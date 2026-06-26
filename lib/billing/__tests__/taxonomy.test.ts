@@ -7,6 +7,7 @@ import {
   CLIENT_BILLING_MODE_VALUES,
   TEMPLATE_TYPES,
   LEDGER_EVENT_TYPES,
+  LEDGER_EVENT_DIRECTIONS,
   BILLING_SESSION_STATUSES,
   PACKAGE_TEMPLATE_STATUSES,
   PACKAGE_PAYMENT_STATUSES,
@@ -17,6 +18,7 @@ import {
   isClientBillingModeValue,
   isTemplateType,
   isLedgerEventType,
+  ledgerDeltaMatchesDirection,
   isBillingSessionStatus,
   isPackageTemplateStatus,
   isPackagePaymentStatus,
@@ -281,5 +283,60 @@ describe('Package purchase status', () => {
     expect(isPackagePurchaseStatus(null)).toBe(false)
     expect(isPackagePurchaseStatus(undefined)).toBe(false)
     expect(isPackagePurchaseStatus(42)).toBe(false)
+  })
+})
+
+describe('Ledger event direction map', () => {
+  it('LEDGER_EVENT_DIRECTIONS covers all 6 canonical event types', () => {
+    expect(Object.keys(LEDGER_EVENT_DIRECTIONS)).toHaveLength(LEDGER_EVENT_TYPES.length)
+    for (const t of LEDGER_EVENT_TYPES) {
+      expect(Object.prototype.hasOwnProperty.call(LEDGER_EVENT_DIRECTIONS, t)).toBe(true)
+    }
+  })
+
+  it('purchase_activation and bonus_granted are positive', () => {
+    expect(LEDGER_EVENT_DIRECTIONS['purchase_activation']).toBe('positive')
+    expect(LEDGER_EVENT_DIRECTIONS['bonus_granted']).toBe('positive')
+  })
+
+  it('refund_credit, session_consumed, late_cancel_penalty, expiration_sweep are negative', () => {
+    expect(LEDGER_EVENT_DIRECTIONS['refund_credit']).toBe('negative')
+    expect(LEDGER_EVENT_DIRECTIONS['session_consumed']).toBe('negative')
+    expect(LEDGER_EVENT_DIRECTIONS['late_cancel_penalty']).toBe('negative')
+    expect(LEDGER_EVENT_DIRECTIONS['expiration_sweep']).toBe('negative')
+  })
+})
+
+describe('ledgerDeltaMatchesDirection', () => {
+  it('returns true for purchase_activation with positive delta', () => {
+    expect(ledgerDeltaMatchesDirection('purchase_activation', 10)).toBe(true)
+    expect(ledgerDeltaMatchesDirection('purchase_activation', 1)).toBe(true)
+  })
+
+  it('returns false for purchase_activation with negative delta', () => {
+    expect(ledgerDeltaMatchesDirection('purchase_activation', -1)).toBe(false)
+    expect(ledgerDeltaMatchesDirection('purchase_activation', -10)).toBe(false)
+  })
+
+  it('returns true for bonus_granted with positive delta', () => {
+    expect(ledgerDeltaMatchesDirection('bonus_granted', 5)).toBe(true)
+  })
+
+  it('returns false for bonus_granted with negative delta', () => {
+    expect(ledgerDeltaMatchesDirection('bonus_granted', -5)).toBe(false)
+  })
+
+  it('returns true for all debit types with negative delta', () => {
+    expect(ledgerDeltaMatchesDirection('refund_credit', -3)).toBe(true)
+    expect(ledgerDeltaMatchesDirection('session_consumed', -1)).toBe(true)
+    expect(ledgerDeltaMatchesDirection('late_cancel_penalty', -1)).toBe(true)
+    expect(ledgerDeltaMatchesDirection('expiration_sweep', -2)).toBe(true)
+  })
+
+  it('returns false for all debit types with positive delta', () => {
+    expect(ledgerDeltaMatchesDirection('refund_credit', 3)).toBe(false)
+    expect(ledgerDeltaMatchesDirection('session_consumed', 1)).toBe(false)
+    expect(ledgerDeltaMatchesDirection('late_cancel_penalty', 1)).toBe(false)
+    expect(ledgerDeltaMatchesDirection('expiration_sweep', 2)).toBe(false)
   })
 })

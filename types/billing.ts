@@ -149,4 +149,21 @@ export type PackageLedgerEvent = {
   erpReference: string | null
   createdByUserId: string | null
   createdAtUtc: string
+  // No updatedAtUtc — append-only table
+}
+
+/**
+ * Input for appending a new ledger event via PackageLedgerRepository.appendEvent.
+ * tenantId is derived from ctx by the repository; do not include here.
+ */
+export type AppendLedgerEventInput = {
+  clientIndexId:     string
+  erpCustomerId:     string
+  packagePurchaseId: string
+  eventType:         LedgerEventType
+  deltaUnits:        number
+  reason?:           string | null
+  idempotencyKey?:   string | null
+  erpReference?:     string | null
+  createdByUserId?:  string | null
 }
