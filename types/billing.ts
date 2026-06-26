@@ -13,6 +13,7 @@ import type {
   PackageTemplateStatus,
   PackagePaymentStatus,
   PackagePurchaseStatus,
+  LedgerEventType,
 } from '@/lib/billing/taxonomy'
 
 /**
@@ -110,6 +111,7 @@ export type ClientPackagePurchase = {
   packageTemplateId: string
   templateSnapshot: PackageTemplateSnapshot
   erpSalesInvoiceId: string | null
+  idempotencyKey?: string | null
   paymentStatus: PackagePaymentStatus
   packageStatus: PackagePurchaseStatus
   purchasedAtUtc: string
@@ -127,4 +129,24 @@ export type CreatePackagePurchaseInput = {
   clientIndexId: string
   erpCustomerId: string
   packageTemplateId: string
+}
+
+/**
+ * One append-only row in the package_ledger table.
+ * No updatedAtUtc — this table is never mutated after insert.
+ * Balance is derived from SUM(deltaUnits) per packagePurchaseId.
+ */
+export type PackageLedgerEvent = {
+  id: string
+  tenantId: string
+  clientIndexId: string
+  erpCustomerId: string
+  packagePurchaseId: string
+  eventType: LedgerEventType
+  deltaUnits: number
+  reason: string | null
+  idempotencyKey: string | null
+  erpReference: string | null
+  createdByUserId: string | null
+  createdAtUtc: string
 }

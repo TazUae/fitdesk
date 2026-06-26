@@ -83,6 +83,7 @@ const SETUP_DDL = [
                                CHECK (length("template_snapshot_json") > 0
                                       AND json_valid("template_snapshot_json")),
     "erp_sales_invoice_id"   TEXT,
+    "idempotency_key"        TEXT,
     "payment_status"         TEXT NOT NULL DEFAULT 'pending'
                                CHECK ("payment_status" IN ('pending','unpaid','partially_paid','paid','refunded')),
     "package_status"         TEXT NOT NULL DEFAULT 'pending_activation'
@@ -102,6 +103,9 @@ const SETUP_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_invoice_uq"
     ON "client_package_purchase" ("tenant_id", "erp_sales_invoice_id")
     WHERE "erp_sales_invoice_id" IS NOT NULL`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_idempotency_uq"
+    ON "client_package_purchase" ("tenant_id", "idempotency_key")
+    WHERE "idempotency_key" IS NOT NULL`,
 ]
 
 // ─── Constants ────────────────────────────────────────────────────────────────

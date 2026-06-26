@@ -192,6 +192,39 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_invoice_uq"
     ON "client_package_purchase" ("tenant_id", "erp_sales_invoice_id")
     WHERE "erp_sales_invoice_id" IS NOT NULL`,
+
+  // ── Billing Phase C1 — package_ledger ────────────────────────────────────────
+  // Append-only event log for package service-unit credits and debits.
+  // No updated_at — rows are immutable after insert.
+  // Balance = SUM(delta_units) per package_purchase_id; never a stored counter.
+  // idempotency_key partial unique index prevents duplicate ledger events.
+  `CREATE TABLE IF NOT EXISTS "package_ledger" (
+    "id"                  TEXT NOT NULL PRIMARY KEY,
+    "tenant_id"           TEXT NOT NULL,
+    "client_index_id"     TEXT NOT NULL,
+    "erp_customer_id"     TEXT NOT NULL,
+    "package_purchase_id" TEXT NOT NULL,
+    "event_type"          TEXT NOT NULL
+                            CHECK ("event_type" IN (
+                              'purchase_activation','bonus_granted','refund_credit',
+                              'session_consumed','late_cancel_penalty','expiration_sweep'
+                            )),
+    "delta_units"         INTEGER NOT NULL CHECK ("delta_units" != 0),
+    "reason"              TEXT,
+    "idempotency_key"     TEXT,
+    "erp_reference"       TEXT,
+    "created_by_user_id"  TEXT,
+    "created_at_utc"      TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "package_ledger_tenant_purchase_idx"
+    ON "package_ledger" ("tenant_id", "package_purchase_id")`,
+  `CREATE INDEX IF NOT EXISTS "package_ledger_tenant_client_idx"
+    ON "package_ledger" ("tenant_id", "client_index_id")`,
+  `CREATE INDEX IF NOT EXISTS "package_ledger_tenant_event_idx"
+    ON "package_ledger" ("tenant_id", "event_type")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "package_ledger_tenant_idempotency_uq"
+    ON "package_ledger" ("tenant_id", "idempotency_key")
+    WHERE "idempotency_key" IS NOT NULL`,
 ]
 
 for (const sql of statements) {
@@ -211,6 +244,11 @@ for (const sql of statements) {
 
 async function columnExists(columnName) {
   const { rows } = await client.execute(`PRAGMA table_info("client_goal")`)
+  return rows.some(r => r.name === columnName)
+}
+
+async function cppColumnExists(columnName) {
+  const { rows } = await client.execute(`PRAGMA table_info("client_package_purchase")`)
   return rows.some(r => r.name === columnName)
 }
 
@@ -240,6 +278,38 @@ if (!(await columnExists('trainer_sub_goal_ids_json'))) {
   }
 } else {
   console.log('✓ client_goal.trainer_sub_goal_ids_json already present')
+}
+
+// ── Phase C1 — client_package_purchase.idempotency_key (additive column) ───────
+//
+// SQLite has no ADD COLUMN IF NOT EXISTS.
+// PRAGMA guard prevents duplicate-column errors on re-run.
+
+if (!(await cppColumnExists('idempotency_key'))) {
+  try {
+    await client.execute(
+      `ALTER TABLE "client_package_purchase" ADD COLUMN "idempotency_key" TEXT`
+    )
+    console.log('✓ client_package_purchase.idempotency_key column added')
+  } catch (err) {
+    console.error('[app-migration] ALTER client_package_purchase (idempotency_key) failed:', err.message)
+    process.exit(1)
+  }
+} else {
+  console.log('✓ client_package_purchase.idempotency_key already present')
+}
+
+// Partial unique index for idempotency_key — IF NOT EXISTS handles re-runs.
+try {
+  await client.execute(
+    `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_idempotency_uq"
+       ON "client_package_purchase" ("tenant_id", "idempotency_key")
+       WHERE "idempotency_key" IS NOT NULL`
+  )
+  console.log('✓ client_package_purchase_tenant_idempotency_uq index present')
+} catch (err) {
+  console.error('[app-migration] CREATE INDEX client_package_purchase_tenant_idempotency_uq failed:', err.message)
+  process.exit(1)
 }
 
 // Backfill: mark existing client_goal rows as primary when goal_id matches
@@ -277,6 +347,7 @@ const requiredTables = [
   'client_event',
   'package_template',
   'client_package_purchase',
+  'package_ledger',
 ]
 
 const missing = requiredTables.filter((t) => !tables.includes(t))

@@ -265,8 +265,9 @@ export const packageTemplate = sqliteTable(
 
 // ─── Billing — Client Package Purchase ───────────────────────────────────────
 // One row per package sold to a client.
-// CHECK constraints and the partial unique index on erp_sales_invoice_id are
-// enforced by scripts/migrate-app.mjs DDL only (Drizzle cannot express them).
+// CHECK constraints and the partial unique indexes on erp_sales_invoice_id and
+// idempotency_key are enforced by scripts/migrate-app.mjs DDL only (Drizzle
+// cannot express partial indexes).
 // template_snapshot_json is written once at purchase creation and never rewritten.
 
 /**
@@ -284,6 +285,7 @@ export const clientPackagePurchase = sqliteTable(
     packageTemplateId:    text('package_template_id').notNull(),
     templateSnapshotJson: text('template_snapshot_json').notNull(),
     erpSalesInvoiceId:    text('erp_sales_invoice_id'),
+    idempotencyKey:       text('idempotency_key'),
     paymentStatus:        text('payment_status').notNull().default('pending'),
     packageStatus:        text('package_status').notNull().default('pending_activation'),
     purchasedAtUtc:       text('purchased_at_utc').notNull(),
@@ -296,5 +298,39 @@ export const clientPackagePurchase = sqliteTable(
     index('client_package_purchase_tenant_client_idx').on(t.tenantId, t.clientIndexId),
     index('client_package_purchase_tenant_template_idx').on(t.tenantId, t.packageTemplateId),
     index('client_package_purchase_tenant_status_idx').on(t.tenantId, t.packageStatus),
+  ],
+)
+
+// ─── Billing — Package Ledger ─────────────────────────────────────────────────
+// Append-only event log for package service-unit credits and debits.
+// Never update or delete rows — corrections are new compensating rows.
+// Balance = SUM(delta_units) per package_purchase_id; never a stored counter.
+// CHECK constraints (event_type, delta_units != 0) and the partial unique index
+// on idempotency_key are enforced by scripts/migrate-app.mjs DDL only.
+
+/**
+ * Append-only ledger for package service-unit grants and debits.
+ * No updatedAt — rows are immutable after insert.
+ */
+export const packageLedger = sqliteTable(
+  'package_ledger',
+  {
+    id:                text('id').primaryKey().notNull(),
+    tenantId:          text('tenant_id').notNull(),
+    clientIndexId:     text('client_index_id').notNull(),
+    erpCustomerId:     text('erp_customer_id').notNull(),
+    packagePurchaseId: text('package_purchase_id').notNull(),
+    eventType:         text('event_type').notNull(),
+    deltaUnits:        integer('delta_units').notNull(),
+    reason:            text('reason'),
+    idempotencyKey:    text('idempotency_key'),
+    erpReference:      text('erp_reference'),
+    createdByUserId:   text('created_by_user_id'),
+    createdAtUtc:      text('created_at_utc').notNull(),
+  },
+  (t) => [
+    index('package_ledger_tenant_purchase_idx').on(t.tenantId, t.packagePurchaseId),
+    index('package_ledger_tenant_client_idx').on(t.tenantId, t.clientIndexId),
+    index('package_ledger_tenant_event_idx').on(t.tenantId, t.eventType),
   ],
 )
