@@ -22,6 +22,7 @@ import type {
   CreatePackagePurchaseInput,
   PackageTemplate,
   PackageTemplateSnapshot,
+  RecordPackageInvoiceInput,
 } from '@/types/billing'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -186,6 +187,65 @@ export class ClientPackagePurchaseRepository {
       )
       .limit(1)
     return rows[0] ? hydratePurchase(rows[0]) : null
+  }
+
+  async recordInvoiceCreated(
+    ctx: TenantCtx,
+    purchaseId: string,
+    input: RecordPackageInvoiceInput,
+    executor?: AppDb,
+  ): Promise<ClientPackagePurchase> {
+    const tenantId = assertTenantId(ctx)
+
+    if (!purchaseId || purchaseId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] purchaseId must not be blank')
+    }
+    if (!input.erpSalesInvoiceId || input.erpSalesInvoiceId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] erpSalesInvoiceId must not be blank')
+    }
+
+    const existing = await this.findPurchaseById(ctx, purchaseId)
+    if (!existing) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] purchase not found: ${purchaseId}`,
+      )
+    }
+
+    // Idempotency: same invoice already anchored — return without mutation
+    if (existing.erpSalesInvoiceId === input.erpSalesInvoiceId) {
+      return existing
+    }
+
+    // Conflict: a different invoice is already anchored on this purchase
+    if (existing.erpSalesInvoiceId !== null) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] purchase ${purchaseId} already has ` +
+        `erpSalesInvoiceId "${existing.erpSalesInvoiceId}"; ` +
+        `cannot overwrite with "${input.erpSalesInvoiceId}"`,
+      )
+    }
+
+    const now = new Date().toISOString()
+    const db  = executor ?? this.db
+
+    await db
+      .update(schema.clientPackagePurchase)
+      .set({
+        erpSalesInvoiceId: input.erpSalesInvoiceId,
+        updatedAtUtc:      now,
+      })
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.id, purchaseId),
+        ),
+      )
+
+    return {
+      ...existing,
+      erpSalesInvoiceId: input.erpSalesInvoiceId,
+      updatedAtUtc:      now,
+    }
   }
 
   async attachInvoiceAndActivate(

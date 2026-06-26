@@ -21,7 +21,7 @@ import {
   ClientPackagePurchaseRepository,
   buildPackageTemplateSnapshot,
 } from '@/lib/billing/client-package-purchase-repository'
-import type { AttachInvoiceInput, CreatePackagePurchaseInput } from '@/types/billing'
+import type { AttachInvoiceInput, CreatePackagePurchaseInput, RecordPackageInvoiceInput } from '@/types/billing'
 
 // ─── DDL (kept in sync with scripts/migrate-app.mjs) ─────────────────────────
 
@@ -1092,6 +1092,249 @@ describe('activateComplimentary', () => {
     await expect(
       repo.activateComplimentary({ tenantId: TENANT_A }, 'cpp-nonexistent'),
     ).rejects.toThrow('purchase not found')
+  })
+})
+
+// ─── recordInvoiceCreated ─────────────────────────────────────────────────────
+
+describe('recordInvoiceCreated', () => {
+  it('sets erpSalesInvoiceId and persists it to the DB', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const input: RecordPackageInvoiceInput = { erpSalesInvoiceId: 'ACC-SINV-2026-RI-001' }
+    const result = await repo.recordInvoiceCreated({ tenantId: TENANT_A }, 'cpp-ri-1', input)
+
+    expect(result.erpSalesInvoiceId).toBe('ACC-SINV-2026-RI-001')
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-1')
+    expect(persisted!.erpSalesInvoiceId).toBe('ACC-SINV-2026-RI-001')
+  })
+
+  it('keeps packageStatus = pending_activation', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-2', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const result = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-2',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-002' },
+    )
+
+    expect(result.packageStatus).toBe('pending_activation')
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-2')
+    expect(persisted!.packageStatus).toBe('pending_activation')
+  })
+
+  it('keeps paymentStatus = pending', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-3', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const result = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-3',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-003' },
+    )
+
+    expect(result.paymentStatus).toBe('pending')
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-3')
+    expect(persisted!.paymentStatus).toBe('pending')
+  })
+
+  it('keeps activatedAtUtc = null', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-4', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const result = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-4',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-004' },
+    )
+
+    expect(result.activatedAtUtc).toBeNull()
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-4')
+    expect(persisted!.activatedAtUtc).toBeNull()
+  })
+
+  it('updates updatedAtUtc and persists the new value', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-5', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const before = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-5')
+    const result = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-5',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-005' },
+    )
+
+    expect(result.updatedAtUtc >= before!.updatedAtUtc).toBe(true)
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-5')
+    expect(persisted!.updatedAtUtc).toBe(result.updatedAtUtc)
+  })
+
+  it('preserves immutable snapshot, client, and template fields', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-6', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const before = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-6')
+    const result = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-6',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-006' },
+    )
+
+    expect(result.clientIndexId).toBe(before!.clientIndexId)
+    expect(result.erpCustomerId).toBe(before!.erpCustomerId)
+    expect(result.packageTemplateId).toBe(before!.packageTemplateId)
+    expect(result.purchasedAtUtc).toBe(before!.purchasedAtUtc)
+    expect(result.createdAtUtc).toBe(before!.createdAtUtc)
+    expect(result.templateSnapshot).toEqual(before!.templateSnapshot)
+  })
+
+  it('is idempotent: calling again with the same invoice id returns safely without mutation', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-7', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const invoiceId = 'ACC-SINV-2026-RI-007'
+    const first = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-7', { erpSalesInvoiceId: invoiceId },
+    )
+    const second = await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-7', { erpSalesInvoiceId: invoiceId },
+    )
+
+    expect(second.erpSalesInvoiceId).toBe(invoiceId)
+    expect(second.packageStatus).toBe(first.packageStatus)
+    expect(second.paymentStatus).toBe(first.paymentStatus)
+    expect(second.activatedAtUtc).toBeNull()
+  })
+
+  it('throws a conflict error when a different invoice id is already anchored', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-8', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+      invoiceId: 'ACC-SINV-2026-RI-EXISTING',
+    })
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_A }, 'cpp-ri-8',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-DIFFERENT' },
+      ),
+    ).rejects.toThrow('already has')
+  })
+
+  it('rejects blank purchaseId', async () => {
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_A }, '',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-001' },
+      ),
+    ).rejects.toThrow('purchaseId must not be blank')
+  })
+
+  it('rejects blank erpSalesInvoiceId', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-9', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_A }, 'cpp-ri-9',
+        { erpSalesInvoiceId: '' },
+      ),
+    ).rejects.toThrow('erpSalesInvoiceId must not be blank')
+  })
+
+  it('wrong tenant cannot record invoice on another tenant purchase', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-a', tenantId: TENANT_A,
+      clientIndexId: 'ci-a1', erpCustomerId: 'CUST-A1',
+    })
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_B }, 'cpp-ri-a',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-XTENANT' },
+      ),
+    ).rejects.toThrow('purchase not found')
+
+    const unmodified = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-ri-a')
+    expect(unmodified!.erpSalesInvoiceId).toBeNull()
+  })
+
+  it('duplicate invoice id on a different purchase in the same tenant is rejected', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-dup-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+    await seedPurchase({
+      id: 'cpp-ri-dup-2', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-dup-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-DUP' },
+    )
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_A }, 'cpp-ri-dup-2',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-DUP' },
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('same invoice id in different tenants is allowed', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-ta', tenantId: TENANT_A,
+      clientIndexId: 'ci-a1', erpCustomerId: 'CUST-A1',
+    })
+    await seedPurchase({
+      id: 'cpp-ri-tb', tenantId: TENANT_B,
+      clientIndexId: 'ci-b1', erpCustomerId: 'CUST-B1',
+    })
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_A }, 'cpp-ri-ta',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-SHARED' },
+      ),
+    ).resolves.not.toThrow()
+
+    await expect(
+      repo.recordInvoiceCreated(
+        { tenantId: TENANT_B }, 'cpp-ri-tb',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-RI-SHARED' },
+      ),
+    ).resolves.not.toThrow()
+  })
+
+  it('does not create any package_ledger rows', async () => {
+    await seedPurchase({
+      id: 'cpp-ri-ledger', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    await repo.recordInvoiceCreated(
+      { tenantId: TENANT_A }, 'cpp-ri-ledger',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-RI-LEDGER' },
+    )
+
+    const ledgerRows = await dbClient.execute(
+      `SELECT COUNT(*) AS cnt FROM "package_ledger"`,
+    )
+    expect(Number(ledgerRows.rows[0]?.cnt)).toBe(0)
   })
 })
 

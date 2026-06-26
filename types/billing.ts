@@ -168,6 +168,15 @@ export type AttachInvoiceInput = {
 }
 
 /**
+ * Input for recording an ERP Sales Invoice docname after invoice creation but
+ * before invoice submission (§15.2 step 3 — recovery anchor).
+ * Only erpSalesInvoiceId is recorded; no status transitions occur.
+ */
+export type RecordPackageInvoiceInput = {
+  erpSalesInvoiceId: string
+}
+
+/**
  * Input for appending a new ledger event via PackageLedgerRepository.appendEvent.
  * tenantId is derived from ctx by the repository; do not include here.
  */
