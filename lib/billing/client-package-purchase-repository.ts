@@ -16,6 +16,7 @@ import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
 import type { TemplateType, PackageTemplateStatus } from '@/lib/billing/taxonomy'
 import type {
+  AttachInvoiceInput,
   ClientPackagePurchase,
   CreatePackagePurchaseInput,
   PackageTemplate,
@@ -163,6 +164,76 @@ export class ClientPackagePurchaseRepository {
       )
       .orderBy(desc(schema.clientPackagePurchase.purchasedAtUtc))
     return rows.map(hydratePurchase)
+  }
+
+  async findPurchaseByIdempotencyKey(
+    ctx: TenantCtx,
+    idempotencyKey: string,
+  ): Promise<ClientPackagePurchase | null> {
+    const tenantId = assertTenantId(ctx)
+    if (!idempotencyKey || idempotencyKey.trim() === '') return null
+
+    const rows = await this.db
+      .select()
+      .from(schema.clientPackagePurchase)
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.idempotencyKey, idempotencyKey),
+        ),
+      )
+      .limit(1)
+    return rows[0] ? hydratePurchase(rows[0]) : null
+  }
+
+  async attachInvoiceAndActivate(
+    ctx: TenantCtx,
+    purchaseId: string,
+    input: AttachInvoiceInput,
+    executor?: AppDb,
+  ): Promise<ClientPackagePurchase> {
+    const tenantId = assertTenantId(ctx)
+
+    if (!purchaseId || purchaseId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] purchaseId must not be blank')
+    }
+    if (!input.erpSalesInvoiceId || input.erpSalesInvoiceId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] erpSalesInvoiceId must not be blank')
+    }
+
+    const existing = await this.findPurchaseById(ctx, purchaseId)
+    if (!existing) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] purchase not found: ${purchaseId}`,
+      )
+    }
+
+    const now            = new Date().toISOString()
+    const activatedAtUtc = input.activatedAtUtc ?? now
+    const db             = executor ?? this.db
+
+    await db
+      .update(schema.clientPackagePurchase)
+      .set({
+        erpSalesInvoiceId: input.erpSalesInvoiceId,
+        packageStatus:     'active',
+        activatedAtUtc,
+        updatedAtUtc:      now,
+      })
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.id, purchaseId),
+        ),
+      )
+
+    return {
+      ...existing,
+      erpSalesInvoiceId: input.erpSalesInvoiceId,
+      packageStatus:     'active',
+      activatedAtUtc,
+      updatedAtUtc:      now,
+    }
   }
 
   // ── Write ────────────────────────────────────────────────────────────────

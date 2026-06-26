@@ -21,7 +21,7 @@ import {
   ClientPackagePurchaseRepository,
   buildPackageTemplateSnapshot,
 } from '@/lib/billing/client-package-purchase-repository'
-import type { CreatePackagePurchaseInput } from '@/types/billing'
+import type { AttachInvoiceInput, CreatePackagePurchaseInput } from '@/types/billing'
 
 // ─── DDL (kept in sync with scripts/migrate-app.mjs) ─────────────────────────
 
@@ -106,6 +106,26 @@ const SETUP_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "client_package_purchase_tenant_idempotency_uq"
     ON "client_package_purchase" ("tenant_id", "idempotency_key")
     WHERE "idempotency_key" IS NOT NULL`,
+
+  // package_ledger — present so tests can assert no side-effect rows are created
+  `CREATE TABLE IF NOT EXISTS "package_ledger" (
+    "id"                  TEXT NOT NULL PRIMARY KEY,
+    "tenant_id"           TEXT NOT NULL,
+    "client_index_id"     TEXT NOT NULL,
+    "erp_customer_id"     TEXT NOT NULL,
+    "package_purchase_id" TEXT NOT NULL,
+    "event_type"          TEXT NOT NULL
+                            CHECK ("event_type" IN (
+                              'purchase_activation','bonus_granted','refund_credit',
+                              'session_consumed','late_cancel_penalty','expiration_sweep'
+                            )),
+    "delta_units"         INTEGER NOT NULL CHECK ("delta_units" != 0),
+    "reason"              TEXT,
+    "idempotency_key"     TEXT,
+    "erp_reference"       TEXT,
+    "created_by_user_id"  TEXT,
+    "created_at_utc"      TEXT NOT NULL
+  )`,
 ]
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -552,6 +572,278 @@ describe('listPurchasesByTemplate', () => {
       expect(p.packageTemplateId).toBe('pt-a1')
       expect(p.tenantId).toBe(TENANT_A)
     }
+  })
+})
+
+// ─── Seed helper for direct purchase row insertion ───────────────────────────
+
+const VALID_SNAPSHOT = JSON.stringify({
+  schemaVersion: 1, templateId: 'pt-1', name: '10-Session Block',
+  description: null, templateType: 'standard_block', sessionCount: 10,
+  priceAmount: 50000, currency: 'USD', expiryDays: null, erpItemCode: 'SVC-10',
+  supersedesTemplateId: null, templateStatus: 'active', capturedAtUtc: NOW,
+})
+
+async function seedPurchase(opts: {
+  id:              string
+  tenantId:        string
+  clientIndexId:   string
+  erpCustomerId:   string
+  templateId?:     string
+  idempotencyKey?: string | null
+  invoiceId?:      string | null
+  packageStatus?:  string
+}) {
+  const templateId    = opts.templateId     ?? 'pt-1'
+  const idempKeyVal   = opts.idempotencyKey != null ? `'${opts.idempotencyKey}'` : 'NULL'
+  const invoiceVal    = opts.invoiceId      != null ? `'${opts.invoiceId}'`      : 'NULL'
+  const packageStatus = opts.packageStatus  ?? 'pending_activation'
+  await dbClient.execute(`
+    INSERT INTO "client_package_purchase" (
+      "id","tenant_id","client_index_id","erp_customer_id","package_template_id",
+      "template_snapshot_json","erp_sales_invoice_id","payment_status","package_status",
+      "purchased_at_utc","created_at_utc","updated_at_utc","idempotency_key"
+    ) VALUES (
+      '${opts.id}','${opts.tenantId}','${opts.clientIndexId}','${opts.erpCustomerId}',
+      '${templateId}','${VALID_SNAPSHOT}',${invoiceVal},'pending','${packageStatus}',
+      '${NOW}','${NOW}','${NOW}',${idempKeyVal}
+    )
+  `)
+}
+
+// ─── findPurchaseByIdempotencyKey ─────────────────────────────────────────────
+
+describe('findPurchaseByIdempotencyKey', () => {
+  it('returns the purchase when idempotency key exists in the same tenant', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+      idempotencyKey: 'assign-ikey-001',
+    })
+
+    const found = await repo.findPurchaseByIdempotencyKey(
+      { tenantId: TENANT_A }, 'assign-ikey-001',
+    )
+    expect(found).not.toBeNull()
+    expect(found!.id).toBe('cpp-1')
+    expect(found!.tenantId).toBe(TENANT_A)
+  })
+
+  it('returns null for an unknown idempotency key', async () => {
+    const result = await repo.findPurchaseByIdempotencyKey(
+      { tenantId: TENANT_A }, 'nonexistent-key',
+    )
+    expect(result).toBeNull()
+  })
+
+  it('returns null for a blank idempotency key', async () => {
+    const result = await repo.findPurchaseByIdempotencyKey({ tenantId: TENANT_A }, '')
+    expect(result).toBeNull()
+  })
+
+  it('returns null for cross-tenant access (tenant isolation)', async () => {
+    await seedPurchase({
+      id: 'cpp-b1', tenantId: TENANT_B,
+      clientIndexId: 'ci-b1', erpCustomerId: 'CUST-B1',
+      idempotencyKey: 'b-only-key',
+    })
+
+    const result = await repo.findPurchaseByIdempotencyKey(
+      { tenantId: TENANT_A }, 'b-only-key',
+    )
+    expect(result).toBeNull()
+  })
+})
+
+// ─── attachInvoiceAndActivate ─────────────────────────────────────────────────
+
+describe('attachInvoiceAndActivate', () => {
+  it('sets erpSalesInvoiceId, packageStatus, activatedAtUtc, updatedAtUtc', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const input: AttachInvoiceInput = { erpSalesInvoiceId: 'ACC-SINV-2026-00001' }
+    const result = await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1', input,
+    )
+
+    expect(result.id).toBe('cpp-1')
+    expect(result.erpSalesInvoiceId).toBe('ACC-SINV-2026-00001')
+    expect(result.packageStatus).toBe('active')
+    expect(result.activatedAtUtc).toBeTruthy()
+    expect(result.updatedAtUtc).toBeTruthy()
+    expect(result.updatedAtUtc >= result.activatedAtUtc!).toBe(true)
+
+    // Verify persisted in DB
+    const persisted = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-1')
+    expect(persisted!.erpSalesInvoiceId).toBe('ACC-SINV-2026-00001')
+    expect(persisted!.packageStatus).toBe('active')
+    expect(persisted!.activatedAtUtc).toBeTruthy()
+  })
+
+  it('uses provided activatedAtUtc when supplied', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const activatedAt = '2026-06-01T12:00:00.000Z'
+    const result = await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-00002', activatedAtUtc: activatedAt },
+    )
+
+    expect(result.activatedAtUtc).toBe(activatedAt)
+  })
+
+  it('preserves immutable snapshot fields after activation', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const before = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-1')
+    const result = await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-00003' },
+    )
+
+    // Immutable fields must be unchanged
+    expect(result.clientIndexId).toBe(before!.clientIndexId)
+    expect(result.erpCustomerId).toBe(before!.erpCustomerId)
+    expect(result.packageTemplateId).toBe(before!.packageTemplateId)
+    expect(result.purchasedAtUtc).toBe(before!.purchasedAtUtc)
+    expect(result.createdAtUtc).toBe(before!.createdAtUtc)
+    expect(result.templateSnapshot).toEqual(before!.templateSnapshot)
+  })
+
+  it('does not change paymentStatus', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    const result = await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-00004' },
+    )
+
+    expect(result.paymentStatus).toBe('pending')
+  })
+
+  it('rejects blank purchaseId', async () => {
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_A }, '',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-00001' },
+      ),
+    ).rejects.toThrow('purchaseId must not be blank')
+  })
+
+  it('rejects blank erpSalesInvoiceId', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_A }, 'cpp-1',
+        { erpSalesInvoiceId: '' },
+      ),
+    ).rejects.toThrow('erpSalesInvoiceId must not be blank')
+  })
+
+  it('throws when purchase does not exist', async () => {
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_A }, 'cpp-nonexistent',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-00001' },
+      ),
+    ).rejects.toThrow('purchase not found')
+  })
+
+  it('wrong tenant cannot attach invoice to another tenant purchase', async () => {
+    await seedPurchase({
+      id: 'cpp-a1', tenantId: TENANT_A,
+      clientIndexId: 'ci-a1', erpCustomerId: 'CUST-A1',
+    })
+
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_B }, 'cpp-a1',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-00001' },
+      ),
+    ).rejects.toThrow('purchase not found')
+
+    // Verify tenant A's purchase remains unmodified
+    const unmodified = await repo.findPurchaseById({ tenantId: TENANT_A }, 'cpp-a1')
+    expect(unmodified!.packageStatus).toBe('pending_activation')
+    expect(unmodified!.erpSalesInvoiceId).toBeNull()
+  })
+
+  it('duplicate invoice id in the same tenant is rejected by the partial unique index', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+    await seedPurchase({
+      id: 'cpp-2', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-DUPE' },
+    )
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_A }, 'cpp-2',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-DUPE' },
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('same invoice id in different tenants is allowed', async () => {
+    await seedPurchase({
+      id: 'cpp-a1', tenantId: TENANT_A,
+      clientIndexId: 'ci-a1', erpCustomerId: 'CUST-A1',
+    })
+    await seedPurchase({
+      id: 'cpp-b1', tenantId: TENANT_B,
+      clientIndexId: 'ci-b1', erpCustomerId: 'CUST-B1',
+    })
+
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_A }, 'cpp-a1',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-SHARED' },
+      ),
+    ).resolves.not.toThrow()
+    await expect(
+      repo.attachInvoiceAndActivate(
+        { tenantId: TENANT_B }, 'cpp-b1',
+        { erpSalesInvoiceId: 'ACC-SINV-2026-SHARED' },
+      ),
+    ).resolves.not.toThrow()
+  })
+
+  it('does not create any package_ledger rows', async () => {
+    await seedPurchase({
+      id: 'cpp-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-1', erpCustomerId: 'CUST-001',
+    })
+
+    await repo.attachInvoiceAndActivate(
+      { tenantId: TENANT_A }, 'cpp-1',
+      { erpSalesInvoiceId: 'ACC-SINV-2026-00099' },
+    )
+
+    const ledgerRows = await dbClient.execute(
+      `SELECT COUNT(*) AS cnt FROM "package_ledger"`,
+    )
+    expect(Number(ledgerRows.rows[0]?.cnt)).toBe(0)
   })
 })
 

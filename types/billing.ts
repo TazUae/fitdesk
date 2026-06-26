@@ -153,6 +153,16 @@ export type PackageLedgerEvent = {
 }
 
 /**
+ * Input for attaching an ERP Sales Invoice docname to a pending purchase.
+ * The invoice must already exist in ERPNext — this type is local-side only.
+ * erpSalesInvoiceId = ERPNext Sales Invoice name (e.g. "ACC-SINV-2026-00001").
+ */
+export type AttachInvoiceInput = {
+  erpSalesInvoiceId: string
+  activatedAtUtc?:   string
+}
+
+/**
  * Input for appending a new ledger event via PackageLedgerRepository.appendEvent.
  * tenantId is derived from ctx by the repository; do not include here.
  */
