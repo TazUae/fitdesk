@@ -124,11 +124,14 @@ export type ClientPackagePurchase = {
 /**
  * Minimal input required to create a new ClientPackagePurchase.
  * Repository resolves the template, builds the snapshot, and sets defaults.
+ * idempotencyKey: optional; blank/null is normalised to null before storage.
+ * The partial unique index (tenant_id, idempotency_key) rejects duplicates.
  */
 export type CreatePackagePurchaseInput = {
-  clientIndexId: string
-  erpCustomerId: string
+  clientIndexId:    string
+  erpCustomerId:    string
   packageTemplateId: string
+  idempotencyKey?:  string | null
 }
 
 /**
@@ -156,10 +159,12 @@ export type PackageLedgerEvent = {
  * Input for attaching an ERP Sales Invoice docname to a pending purchase.
  * The invoice must already exist in ERPNext — this type is local-side only.
  * erpSalesInvoiceId = ERPNext Sales Invoice name (e.g. "ACC-SINV-2026-00001").
+ * paymentStatus: optional override; omit to leave existing payment_status unchanged.
  */
 export type AttachInvoiceInput = {
   erpSalesInvoiceId: string
   activatedAtUtc?:   string
+  paymentStatus?:    PackagePaymentStatus
 }
 
 /**

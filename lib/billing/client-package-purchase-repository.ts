@@ -14,6 +14,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
+import { isPackagePaymentStatus } from '@/lib/billing/taxonomy'
 import type { TemplateType, PackageTemplateStatus } from '@/lib/billing/taxonomy'
 import type {
   AttachInvoiceInput,
@@ -75,6 +76,7 @@ function hydratePurchase(row: RawPurchase): ClientPackagePurchase {
     packageTemplateId:    row.packageTemplateId,
     templateSnapshot:     JSON.parse(row.templateSnapshotJson) as PackageTemplateSnapshot,
     erpSalesInvoiceId:    row.erpSalesInvoiceId,
+    idempotencyKey:       row.idempotencyKey,
     paymentStatus:        row.paymentStatus as ClientPackagePurchase['paymentStatus'],
     packageStatus:        row.packageStatus as ClientPackagePurchase['packageStatus'],
     purchasedAtUtc:       row.purchasedAtUtc,
@@ -200,6 +202,11 @@ export class ClientPackagePurchaseRepository {
     if (!input.erpSalesInvoiceId || input.erpSalesInvoiceId.trim() === '') {
       throw new Error('[ClientPackagePurchaseRepository] erpSalesInvoiceId must not be blank')
     }
+    if (input.paymentStatus !== undefined && !isPackagePaymentStatus(input.paymentStatus)) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] invalid paymentStatus: "${String(input.paymentStatus)}"`,
+      )
+    }
 
     const existing = await this.findPurchaseById(ctx, purchaseId)
     if (!existing) {
@@ -219,6 +226,7 @@ export class ClientPackagePurchaseRepository {
         packageStatus:     'active',
         activatedAtUtc,
         updatedAtUtc:      now,
+        ...(input.paymentStatus !== undefined ? { paymentStatus: input.paymentStatus } : {}),
       })
       .where(
         and(
@@ -233,6 +241,54 @@ export class ClientPackagePurchaseRepository {
       packageStatus:     'active',
       activatedAtUtc,
       updatedAtUtc:      now,
+      ...(input.paymentStatus !== undefined ? { paymentStatus: input.paymentStatus } : {}),
+    }
+  }
+
+  async activateComplimentary(
+    ctx: TenantCtx,
+    purchaseId: string,
+    input?: { activatedAtUtc?: string },
+    executor?: AppDb,
+  ): Promise<ClientPackagePurchase> {
+    const tenantId = assertTenantId(ctx)
+
+    if (!purchaseId || purchaseId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] purchaseId must not be blank')
+    }
+
+    const existing = await this.findPurchaseById(ctx, purchaseId)
+    if (!existing) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] purchase not found: ${purchaseId}`,
+      )
+    }
+
+    const now            = new Date().toISOString()
+    const activatedAtUtc = input?.activatedAtUtc ?? now
+    const db             = executor ?? this.db
+
+    await db
+      .update(schema.clientPackagePurchase)
+      .set({
+        packageStatus:  'active',
+        paymentStatus:  'paid',
+        activatedAtUtc,
+        updatedAtUtc:   now,
+      })
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.id, purchaseId),
+        ),
+      )
+
+    return {
+      ...existing,
+      packageStatus:  'active',
+      paymentStatus:  'paid',
+      activatedAtUtc,
+      updatedAtUtc:   now,
     }
   }
 
@@ -321,6 +377,12 @@ export class ClientPackagePurchaseRepository {
     const snapshot = buildPackageTemplateSnapshot(template, now)
     const snapshotJson = JSON.stringify(snapshot)
 
+    // Blank or missing idempotency key is normalised to null (not stored as '')
+    const idempotencyKey =
+      (input.idempotencyKey && input.idempotencyKey.trim())
+        ? input.idempotencyKey.trim()
+        : null
+
     let purchase!: ClientPackagePurchase
 
     await this.db.transaction(async (tx) => {
@@ -333,6 +395,7 @@ export class ClientPackagePurchaseRepository {
         packageTemplateId:    input.packageTemplateId,
         templateSnapshotJson: snapshotJson,
         erpSalesInvoiceId:    null,
+        idempotencyKey,
         paymentStatus:        'pending',
         packageStatus:        'pending_activation',
         purchasedAtUtc:       now,
@@ -363,6 +426,7 @@ export class ClientPackagePurchaseRepository {
         packageTemplateId: input.packageTemplateId,
         templateSnapshot:  snapshot,
         erpSalesInvoiceId: null,
+        idempotencyKey,
         paymentStatus:     'pending',
         packageStatus:     'pending_activation',
         purchasedAtUtc:    now,
