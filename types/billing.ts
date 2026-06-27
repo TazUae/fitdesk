@@ -16,6 +16,7 @@ import type {
   LedgerEventType,
 } from '@/lib/billing/taxonomy'
 import type { Invoice } from '@/types'
+import type { PaymentMethod } from '@/lib/payments/methods'
 
 /**
  * Trainer-facing reusable package template.
@@ -194,9 +195,18 @@ export type AppendLedgerEventInput = {
 }
 
 /**
+ * Payment option for an assignment. method is the internal FitDesk PaymentMethod only —
+ * never an ERP mode-of-payment string, never a client-supplied amount or currency.
+ */
+export type AssignPackagePaymentInput = {
+  method: PaymentMethod
+}
+
+/**
  * Input for PackageAssignmentService.assignPackage.
  * idempotencyKey must be unique per assignment attempt (UI-generated UUIDv4).
  * assignmentDate: YYYY-MM-DD; defaults to current UTC date if omitted.
+ * payment: absent = Pay Later; present = Paid Now (C4+).
  */
 export type AssignPackageInput = {
   clientIndexId:     string
@@ -205,12 +215,15 @@ export type AssignPackageInput = {
   idempotencyKey:    string
   assignedByUserId?: string | null
   assignmentDate?:   string | null
+  payment?:          AssignPackagePaymentInput | null
 }
 
 /**
  * Result from PackageAssignmentService.assignPackage.
  * ledgerEvent is null only during a pending replay (purchase in-flight, no ledger yet).
  * invoice is null for complimentary (zero-value) assignments.
+ * paymentWarning: set when Paid Now was requested but the Payment Entry failed —
+ *   the package still activated as unpaid; trainer collects later via Record Payment.
  */
 export type AssignPackageResult = {
   purchase:           ClientPackagePurchase
@@ -218,4 +231,5 @@ export type AssignPackageResult = {
   erpInvoiceId:       string | null
   invoice:            Invoice | null
   isIdempotentReplay: boolean
+  paymentWarning?:    string | null
 }
