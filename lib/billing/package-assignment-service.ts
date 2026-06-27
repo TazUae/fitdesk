@@ -23,6 +23,9 @@ import { PackageTemplateRepository } from '@/lib/billing/package-template-reposi
 import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
 import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
 import { buildPackageInvoicePayload } from '@/lib/billing/package-invoice-builder'
+import type { PackagePaymentStatus } from '@/lib/billing/taxonomy'
+import { isEnabledPaymentMethod, paymentMethodToErpMode } from '@/lib/payments/methods'
+import { projectPackagePaymentStatus } from '@/lib/billing/payment-status'
 import type {
   AssignPackageInput,
   AssignPackageResult,
@@ -41,6 +44,17 @@ export type PackageAssignmentErpAdapter = {
   createInvoice:     (payload: CreateInvoicePayload) => Promise<Invoice>
   submitSalesInvoice:(invoiceId: string)              => Promise<Invoice>
   getInvoiceById:    (invoiceId: string)              => Promise<Invoice>
+  // Optional — injected only when the caller requests Paid Now (C4+).
+  // Not imported from the ERP client directly; must be injected by the caller.
+  createAndSubmitPaymentEntry?: (opts: {
+    invoiceId:     string
+    clientId:      string
+    amount:        number
+    modeOfPayment: string
+    date:          string
+    reference?:    string
+    note?:         string
+  }) => Promise<{ payment: unknown; invoice: Invoice }>
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -157,6 +171,20 @@ export class PackageAssignmentService {
       )
     }
 
+    // For non-zero Paid Now: validate adapter capability and method before any DB/ERP write
+    if (template.priceAmount > 0 && input.payment != null) {
+      if (!this.erp.createAndSubmitPaymentEntry) {
+        throw new Error(
+          '[PackageAssignmentService] payment requested but adapter is missing createAndSubmitPaymentEntry',
+        )
+      }
+      if (!isEnabledPaymentMethod(input.payment.method)) {
+        throw new Error(
+          `[PackageAssignmentService] unsupported or disabled payment method: "${input.payment.method}"`,
+        )
+      }
+    }
+
     // Create local purchase intent
     const purchase = await this.purchaseRepo.createPurchaseFromTemplate(ctx, {
       clientIndexId:     input.clientIndexId,
@@ -168,6 +196,9 @@ export class PackageAssignmentService {
     const snapshot = purchase.templateSnapshot
 
     if (snapshot.priceAmount > 0) {
+      if (input.payment != null) {
+        return this.executePaidNowPath(ctx, purchase, snapshot, input, postingDate)
+      }
       return this.executeNonZeroPath(ctx, purchase, snapshot, input, postingDate)
     }
 
@@ -229,6 +260,103 @@ export class PackageAssignmentService {
       erpInvoiceId:       erpSalesInvoiceId,
       invoice:            submittedInvoice,
       isIdempotentReplay: false,
+    }
+  }
+
+  // ── Non-zero Paid Now path ────────────────────────────────────────────────
+  // Mirrors executeNonZeroPath up to submitSalesInvoice, then attempts one
+  // Payment Entry. If the PE fails, a safe getInvoiceById re-fetch is tried
+  // before projecting unpaid. The PE is NEVER retried on replay/recovery.
+
+  private async executePaidNowPath(
+    ctx:         TenantCtx,
+    purchase:    ClientPackagePurchase,
+    snapshot:    PackageTemplateSnapshot,
+    input:       AssignPackageInput,
+    postingDate: string,
+  ): Promise<AssignPackageResult> {
+    const payload = buildPackageInvoicePayload({
+      snapshot,
+      erpCustomerId: purchase.erpCustomerId,
+      postingDate,
+    })
+
+    const createdInvoice    = await this.erp.createInvoice(payload)
+    const erpSalesInvoiceId = extractInvoiceDocname(createdInvoice)
+
+    // Persist invoice docname before submission (recovery anchor — §15.2 step 3)
+    await this.purchaseRepo.recordInvoiceCreated(ctx, purchase.id, { erpSalesInvoiceId })
+
+    const submittedInvoice = await this.erp.submitSalesInvoice(erpSalesInvoiceId)
+
+    // Attempt payment once — never on replay (createAndSubmitPaymentEntry is not idempotent)
+    let projectedPaymentStatus: PackagePaymentStatus = 'unpaid'
+    let paymentWarning: string | null = null
+
+    if (submittedInvoice.outstandingAmount > 0) {
+      const modeOfPayment = paymentMethodToErpMode(input.payment!.method)
+      try {
+        const peResult = await this.erp.createAndSubmitPaymentEntry!({
+          invoiceId:     erpSalesInvoiceId,
+          clientId:      input.erpCustomerId,
+          amount:        submittedInvoice.outstandingAmount,
+          modeOfPayment,
+          date:          postingDate,
+        })
+        projectedPaymentStatus = projectPackagePaymentStatus(peResult.invoice.status)
+      } catch {
+        // PE failed — attempt one safe re-fetch to detect a possible out-of-band payment
+        let reconciledInvoice: Invoice | null = null
+        try {
+          reconciledInvoice = await this.erp.getInvoiceById(erpSalesInvoiceId)
+        } catch {
+          // re-fetch also failed — floor to unpaid
+        }
+        projectedPaymentStatus = reconciledInvoice
+          ? projectPackagePaymentStatus(reconciledInvoice.status)
+          : 'unpaid'
+        if (projectedPaymentStatus !== 'paid' && projectedPaymentStatus !== 'partially_paid') {
+          paymentWarning =
+            'Payment was not recorded. The package is active and payment can be collected later.'
+        }
+      }
+    } else {
+      projectedPaymentStatus = projectPackagePaymentStatus(submittedInvoice.status)
+    }
+
+    let activatedPurchase!: ClientPackagePurchase
+    let ledgerEvent!:       PackageLedgerEvent
+
+    await this.db.transaction(async (tx) => {
+      activatedPurchase = await this.purchaseRepo.attachInvoiceAndActivate(
+        ctx,
+        purchase.id,
+        { erpSalesInvoiceId, paymentStatus: projectedPaymentStatus },
+        tx as unknown as AppDb,
+      )
+      ledgerEvent = await this.ledgerRepo.appendEvent(
+        ctx,
+        {
+          clientIndexId:     purchase.clientIndexId,
+          erpCustomerId:     purchase.erpCustomerId,
+          packagePurchaseId: purchase.id,
+          eventType:         'purchase_activation',
+          deltaUnits:        snapshot.sessionCount,
+          idempotencyKey:    input.idempotencyKey + ':activation',
+          erpReference:      erpSalesInvoiceId,
+          createdByUserId:   input.assignedByUserId ?? null,
+        },
+        tx as unknown as AppDb,
+      )
+    })
+
+    return {
+      purchase:           activatedPurchase,
+      ledgerEvent,
+      erpInvoiceId:       erpSalesInvoiceId,
+      invoice:            submittedInvoice,
+      isIdempotentReplay: false,
+      paymentWarning,
     }
   }
 
@@ -295,12 +423,16 @@ export class PackageAssignmentService {
       }
     }
 
-    // Pending with invoice id — recovery: re-submit if still draft, then finalize locally
+    // Pending with invoice id — recovery: re-submit if still draft, then finalize locally.
+    // Payment Entry is NEVER retried here — createAndSubmitPaymentEntry is not idempotent.
+    // Instead, project paymentStatus from the ERP invoice state (detects out-of-band payments).
     if (packageStatus === 'pending_activation' && erpSalesInvoiceId !== null) {
       const existingInvoice = await this.erp.getInvoiceById(erpSalesInvoiceId)
       const submittedInvoice = isInvoiceDraft(existingInvoice)
         ? await this.erp.submitSalesInvoice(erpSalesInvoiceId)
         : existingInvoice
+
+      const projectedStatus = projectPackagePaymentStatus(submittedInvoice.status)
 
       let activatedPurchase!: ClientPackagePurchase
       let ledgerEvent!:       PackageLedgerEvent
@@ -309,7 +441,7 @@ export class PackageAssignmentService {
         activatedPurchase = await this.purchaseRepo.attachInvoiceAndActivate(
           ctx,
           purchase.id,
-          { erpSalesInvoiceId, paymentStatus: 'unpaid' },
+          { erpSalesInvoiceId, paymentStatus: projectedStatus },
           tx as unknown as AppDb,
         )
         ledgerEvent = await this.ledgerRepo.appendEvent(
@@ -328,12 +460,22 @@ export class PackageAssignmentService {
         )
       })
 
+      // When Paid Now was requested but the invoice is still unpaid after recovery,
+      // inform the caller that payment must be collected separately.
+      const recoveryPaymentWarning =
+        input.payment != null &&
+        projectedStatus !== 'paid' &&
+        projectedStatus !== 'partially_paid'
+          ? 'Payment was not retried to avoid duplicate collection. The package is active and payment can be collected later.'
+          : null
+
       return {
         purchase:           activatedPurchase,
         ledgerEvent,
         erpInvoiceId:       erpSalesInvoiceId,
         invoice:            submittedInvoice,
         isIdempotentReplay: true,
+        paymentWarning:     recoveryPaymentWarning,
       }
     }
 

@@ -667,7 +667,6 @@ describe('service file invariants', () => {
     expect(src).not.toContain("from '@/actions/")
     expect(src).not.toContain('from "@/actions/')
     expect(src).not.toContain('erpFetch(')
-    expect(src).not.toContain('createAndSubmitPaymentEntry')
     // guard the standalone fetch() call pattern — not method names like erpFetch
     expect(src).not.toMatch(/(?<![A-Za-z])fetch\s*\(/)
   })
