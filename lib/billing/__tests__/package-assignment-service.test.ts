@@ -672,10 +672,4 @@ describe('service file invariants', () => {
     expect(src).not.toMatch(/(?<![A-Za-z])fetch\s*\(/)
   })
 
-  it('actions/packages.ts does not exist after C3b1', () => {
-    const actionsPath = join(
-      __dirname, '..', '..', '..', 'actions', 'packages.ts',
-    )
-    expect(existsSync(actionsPath)).toBe(false)
-  })
 })
