@@ -15,6 +15,7 @@ import type {
   PackagePurchaseStatus,
   LedgerEventType,
 } from '@/lib/billing/taxonomy'
+import type { Invoice } from '@/types'
 
 /**
  * Trainer-facing reusable package template.
@@ -190,4 +191,31 @@ export type AppendLedgerEventInput = {
   idempotencyKey?:   string | null
   erpReference?:     string | null
   createdByUserId?:  string | null
+}
+
+/**
+ * Input for PackageAssignmentService.assignPackage.
+ * idempotencyKey must be unique per assignment attempt (UI-generated UUIDv4).
+ * assignmentDate: YYYY-MM-DD; defaults to current UTC date if omitted.
+ */
+export type AssignPackageInput = {
+  clientIndexId:     string
+  erpCustomerId:     string
+  packageTemplateId: string
+  idempotencyKey:    string
+  assignedByUserId?: string | null
+  assignmentDate?:   string | null
+}
+
+/**
+ * Result from PackageAssignmentService.assignPackage.
+ * ledgerEvent is null only during a pending replay (purchase in-flight, no ledger yet).
+ * invoice is null for complimentary (zero-value) assignments.
+ */
+export type AssignPackageResult = {
+  purchase:           ClientPackagePurchase
+  ledgerEvent:        PackageLedgerEvent | null
+  erpInvoiceId:       string | null
+  invoice:            Invoice | null
+  isIdempotentReplay: boolean
 }
