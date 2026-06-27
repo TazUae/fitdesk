@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
     createInvoice:               vi.fn(),
     submitSalesInvoice:          vi.fn(),
     getInvoiceById:              vi.fn(),
+    createAndSubmitPaymentEntry: vi.fn(),
   }
 })
 
@@ -48,9 +49,10 @@ vi.mock('@/lib/tenant/context', () => ({
 }))
 
 vi.mock('@/lib/business-data/erp-adapter', () => ({
-  createInvoice:      mocks.createInvoice,
-  submitSalesInvoice: mocks.submitSalesInvoice,
-  getInvoiceById:     mocks.getInvoiceById,
+  createAndSubmitPaymentEntry: mocks.createAndSubmitPaymentEntry,
+  createInvoice:               mocks.createInvoice,
+  submitSalesInvoice:          mocks.submitSalesInvoice,
+  getInvoiceById:              mocks.getInvoiceById,
 }))
 
 vi.mock('@/lib/billing/package-assignment-service', () => ({
@@ -287,15 +289,16 @@ describe('service error handling', () => {
 // ─── 7. ERP adapter boundary — injected from business-data only ───────────────
 
 describe('ERP adapter injection', () => {
-  it('constructs PackageAssignmentService with the three adapter functions from business-data', async () => {
+  it('constructs PackageAssignmentService with all four adapter functions from business-data', async () => {
     await assignPackage(makeInput())
 
     expect(mocks.PackageAssignmentServiceMock).toHaveBeenCalledOnce()
     const [, adapter] = mocks.PackageAssignmentServiceMock.mock.calls[0]!
     expect(adapter).toEqual({
-      createInvoice:      mocks.createInvoice,
-      submitSalesInvoice: mocks.submitSalesInvoice,
-      getInvoiceById:     mocks.getInvoiceById,
+      createAndSubmitPaymentEntry: mocks.createAndSubmitPaymentEntry,
+      createInvoice:               mocks.createInvoice,
+      submitSalesInvoice:          mocks.submitSalesInvoice,
+      getInvoiceById:              mocks.getInvoiceById,
     })
   })
 })
@@ -317,8 +320,12 @@ describe('action source invariants', () => {
     expect(src).toContain("from '@/lib/business-data/erp-adapter'")
   })
 
-  it('does not call createAndSubmitPaymentEntry', () => {
-    expect(src).not.toContain('createAndSubmitPaymentEntry')
+  it('imports and injects createAndSubmitPaymentEntry from the adapter without invoking it directly', () => {
+    // Must be present (imported and injected as a dependency)
+    expect(src).toContain('createAndSubmitPaymentEntry')
+    expect(src).toContain("from '@/lib/business-data/erp-adapter'")
+    // Must not be called directly in the action body — only passed as a reference
+    expect(src).not.toMatch(/createAndSubmitPaymentEntry\s*\(/)
   })
 
   it('does not import from other action files', () => {
@@ -330,7 +337,96 @@ describe('action source invariants', () => {
     expect(src).not.toContain('evolution')
     expect(src).not.toContain('markSessionComplete')
     expect(src).not.toContain('createSession')
-    expect(src).not.toContain('PaymentEntry')
+    // Use word-boundary regex so 'createAndSubmitPaymentEntry' (our function) is not a false positive
+    expect(src).not.toMatch(/\bPaymentEntry\b/)
     expect(src).not.toContain('markInvoicePaid')
+  })
+})
+
+// ─── 8. Payment method validation gate ───────────────────────────────────────
+
+describe('payment method validation gate', () => {
+  it('returns success:false for a disabled payment method before constructing the service', async () => {
+    // 'omt' is defined but disabled in PAYMENT_METHODS
+    const result = await assignPackage(makeInput({ payment: { method: 'omt' } }))
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/unsupported or disabled payment method/i)
+    expect(mocks.PackageAssignmentServiceMock).not.toHaveBeenCalled()
+    expect(mocks.serviceAssignPackage).not.toHaveBeenCalled()
+  })
+
+  it('allows an enabled payment method through to the service', async () => {
+    const result = await assignPackage(makeInput({ payment: { method: 'cash' } }))
+
+    expect(result.success).toBe(true)
+    expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
+  })
+
+  it('allows whish_money through to the service', async () => {
+    const result = await assignPackage(makeInput({ payment: { method: 'whish_money' } }))
+
+    expect(result.success).toBe(true)
+    expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
+  })
+})
+
+// ─── 9. Paid Now input forwarding ────────────────────────────────────────────
+
+describe('Paid Now input forwarding', () => {
+  it('forwards input.payment to the service unchanged', async () => {
+    await assignPackage(makeInput({ payment: { method: 'cash' } }))
+
+    const [, receivedInput] = mocks.serviceAssignPackage.mock.calls[0]!
+    expect(receivedInput.payment).toEqual({ method: 'cash' })
+  })
+
+  it('does not introduce client-supplied amount, currency, ERP mode, or payment entry id', async () => {
+    await assignPackage(makeInput({ payment: { method: 'cash' } }))
+
+    const [, receivedInput] = mocks.serviceAssignPackage.mock.calls[0]!
+    expect(receivedInput).not.toHaveProperty('amount')
+    expect(receivedInput).not.toHaveProperty('modeOfPayment')
+    expect(receivedInput).not.toHaveProperty('paymentEntryId')
+    expect(receivedInput).not.toHaveProperty('currency')
+  })
+
+  it('still overrides assignedByUserId with ctx.userId even when payment is present', async () => {
+    await assignPackage(makeInput({
+      payment:          { method: 'cash' },
+      assignedByUserId: 'CLIENT_SUPPLIED_MUST_BE_OVERRIDDEN',
+    }))
+
+    const [, receivedInput] = mocks.serviceAssignPackage.mock.calls[0]!
+    expect(receivedInput.assignedByUserId).toBe('user-c3c-1')
+    expect(receivedInput.assignedByUserId).not.toBe('CLIENT_SUPPLIED_MUST_BE_OVERRIDDEN')
+  })
+})
+
+// ─── 10. paymentWarning passthrough ──────────────────────────────────────────
+
+describe('paymentWarning passthrough', () => {
+  it('includes paymentWarning from the service result in the returned data', async () => {
+    const warning = 'Payment was not recorded. The package is active and payment can be collected later.'
+    mocks.serviceAssignPackage.mockResolvedValueOnce({
+      ...makeAssignResult(),
+      paymentWarning: warning,
+    })
+
+    const result = await assignPackage(makeInput({ payment: { method: 'cash' } }))
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.paymentWarning).toBe(warning)
+  })
+
+  it('does not synthesise a paymentWarning when the service returns none', async () => {
+    // default makeAssignResult() has no paymentWarning
+    const result = await assignPackage(makeInput())
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.paymentWarning).toBeUndefined()
   })
 })
