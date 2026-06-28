@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { completeClientAction, dismissClientAction } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
+import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -180,7 +181,8 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { client, goals, pendingActions, recentNotes, placeholders } = overview
-  const [assignSheetOpen, setAssignSheetOpen] = useState(false)
+  const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
+  const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -353,10 +355,20 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
                 {overview.packageBalance.displayTemplateName}
               </p>
             )}
-            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-              {overview.packageBalance.activePurchaseCount}{' '}
-              active package{overview.packageBalance.activePurchaseCount !== 1 ? 's' : ''}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                {overview.packageBalance.activePurchaseCount}{' '}
+                active package{overview.packageBalance.activePurchaseCount !== 1 ? 's' : ''}
+              </p>
+              <button
+                type="button"
+                onClick={() => setDetailsSheetOpen(true)}
+                className="text-xs font-semibold"
+                style={{ color: 'var(--fd-accent)' }}
+              >
+                View details
+              </button>
+            </div>
           </div>
         ) : (
           <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
@@ -426,6 +438,14 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
       <AssignPackageSheet
         open={assignSheetOpen}
         onClose={() => setAssignSheetOpen(false)}
+        clientIndexId={client.clientIndexId}
+        erpCustomerId={client.erpCustomerId}
+      />
+
+      {/* Package Details sheet — shows active packages with void option */}
+      <PackageDetailsSheet
+        open={detailsSheetOpen}
+        onClose={() => setDetailsSheetOpen(false)}
         clientIndexId={client.clientIndexId}
         erpCustomerId={client.erpCustomerId}
       />

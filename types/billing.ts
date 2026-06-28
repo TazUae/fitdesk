@@ -258,3 +258,26 @@ export type ClientPackageSummary = {
   clientIndexId: string
   purchases:     PackagePurchaseWithBalance[]
 }
+
+/**
+ * Input for voiding a mistaken complimentary package assignment.
+ * Only zero-value active packages with no ERP invoice and full unused balance can be voided.
+ * Trainer must provide a non-empty reason for the audit trail.
+ */
+export type VoidPackageInput = {
+  packagePurchaseId:  string
+  reason:             string
+  voidIdempotencyKey: string
+  voidedByUserId?:    string | null
+}
+
+/**
+ * Result from PackageVoidService.voidComplimentaryPackage.
+ * purchase.packageStatus is 'cancelled' on success.
+ * ledgerEvent is the refund_credit reversal row appended to the ledger.
+ */
+export type VoidPackageResult = {
+  purchase:           ClientPackagePurchase
+  ledgerEvent:        PackageLedgerEvent
+  isIdempotentReplay: boolean
+}

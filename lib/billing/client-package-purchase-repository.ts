@@ -373,6 +373,50 @@ export class ClientPackagePurchaseRepository {
     }
   }
 
+  async cancelPurchase(
+    ctx: TenantCtx,
+    purchaseId: string,
+    executor?: AppDb,
+  ): Promise<ClientPackagePurchase> {
+    const tenantId = assertTenantId(ctx)
+
+    if (!purchaseId || purchaseId.trim() === '') {
+      throw new Error('[ClientPackagePurchaseRepository] purchaseId must not be blank')
+    }
+
+    const existing = await this.findPurchaseById(ctx, purchaseId)
+    if (!existing) {
+      throw new Error(
+        `[ClientPackagePurchaseRepository] purchase not found: ${purchaseId}`,
+      )
+    }
+
+    // Idempotent: already cancelled
+    if (existing.packageStatus === 'cancelled') return existing
+
+    const now = new Date().toISOString()
+    const db  = executor ?? this.db
+
+    await db
+      .update(schema.clientPackagePurchase)
+      .set({
+        packageStatus: 'cancelled',
+        updatedAtUtc:  now,
+      })
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.id, purchaseId),
+        ),
+      )
+
+    return {
+      ...existing,
+      packageStatus: 'cancelled',
+      updatedAtUtc:  now,
+    }
+  }
+
   // ── Write ────────────────────────────────────────────────────────────────
 
   async createPurchaseFromTemplate(

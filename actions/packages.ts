@@ -11,6 +11,7 @@ import {
 } from '@/lib/business-data/erp-adapter'
 import { isEnabledPaymentMethod } from '@/lib/payments/methods'
 import { PackageAssignmentService } from '@/lib/billing/package-assignment-service'
+import { PackageVoidService } from '@/lib/billing/package-void-service'
 import { PackageTemplateRepository } from '@/lib/billing/package-template-repository'
 import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
 import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
@@ -19,6 +20,8 @@ import type {
   AssignPackageResult,
   AssignablePackageTemplate,
   ClientPackageSummary,
+  VoidPackageInput,
+  VoidPackageResult,
 } from '@/types/billing'
 import type { ActionResult } from '@/types'
 
@@ -115,6 +118,45 @@ export async function listAssignablePackageTemplates(): Promise<
       success: false,
       error: err instanceof Error ? err.message : 'Failed to list package templates.',
     }
+  }
+}
+
+/**
+ * Void a mistaken complimentary package assignment.
+ *
+ * Only complimentary, active, fully unused, invoice-free purchases can be voided.
+ * Trainer must supply a non-empty reason. tenantId and voidedByUserId are resolved
+ * server-side — never trusted from the client payload.
+ * No ERP calls. Local read + write only.
+ */
+export async function voidClientPackagePurchase(
+  input: VoidPackageInput,
+): Promise<ActionResult<VoidPackageResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, error: 'Workspace not provisioned. Please contact support.' }
+  }
+
+  if (!input.reason || input.reason.trim() === '') {
+    return { success: false, error: 'A reason is required to void a package.' }
+  }
+
+  try {
+    const service = new PackageVoidService(db)
+    const data = await service.voidComplimentaryPackage(
+      { tenantId: ctx.tenantId },
+      { ...input, voidedByUserId: ctx.userId },
+    )
+    return { success: true, data }
+  } catch (err) {
+    console.error('[voidClientPackagePurchase]', err instanceof Error ? err.message : String(err))
+    const message = err instanceof Error
+      ? err.message.replace(/^\[PackageVoidService\]\s*/, '')
+      : 'Failed to void package.'
+    return { success: false, error: message }
   }
 }
 

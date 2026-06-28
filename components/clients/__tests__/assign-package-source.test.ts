@@ -9,9 +9,10 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 
-const FORM_SRC  = readFileSync(join(__dirname, '../AssignPackageForm.tsx'),  'utf-8')
-const SHEET_SRC = readFileSync(join(__dirname, '../AssignPackageSheet.tsx'), 'utf-8')
-const HUB_SRC   = readFileSync(join(__dirname, '../../modules/ClientHubPanel.tsx'), 'utf-8')
+const FORM_SRC    = readFileSync(join(__dirname, '../AssignPackageForm.tsx'),    'utf-8')
+const SHEET_SRC   = readFileSync(join(__dirname, '../AssignPackageSheet.tsx'),   'utf-8')
+const DETAILS_SRC = readFileSync(join(__dirname, '../PackageDetailsSheet.tsx'),  'utf-8')
+const HUB_SRC     = readFileSync(join(__dirname, '../../modules/ClientHubPanel.tsx'), 'utf-8')
 
 // ─── AssignPackageForm ────────────────────────────────────────────────────────
 
@@ -123,6 +124,59 @@ describe('AssignPackageSheet — source invariants', () => {
   })
 })
 
+// ─── PackageDetailsSheet ─────────────────────────────────────────────────────
+
+describe('PackageDetailsSheet — source invariants', () => {
+  it("starts with 'use client' directive", () => {
+    expect(DETAILS_SRC).toMatch(/^\s*['"]use client['"]\s*;?\s*$/m)
+  })
+
+  it('does not import from lib/erpnext/client', () => {
+    expect(DETAILS_SRC).not.toContain('lib/erpnext/client')
+  })
+
+  it('does not import from business-data/erp-adapter', () => {
+    expect(DETAILS_SRC).not.toContain('business-data/erp-adapter')
+  })
+
+  it('does not import invoice, session, whatsapp, or message actions', () => {
+    expect(DETAILS_SRC).not.toMatch(
+      /from ['"]@\/actions\/(invoices|sessions|whatsapp|messages)['"]/,
+    )
+  })
+
+  it('calls voidClientPackagePurchase from @/actions/packages', () => {
+    expect(DETAILS_SRC).toContain('voidClientPackagePurchase')
+    expect(DETAILS_SRC).toContain("from '@/actions/packages'")
+  })
+
+  it('requires reason for void — does not submit without reason.trim()', () => {
+    expect(DETAILS_SRC).toContain('reason.trim()')
+  })
+
+  it('shows void confirmation copy', () => {
+    expect(DETAILS_SRC).toContain('Void package?')
+    expect(DETAILS_SRC).toContain('without deleting the audit history')
+  })
+
+  it('uses crypto.randomUUID for idempotency key — no server-supplied key', () => {
+    expect(DETAILS_SRC).toContain('crypto.randomUUID()')
+  })
+
+  it('does not contain hard delete, ERP invoice creation, or payment wording', () => {
+    expect(DETAILS_SRC).not.toMatch(/hard delete|createInvoice|submitSalesInvoice|Payment Entry|manual invoice/i)
+  })
+
+  it('does not reference session_consumed or C6 session deduction', () => {
+    expect(DETAILS_SRC).not.toContain('session_consumed')
+    expect(DETAILS_SRC).not.toMatch(/deduct session|session deduct/i)
+  })
+
+  it('does not call fetch directly', () => {
+    expect(DETAILS_SRC).not.toMatch(/\bfetch\s*\(/)
+  })
+})
+
 // ─── ClientHubPanel ───────────────────────────────────────────────────────────
 
 describe('ClientHubPanel — assign package integration invariants', () => {
@@ -167,5 +221,14 @@ describe('ClientHubPanel — assign package integration invariants', () => {
     expect(HUB_SRC).toContain('overview.packageBalance')
     expect(HUB_SRC).not.toContain('erpInvoiceId')
     expect(HUB_SRC).not.toMatch(/payment total|priceAmount/i)
+  })
+
+  it('renders PackageDetailsSheet and imports it', () => {
+    expect(HUB_SRC).toContain('PackageDetailsSheet')
+    expect(HUB_SRC).toContain('detailsSheetOpen')
+  })
+
+  it('shows View details button when package balance is present', () => {
+    expect(HUB_SRC).toContain('View details')
   })
 })
