@@ -209,13 +209,14 @@ export type AssignPackagePaymentInput = {
  * payment: absent = Pay Later; present = Paid Now (C4+).
  */
 export type AssignPackageInput = {
-  clientIndexId:     string
-  erpCustomerId:     string
-  packageTemplateId: string
-  idempotencyKey:    string
-  assignedByUserId?: string | null
-  assignmentDate?:   string | null
-  payment?:          AssignPackagePaymentInput | null
+  clientIndexId:              string
+  erpCustomerId:              string
+  packageTemplateId:          string
+  idempotencyKey:             string
+  assignedByUserId?:          string | null
+  assignmentDate?:            string | null
+  payment?:                   AssignPackagePaymentInput | null
+  allowDuplicateActivePackage?: boolean
 }
 
 /**

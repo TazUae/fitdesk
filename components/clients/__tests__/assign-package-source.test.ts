@@ -47,9 +47,10 @@ describe('AssignPackageForm — source invariants', () => {
     expect(FORM_SRC).toContain("from '@/actions/packages'")
   })
 
-  it('calls assignPackage and listAssignablePackageTemplates — no other package action', () => {
+  it('calls assignPackage, listAssignablePackageTemplates, and getClientPackageSummary', () => {
     expect(FORM_SRC).toContain('assignPackage')
     expect(FORM_SRC).toContain('listAssignablePackageTemplates')
+    expect(FORM_SRC).toContain('getClientPackageSummary')
   })
 
   it('does not reference createAndSubmitPaymentEntry', () => {
@@ -68,6 +69,26 @@ describe('AssignPackageForm — source invariants', () => {
 
   it('generates idempotency key via crypto.randomUUID only — no server-supplied key', () => {
     expect(FORM_SRC).toContain('crypto.randomUUID()')
+  })
+
+  it('shows duplicate warning copy', () => {
+    expect(FORM_SRC).toContain('This client already has this package active.')
+  })
+
+  it('includes explicit override checkbox label', () => {
+    expect(FORM_SRC).toContain('I understand — assign another package')
+  })
+
+  it('passes allowDuplicateActivePackage to assignPackage', () => {
+    expect(FORM_SRC).toContain('allowDuplicateActivePackage')
+  })
+
+  it('shows alternate confirm button label when override is confirmed', () => {
+    expect(FORM_SRC).toContain('Assign another anyway')
+  })
+
+  it('does not contain delete, void, or cancel package wording', () => {
+    expect(FORM_SRC).not.toMatch(/delete package|void package|cancel package|hard delete/i)
   })
 })
 

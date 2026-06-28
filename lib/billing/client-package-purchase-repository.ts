@@ -151,6 +151,27 @@ export class ClientPackagePurchaseRepository {
     return rows.map(hydratePurchase)
   }
 
+  async listActiveByClientAndTemplate(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    packageTemplateId: string,
+  ): Promise<ClientPackagePurchase[]> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select()
+      .from(schema.clientPackagePurchase)
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.clientIndexId, clientIndexId),
+          eq(schema.clientPackagePurchase.packageTemplateId, packageTemplateId),
+          eq(schema.clientPackagePurchase.packageStatus, 'active'),
+        ),
+      )
+      .orderBy(desc(schema.clientPackagePurchase.purchasedAtUtc))
+    return rows.map(hydratePurchase)
+  }
+
   async listPurchasesByTemplate(
     ctx: TenantCtx,
     packageTemplateId: string,

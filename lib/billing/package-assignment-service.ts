@@ -57,6 +57,22 @@ export type PackageAssignmentErpAdapter = {
   }) => Promise<{ payment: unknown; invoice: Invoice }>
 }
 
+// ─── Errors ───────────────────────────────────────────────────────────────────
+
+export class DuplicateActivePackageError extends Error {
+  constructor(
+    readonly templateName: string,
+    readonly activePurchaseCount: number,
+  ) {
+    super(
+      `[DuplicateActivePackageError] "${templateName}" is already active ` +
+      `${activePurchaseCount} time(s) for this client. ` +
+      `Pass allowDuplicateActivePackage: true to override.`,
+    )
+    this.name = 'DuplicateActivePackageError'
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const POSTING_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -149,6 +165,19 @@ export class PackageAssignmentService {
         )
       }
       return this.replayPurchase(ctx, existingPurchase, input)
+    }
+
+    // Duplicate active package guard — fresh assignments only; idempotent replays bypass
+    const activeSameTemplate = await this.purchaseRepo.listActiveByClientAndTemplate(
+      ctx,
+      input.clientIndexId,
+      input.packageTemplateId,
+    )
+    if (activeSameTemplate.length > 0 && !input.allowDuplicateActivePackage) {
+      throw new DuplicateActivePackageError(
+        activeSameTemplate[0]!.templateSnapshot.name,
+        activeSameTemplate.length,
+      )
     }
 
     // Fresh assignment — read and validate template

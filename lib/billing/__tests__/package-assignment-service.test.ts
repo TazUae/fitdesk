@@ -652,7 +652,73 @@ describe('blank idempotency key', () => {
   })
 })
 
-// ─── 16. Static invariants ────────────────────────────────────────────────────
+// ─── 16. Duplicate active package guard ──────────────────────────────────────
+
+function baseCompInput(overrides: Partial<AssignPackageInput> = {}): AssignPackageInput {
+  return {
+    clientIndexId:     CLIENT_ID,
+    erpCustomerId:     ERP_CUSTOMER_ID,
+    packageTemplateId: COMP_TEMPLATE_ID,
+    idempotencyKey:    COMP_KEY,
+    ...overrides,
+  }
+}
+
+describe('duplicate active package guard', () => {
+  it('throws DuplicateActivePackageError when same template already active and no override', async () => {
+    // First assignment succeeds
+    await service.assignPackage(CTX, baseCompInput())
+
+    // Fresh key, same template — blocked by duplicate guard
+    await expect(
+      service.assignPackage(CTX, baseCompInput({ idempotencyKey: 'ikey-dup-blocked' })),
+    ).rejects.toThrow('DuplicateActivePackageError')
+  })
+
+  it('includes template name in the duplicate error message', async () => {
+    await service.assignPackage(CTX, baseCompInput())
+
+    const err = await service
+      .assignPackage(CTX, baseCompInput({ idempotencyKey: 'ikey-dup-name' }))
+      .catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toContain('5-Session Comp')
+  })
+
+  it('allows assignment when allowDuplicateActivePackage is true', async () => {
+    await service.assignPackage(CTX, baseCompInput())
+
+    const result = await service.assignPackage(CTX, baseCompInput({
+      idempotencyKey:             'ikey-dup-override',
+      allowDuplicateActivePackage: true,
+    }))
+    expect(result.purchase.packageStatus).toBe('active')
+    expect(result.isIdempotentReplay).toBe(false)
+
+    const purchases = await purchaseRepo.listPurchasesByClient(CTX, CLIENT_ID)
+    expect(purchases).toHaveLength(2)
+  })
+
+  it('idempotent replay with same key is not blocked by duplicate guard', async () => {
+    await service.assignPackage(CTX, baseCompInput())
+
+    // Same key = replay path — must bypass duplicate guard entirely
+    const result = await service.assignPackage(CTX, baseCompInput())
+    expect(result.isIdempotentReplay).toBe(true)
+
+    const purchases = await purchaseRepo.listPurchasesByClient(CTX, CLIENT_ID)
+    expect(purchases).toHaveLength(1)
+  })
+
+  it('does not fire guard for a first assignment with no prior active purchase', async () => {
+    // No prior purchase — fresh assignment must succeed without override
+    const result = await service.assignPackage(CTX, baseCompInput())
+    expect(result.purchase.packageStatus).toBe('active')
+    expect(result.isIdempotentReplay).toBe(false)
+  })
+})
+
+// ─── 17. Static invariants ───────────────────────────────────────────────────
 
 describe('service file invariants', () => {
   it('service source contains no forbidden patterns', () => {

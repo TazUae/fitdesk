@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Loader2, Package } from 'lucide-react'
-import { assignPackage, listAssignablePackageTemplates } from '@/actions/packages'
+import { assignPackage, getClientPackageSummary, listAssignablePackageTemplates } from '@/actions/packages'
 import { enabledPaymentMethods } from '@/lib/payments/methods'
-import type { AssignablePackageTemplate } from '@/types/billing'
+import type { AssignablePackageTemplate, PackagePurchaseWithBalance } from '@/types/billing'
 import type { PaymentMethod } from '@/lib/payments/methods'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,29 +32,38 @@ export function AssignPackageForm({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  // ── Template loading ────────────────────────────────────────────────────────
+  // ── Template loading + client purchase summary ──────────────────────────────
 
-  const [loadState, setLoadState] = useState<LoadState>('loading')
-  const [templates, setTemplates] = useState<AssignablePackageTemplate[]>([])
+  const [loadState, setLoadState]         = useState<LoadState>('loading')
+  const [templates, setTemplates]         = useState<AssignablePackageTemplate[]>([])
+  const [activePurchases, setActivePurchases] = useState<PackagePurchaseWithBalance[]>([])
 
   useEffect(() => {
     let cancelled = false
-    listAssignablePackageTemplates().then(result => {
+    Promise.all([
+      listAssignablePackageTemplates(),
+      getClientPackageSummary(clientIndexId),
+    ]).then(([templatesResult, summaryResult]) => {
       if (cancelled) return
-      if (!result.success) { setLoadState('load_error'); return }
-      if (result.data.length === 0) { setLoadState('empty'); return }
-      setTemplates(result.data)
+      if (!templatesResult.success) { setLoadState('load_error'); return }
+      if (templatesResult.data.length === 0) { setLoadState('empty'); return }
+      setTemplates(templatesResult.data)
       setLoadState('ready')
+      // Summary is non-fatal — duplicate check is skipped if it fails
+      if (summaryResult.success) {
+        setActivePurchases(summaryResult.data.purchases)
+      }
     })
     return () => { cancelled = true }
-  }, [])
+  }, [clientIndexId])
 
   // ── Selection state ─────────────────────────────────────────────────────────
 
-  const [selectedId, setSelectedId]     = useState<string | null>(null)
-  const [payMode,    setPayMode]         = useState<'pay_later' | 'paid_now'>('pay_later')
-  const [payMethod,  setPayMethod]       = useState<PaymentMethod | null>(null)
-  const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null)
+  const [selectedId, setSelectedId]         = useState<string | null>(null)
+  const [payMode,    setPayMode]             = useState<'pay_later' | 'paid_now'>('pay_later')
+  const [payMethod,  setPayMethod]           = useState<PaymentMethod | null>(null)
+  const [submitResult, setSubmitResult]     = useState<SubmitResult | null>(null)
+  const [duplicateConfirmed, setDuplicateConfirmed] = useState(false)
 
   // Idempotency key — generated lazily on first confirm, reset on selection change
   const ikeyRef = useRef<string | null>(null)
@@ -62,6 +71,7 @@ export function AssignPackageForm({
   function handleSelectTemplate(id: string) {
     setSelectedId(id)
     setSubmitResult(null)
+    setDuplicateConfirmed(false)
     ikeyRef.current = null
   }
 
@@ -84,10 +94,22 @@ export function AssignPackageForm({
   const isComplimentary   = selectedTemplate?.priceAmount === 0
   const enabledMethods    = enabledPaymentMethods()
   const showPaymentMethod = payMode === 'paid_now' && !isComplimentary
+
+  const activeSameTemplate = selectedId
+    ? activePurchases.filter(p => p.packageTemplateId === selectedId && p.packageStatus === 'active')
+    : []
+  const duplicateWarning = activeSameTemplate.length > 0
+    ? {
+        count:        activeSameTemplate.length,
+        totalBalance: activeSameTemplate.reduce((sum, p) => sum + p.remainingBalance, 0),
+      }
+    : null
+
   const canSubmit = (
     selectedId !== null &&
     !isPending &&
-    (payMode === 'pay_later' || isComplimentary || payMethod !== null)
+    (payMode === 'pay_later' || isComplimentary || payMethod !== null) &&
+    (!duplicateWarning || duplicateConfirmed)
   )
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -109,6 +131,7 @@ export function AssignPackageForm({
         packageTemplateId: selectedId,
         idempotencyKey:    ikey,
         ...(payment ? { payment } : {}),
+        ...(duplicateWarning ? { allowDuplicateActivePackage: duplicateConfirmed } : {}),
       })
       if (result.success) {
         ikeyRef.current = null
@@ -277,6 +300,41 @@ export function AssignPackageForm({
           </div>
         </div>
 
+        {/* Duplicate active package warning */}
+        {duplicateWarning && selectedTemplate && (
+          <div
+            className="rounded-xl border px-4 py-3 space-y-3"
+            style={{
+              backgroundColor: 'rgba(232,197,71,0.08)',
+              borderColor:     'rgba(232,197,71,0.35)',
+            }}
+          >
+            <p className="text-sm font-semibold" style={{ color: '#d4a017' }}>
+              This client already has this package active.
+            </p>
+            <p className="text-xs" style={{ color: '#d4a017' }}>
+              {selectedTemplate.name} is already active{' '}
+              {duplicateWarning.count} time{duplicateWarning.count !== 1 ? 's' : ''} with{' '}
+              {duplicateWarning.totalBalance}{' '}
+              session{duplicateWarning.totalBalance !== 1 ? 's' : ''} available.
+              Assigning again will add another{' '}
+              {selectedTemplate.sessionCount}{' '}
+              session{selectedTemplate.sessionCount !== 1 ? 's' : ''}.
+            </p>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={duplicateConfirmed}
+                onChange={e => setDuplicateConfirmed(e.target.checked)}
+                className="h-4 w-4 rounded"
+              />
+              <span className="text-xs font-semibold" style={{ color: '#d4a017' }}>
+                I understand — assign another package
+              </span>
+            </label>
+          </div>
+        )}
+
         {/* Payment mode — hidden for complimentary packages */}
         {selectedId !== null && !isComplimentary && (
           <div className="space-y-2">
@@ -390,7 +448,7 @@ export function AssignPackageForm({
         >
           {isPending
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</>
-            : 'Assign'
+            : duplicateConfirmed ? 'Assign another anyway' : 'Assign'
           }
         </button>
       </div>
