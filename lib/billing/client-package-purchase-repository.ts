@@ -88,6 +88,23 @@ function hydratePurchase(row: RawPurchase): ClientPackagePurchase {
   }
 }
 
+// ─── Expiry helper (exported for testing) ────────────────────────────────────
+
+/**
+ * Computes expires_at_utc from the activation timestamp and template expiry config.
+ * Returns null when expiryDays is null/zero (no-expiry template).
+ * Always produces a UTC ISO-8601 string — never local time.
+ */
+export function calculatePackageExpiryUtc(
+  activatedAtUtc: string,
+  expiryDays: number | null,
+): string | null {
+  if (expiryDays === null || expiryDays <= 0) return null
+  const activatedMs = new Date(activatedAtUtc).getTime()
+  if (Number.isNaN(activatedMs)) return null
+  return new Date(activatedMs + expiryDays * 24 * 60 * 60 * 1000).toISOString()
+}
+
 // ─── Snapshot builder (exported for testing) ─────────────────────────────────
 
 export function buildPackageTemplateSnapshot(
@@ -298,6 +315,7 @@ export class ClientPackagePurchaseRepository {
 
     const now            = new Date().toISOString()
     const activatedAtUtc = input.activatedAtUtc ?? now
+    const expiresAtUtc   = calculatePackageExpiryUtc(activatedAtUtc, existing.templateSnapshot.expiryDays)
     const db             = executor ?? this.db
 
     await db
@@ -306,6 +324,7 @@ export class ClientPackagePurchaseRepository {
         erpSalesInvoiceId: input.erpSalesInvoiceId,
         packageStatus:     'active',
         activatedAtUtc,
+        expiresAtUtc,
         updatedAtUtc:      now,
         ...(input.paymentStatus !== undefined ? { paymentStatus: input.paymentStatus } : {}),
       })
@@ -321,6 +340,7 @@ export class ClientPackagePurchaseRepository {
       erpSalesInvoiceId: input.erpSalesInvoiceId,
       packageStatus:     'active',
       activatedAtUtc,
+      expiresAtUtc,
       updatedAtUtc:      now,
       ...(input.paymentStatus !== undefined ? { paymentStatus: input.paymentStatus } : {}),
     }
@@ -347,6 +367,7 @@ export class ClientPackagePurchaseRepository {
 
     const now            = new Date().toISOString()
     const activatedAtUtc = input?.activatedAtUtc ?? now
+    const expiresAtUtc   = calculatePackageExpiryUtc(activatedAtUtc, existing.templateSnapshot.expiryDays)
     const db             = executor ?? this.db
 
     await db
@@ -355,6 +376,7 @@ export class ClientPackagePurchaseRepository {
         packageStatus:  'active',
         paymentStatus:  'paid',
         activatedAtUtc,
+        expiresAtUtc,
         updatedAtUtc:   now,
       })
       .where(
@@ -369,6 +391,7 @@ export class ClientPackagePurchaseRepository {
       packageStatus:  'active',
       paymentStatus:  'paid',
       activatedAtUtc,
+      expiresAtUtc,
       updatedAtUtc:   now,
     }
   }
