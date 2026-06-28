@@ -233,3 +233,27 @@ export type AssignPackageResult = {
   isIdempotentReplay: boolean
   paymentWarning?:    string | null
 }
+
+/** Picker-safe view of an active package template for the assignment UI. */
+export type AssignablePackageTemplate = {
+  id:           string
+  name:         string
+  description:  string | null
+  templateType: TemplateType
+  sessionCount: number
+  priceAmount:  number
+  currency:     string
+  expiryDays:   number | null
+  erpItemCode:  string | null
+}
+
+/** A purchase with its ledger-derived remaining session balance. */
+export type PackagePurchaseWithBalance = ClientPackagePurchase & {
+  remainingBalance: number
+}
+
+/** Summary of all package purchases for a client with session balances. */
+export type ClientPackageSummary = {
+  clientIndexId: string
+  purchases:     PackagePurchaseWithBalance[]
+}

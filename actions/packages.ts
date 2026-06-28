@@ -11,7 +11,15 @@ import {
 } from '@/lib/business-data/erp-adapter'
 import { isEnabledPaymentMethod } from '@/lib/payments/methods'
 import { PackageAssignmentService } from '@/lib/billing/package-assignment-service'
-import type { AssignPackageInput, AssignPackageResult } from '@/types/billing'
+import { PackageTemplateRepository } from '@/lib/billing/package-template-repository'
+import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
+import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
+import type {
+  AssignPackageInput,
+  AssignPackageResult,
+  AssignablePackageTemplate,
+  ClientPackageSummary,
+} from '@/types/billing'
 import type { ActionResult } from '@/types'
 
 /**
@@ -66,6 +74,88 @@ export async function assignPackage(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to assign package.',
+    }
+  }
+}
+
+/**
+ * List all active package templates available for assignment.
+ * Returns a picker-safe projection — no audit trail fields.
+ * No ERP calls. Local read only.
+ */
+export async function listAssignablePackageTemplates(): Promise<
+  ActionResult<AssignablePackageTemplate[]>
+> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, error: 'Workspace not provisioned. Please contact support.' }
+  }
+
+  try {
+    const repo      = new PackageTemplateRepository(db)
+    const templates = await repo.listTemplates({ tenantId: ctx.tenantId }, { status: 'active' })
+    const data: AssignablePackageTemplate[] = templates.map((t) => ({
+      id:           t.id,
+      name:         t.name,
+      description:  t.description,
+      templateType: t.templateType,
+      sessionCount: t.sessionCount,
+      priceAmount:  t.priceAmount,
+      currency:     t.currency,
+      expiryDays:   t.expiryDays,
+      erpItemCode:  t.erpItemCode,
+    }))
+    return { success: true, data }
+  } catch (err) {
+    console.error('[listAssignablePackageTemplates]', err instanceof Error ? err.message : String(err))
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to list package templates.',
+    }
+  }
+}
+
+/**
+ * Return all package purchases for a client with ledger-derived session balances.
+ * No ERP calls. Local read only.
+ */
+export async function getClientPackageSummary(
+  clientIndexId: string,
+): Promise<ActionResult<ClientPackageSummary>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, error: 'Workspace not provisioned. Please contact support.' }
+  }
+
+  try {
+    const tenantCtx    = { tenantId: ctx.tenantId }
+    const purchaseRepo = new ClientPackagePurchaseRepository(db)
+    const ledgerRepo   = new PackageLedgerRepository(db)
+
+    const [purchases, balances] = await Promise.all([
+      purchaseRepo.listPurchasesByClient(tenantCtx, clientIndexId),
+      ledgerRepo.deriveBalancesByClient(tenantCtx, clientIndexId),
+    ])
+
+    const data: ClientPackageSummary = {
+      clientIndexId,
+      purchases: purchases.map((p) => ({
+        ...p,
+        remainingBalance: balances[p.id] ?? 0,
+      })),
+    }
+    return { success: true, data }
+  } catch (err) {
+    console.error('[getClientPackageSummary]', err instanceof Error ? err.message : String(err))
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to load package summary.',
     }
   }
 }

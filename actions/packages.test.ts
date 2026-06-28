@@ -16,7 +16,13 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssignPackageInput, AssignPackageResult, ClientPackagePurchase } from '@/types/billing'
+import type {
+  AssignPackageInput,
+  AssignPackageResult,
+  AssignablePackageTemplate,
+  ClientPackagePurchase,
+  PackageTemplateSnapshot,
+} from '@/types/billing'
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -25,6 +31,18 @@ const mocks = vi.hoisted(() => {
   // Must use `function` keyword — arrow functions are not constructors
   const PackageAssignmentServiceMock = vi.fn().mockImplementation(function () {
     return { assignPackage: serviceAssignPackage }
+  })
+  const listTemplatesMock                   = vi.fn()
+  const listPurchasesByClientMock           = vi.fn()
+  const deriveBalancesByClientMock          = vi.fn()
+  const PackageTemplateRepositoryMock       = vi.fn().mockImplementation(function () {
+    return { listTemplates: listTemplatesMock }
+  })
+  const ClientPackagePurchaseRepositoryMock = vi.fn().mockImplementation(function () {
+    return { listPurchasesByClient: listPurchasesByClientMock }
+  })
+  const PackageLedgerRepositoryMock         = vi.fn().mockImplementation(function () {
+    return { deriveBalancesByClient: deriveBalancesByClientMock }
   })
   return {
     resolveTrainerId:            vi.fn(),
@@ -35,6 +53,12 @@ const mocks = vi.hoisted(() => {
     submitSalesInvoice:          vi.fn(),
     getInvoiceById:              vi.fn(),
     createAndSubmitPaymentEntry: vi.fn(),
+    listTemplatesMock,
+    listPurchasesByClientMock,
+    deriveBalancesByClientMock,
+    PackageTemplateRepositoryMock,
+    ClientPackagePurchaseRepositoryMock,
+    PackageLedgerRepositoryMock,
   }
 })
 
@@ -59,8 +83,20 @@ vi.mock('@/lib/billing/package-assignment-service', () => ({
   PackageAssignmentService: mocks.PackageAssignmentServiceMock,
 }))
 
+vi.mock('@/lib/billing/package-template-repository', () => ({
+  PackageTemplateRepository: mocks.PackageTemplateRepositoryMock,
+}))
+
+vi.mock('@/lib/billing/client-package-purchase-repository', () => ({
+  ClientPackagePurchaseRepository: mocks.ClientPackagePurchaseRepositoryMock,
+}))
+
+vi.mock('@/lib/billing/package-ledger-repository', () => ({
+  PackageLedgerRepository: mocks.PackageLedgerRepositoryMock,
+}))
+
 // Import AFTER mocks are registered
-import { assignPackage } from '@/actions/packages'
+import { assignPackage, listAssignablePackageTemplates, getClientPackageSummary } from '@/actions/packages'
 
 // ─── Test fixtures ────────────────────────────────────────────────────────────
 
@@ -154,6 +190,9 @@ beforeEach(() => {
   mocks.resolveTrainerId.mockResolvedValue({ trainerId: 'trainer-c3c-1' })
   mocks.getTenantContext.mockResolvedValue(TENANT_CTX)
   mocks.serviceAssignPackage.mockResolvedValue(makeAssignResult())
+  mocks.listTemplatesMock.mockResolvedValue([])
+  mocks.listPurchasesByClientMock.mockResolvedValue([])
+  mocks.deriveBalancesByClientMock.mockResolvedValue({})
 })
 
 // ─── 1. Success path ──────────────────────────────────────────────────────────
@@ -428,5 +467,226 @@ describe('paymentWarning passthrough', () => {
     expect(result.success).toBe(true)
     if (!result.success) throw new Error('expected success')
     expect(result.data.paymentWarning).toBeUndefined()
+  })
+})
+
+// ─── C5-A fixtures ────────────────────────────────────────────────────────────
+
+function makeTemplateFixture(overrides: Partial<AssignablePackageTemplate> = {}): AssignablePackageTemplate {
+  return {
+    id:           'tpl-c5a-1',
+    name:         '10-Session Block',
+    description:  null,
+    templateType: 'standard_block',
+    sessionCount: 10,
+    priceAmount:  50000,
+    currency:     'USD',
+    expiryDays:   null,
+    erpItemCode:  'SVC-10',
+    ...overrides,
+  }
+}
+
+function makePurchaseFixture(): ClientPackagePurchase {
+  const snapshot: PackageTemplateSnapshot = {
+    schemaVersion:        1,
+    templateId:           'tpl-c5a-1',
+    name:                 '10-Session Block',
+    description:          null,
+    templateType:         'standard_block',
+    sessionCount:         10,
+    priceAmount:          50000,
+    currency:             'USD',
+    expiryDays:           null,
+    erpItemCode:          'SVC-10',
+    supersedesTemplateId: null,
+    templateStatus:       'active',
+    capturedAtUtc:        '2026-06-28T00:00:00Z',
+  }
+  return {
+    id:                'purch-c5a-1',
+    tenantId:          'tenant-c3c',
+    clientIndexId:     'ci-c5a-1',
+    erpCustomerId:     'CUST-C5A-001',
+    packageTemplateId: 'tpl-c5a-1',
+    templateSnapshot:  snapshot,
+    erpSalesInvoiceId: 'ACC-SINV-2026-C5A-001',
+    idempotencyKey:    'ikey-c5a-1',
+    paymentStatus:     'paid',
+    packageStatus:     'active',
+    purchasedAtUtc:    '2026-06-28T00:00:00Z',
+    activatedAtUtc:    '2026-06-28T00:00:00Z',
+    expiresAtUtc:      null,
+    createdAtUtc:      '2026-06-28T00:00:00Z',
+    updatedAtUtc:      '2026-06-28T00:00:00Z',
+  }
+}
+
+// ─── 11. listAssignablePackageTemplates ───────────────────────────────────────
+
+describe('listAssignablePackageTemplates', () => {
+  it('returns mapped templates with picker-safe shape', async () => {
+    const tpl = makeTemplateFixture()
+    mocks.listTemplatesMock.mockResolvedValue([tpl])
+
+    const result = await listAssignablePackageTemplates()
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data).toHaveLength(1)
+    const item = result.data[0]!
+    expect(item.id).toBe(tpl.id)
+    expect(item.name).toBe(tpl.name)
+    expect(item.sessionCount).toBe(tpl.sessionCount)
+    expect(item.priceAmount).toBe(tpl.priceAmount)
+    expect(item.currency).toBe(tpl.currency)
+    // audit trail fields must not be present in the picker shape
+    expect(item).not.toHaveProperty('status')
+    expect(item).not.toHaveProperty('firstSoldAtUtc')
+    expect(item).not.toHaveProperty('tenantId')
+    expect(item).not.toHaveProperty('createdAtUtc')
+  })
+
+  it('returns empty array when no active templates exist', async () => {
+    mocks.listTemplatesMock.mockResolvedValue([])
+
+    const result = await listAssignablePackageTemplates()
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data).toEqual([])
+  })
+
+  it('queries the repository with status:active filter', async () => {
+    await listAssignablePackageTemplates()
+
+    expect(mocks.PackageTemplateRepositoryMock).toHaveBeenCalledOnce()
+    expect(mocks.listTemplatesMock).toHaveBeenCalledWith(
+      { tenantId: 'tenant-c3c' },
+      { status: 'active' },
+    )
+  })
+
+  it('returns success:false when resolveTrainerId fails', async () => {
+    mocks.resolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await listAssignablePackageTemplates()
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('Not authenticated.')
+    expect(mocks.listTemplatesMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when getTenantContext returns null', async () => {
+    mocks.getTenantContext.mockResolvedValue(null)
+
+    const result = await listAssignablePackageTemplates()
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/workspace not provisioned/i)
+    expect(mocks.listTemplatesMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when the repository throws', async () => {
+    mocks.listTemplatesMock.mockRejectedValue(
+      new Error('[PackageTemplateRepository] db error'),
+    )
+
+    const result = await listAssignablePackageTemplates()
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('[PackageTemplateRepository] db error')
+  })
+})
+
+// ─── 12. getClientPackageSummary ─────────────────────────────────────────────
+
+describe('getClientPackageSummary', () => {
+  it('returns purchases with ledger-derived remaining balances attached', async () => {
+    const purchase = makePurchaseFixture()
+    mocks.listPurchasesByClientMock.mockResolvedValue([purchase])
+    mocks.deriveBalancesByClientMock.mockResolvedValue({ [purchase.id]: 7 })
+
+    const result = await getClientPackageSummary('ci-c5a-1')
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.clientIndexId).toBe('ci-c5a-1')
+    expect(result.data.purchases).toHaveLength(1)
+    expect(result.data.purchases[0]!.remainingBalance).toBe(7)
+  })
+
+  it('returns empty purchases array when client has no purchases', async () => {
+    mocks.listPurchasesByClientMock.mockResolvedValue([])
+    mocks.deriveBalancesByClientMock.mockResolvedValue({})
+
+    const result = await getClientPackageSummary('ci-c5a-empty')
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.clientIndexId).toBe('ci-c5a-empty')
+    expect(result.data.purchases).toEqual([])
+  })
+
+  it('defaults remainingBalance to 0 when ledger has no events for a purchase', async () => {
+    const purchase = makePurchaseFixture()
+    mocks.listPurchasesByClientMock.mockResolvedValue([purchase])
+    mocks.deriveBalancesByClientMock.mockResolvedValue({}) // no entry for this purchase
+
+    const result = await getClientPackageSummary('ci-c5a-1')
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.purchases[0]!.remainingBalance).toBe(0)
+  })
+
+  it('queries both repositories with the given clientIndexId and tenant context', async () => {
+    await getClientPackageSummary('ci-c5a-target')
+
+    expect(mocks.listPurchasesByClientMock).toHaveBeenCalledWith(
+      { tenantId: 'tenant-c3c' },
+      'ci-c5a-target',
+    )
+    expect(mocks.deriveBalancesByClientMock).toHaveBeenCalledWith(
+      { tenantId: 'tenant-c3c' },
+      'ci-c5a-target',
+    )
+  })
+
+  it('returns success:false when resolveTrainerId fails', async () => {
+    mocks.resolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await getClientPackageSummary('ci-c5a-1')
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('Not authenticated.')
+    expect(mocks.listPurchasesByClientMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when getTenantContext returns null', async () => {
+    mocks.getTenantContext.mockResolvedValue(null)
+
+    const result = await getClientPackageSummary('ci-c5a-1')
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/workspace not provisioned/i)
+    expect(mocks.listPurchasesByClientMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when listPurchasesByClient throws', async () => {
+    mocks.listPurchasesByClientMock.mockRejectedValue(
+      new Error('[ClientPackagePurchaseRepository] db error'),
+    )
+
+    const result = await getClientPackageSummary('ci-c5a-1')
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('[ClientPackagePurchaseRepository] db error')
   })
 })
