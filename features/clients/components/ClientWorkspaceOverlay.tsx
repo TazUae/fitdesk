@@ -112,15 +112,15 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
               Send WhatsApp
             </Link>
           )}
-          {/* Primary CTA — always present */}
-          <Link
+          {/* Primary CTA — hard nav bypasses the (.)clients interceptor */}
+          <a
             href={`/dashboard/clients/${encodeURIComponent(client.id)}`}
             className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-opacity active:opacity-70"
             style={{ backgroundColor: 'var(--fd-primary)', color: 'var(--fd-bg)' }}
           >
             Open full profile
             <ArrowRight className="h-4 w-4" />
-          </Link>
+          </a>
         </div>
       }
     >
