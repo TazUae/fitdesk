@@ -150,13 +150,39 @@ describe('PackageDetailsSheet — source invariants', () => {
     expect(DETAILS_SRC).toContain("from '@/actions/packages'")
   })
 
-  it('requires reason for void — does not submit without reason.trim()', () => {
-    expect(DETAILS_SRC).toContain('reason.trim()')
+  it('uses VOID_REASONS constant for structured reason choices', () => {
+    expect(DETAILS_SRC).toContain('VOID_REASONS')
+    expect(DETAILS_SRC).toContain('Duplicate package assigned by mistake')
+    expect(DETAILS_SRC).toContain('Wrong package selected')
+    expect(DETAILS_SRC).toContain('Client will not use this package')
+    expect(DETAILS_SRC).toContain('Administrative correction')
+    expect(DETAILS_SRC).toContain("'Other'")
+  })
+
+  it('requires a selected reason before void can be submitted — canSubmit gate', () => {
+    expect(DETAILS_SRC).toContain('selectedReason')
+    expect(DETAILS_SRC).toContain('canSubmit')
+    expect(DETAILS_SRC).toContain('!canSubmit')
+  })
+
+  it('requires details text when Other is selected', () => {
+    expect(DETAILS_SRC).toContain("selectedReason === 'Other'")
+    expect(DETAILS_SRC).toContain('otherDetails.trim()')
+  })
+
+  it('derives final reason: predefined label or Other: <details>', () => {
+    expect(DETAILS_SRC).toContain('derivedReason')
+    expect(DETAILS_SRC).toContain('Other:')
   })
 
   it('shows void confirmation copy', () => {
     expect(DETAILS_SRC).toContain('Void package?')
     expect(DETAILS_SRC).toContain('without deleting the audit history')
+  })
+
+  it('shows reason field label and audit-log helper text', () => {
+    expect(DETAILS_SRC).toContain('Reason for audit log')
+    expect(DETAILS_SRC).toContain('reversal ledger entry')
   })
 
   it('uses crypto.randomUUID for idempotency key — no server-supplied key', () => {

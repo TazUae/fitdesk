@@ -18,6 +18,16 @@ export interface PackageDetailsSheetProps {
 
 type LoadState = 'loading' | 'error' | 'ready'
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const VOID_REASONS = [
+  'Duplicate package assigned by mistake',
+  'Wrong package selected',
+  'Client will not use this package',
+  'Administrative correction',
+  'Other',
+] as const
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
@@ -61,15 +71,28 @@ export function PackageDetailsSheet({
 
   // ── Load state ──────────────────────────────────────────────────────────────
 
-  const [loadState, setLoadState]   = useState<LoadState>('loading')
-  const [purchases, setPurchases]   = useState<PackagePurchaseWithBalance[]>([])
+  const [loadState, setLoadState] = useState<LoadState>('loading')
+  const [purchases, setPurchases] = useState<PackagePurchaseWithBalance[]>([])
 
   // ── Void state ──────────────────────────────────────────────────────────────
 
-  const [voidingId, setVoidingId]   = useState<string | null>(null)
-  const [reason, setReason]         = useState('')
-  const [voidError, setVoidError]   = useState<string | null>(null)
-  const ikeyRef                     = useRef<string | null>(null)
+  const [voidingId, setVoidingId]           = useState<string | null>(null)
+  const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [otherDetails, setOtherDetails]     = useState('')
+  const [voidError, setVoidError]           = useState<string | null>(null)
+  const ikeyRef                             = useRef<string | null>(null)
+
+  // Derived: final reason string sent to the action
+  function derivedReason(): string {
+    if (!selectedReason) return ''
+    if (selectedReason === 'Other') return `Other: ${otherDetails.trim()}`
+    return selectedReason
+  }
+
+  // Derived: whether the submit button is enabled
+  const canSubmit =
+    selectedReason !== null &&
+    (selectedReason !== 'Other' || otherDetails.trim() !== '')
 
   // ── Load purchases when opened ──────────────────────────────────────────────
 
@@ -78,7 +101,8 @@ export function PackageDetailsSheet({
     let cancelled = false
     setLoadState('loading')
     setVoidingId(null)
-    setReason('')
+    setSelectedReason(null)
+    setOtherDetails('')
     setVoidError(null)
     getClientPackageSummary(clientIndexId).then(result => {
       if (cancelled) return
@@ -93,20 +117,23 @@ export function PackageDetailsSheet({
 
   function handleStartVoid(id: string) {
     setVoidingId(id)
-    setReason('')
+    setSelectedReason(null)
+    setOtherDetails('')
     setVoidError(null)
     ikeyRef.current = null
   }
 
   function handleCancelVoid() {
     setVoidingId(null)
-    setReason('')
+    setSelectedReason(null)
+    setOtherDetails('')
     setVoidError(null)
     ikeyRef.current = null
   }
 
   function handleConfirmVoid() {
-    if (!voidingId || !reason.trim() || isPending) return
+    const finalReason = derivedReason()
+    if (!voidingId || !finalReason || isPending) return
     if (!ikeyRef.current) {
       ikeyRef.current = crypto.randomUUID()
     }
@@ -115,22 +142,21 @@ export function PackageDetailsSheet({
     startTransition(async () => {
       const result = await voidClientPackagePurchase({
         packagePurchaseId:  voidingId,
-        reason:             reason.trim(),
+        reason:             finalReason,
         voidIdempotencyKey: ikey,
       })
       if (result.success) {
         ikeyRef.current = null
         setVoidingId(null)
-        setReason('')
+        setSelectedReason(null)
+        setOtherDetails('')
         setVoidError(null)
-        // Reload active purchases
         const summary = await getClientPackageSummary(clientIndexId)
         if (summary.success) {
           setPurchases(summary.data.purchases.filter(p => p.packageStatus === 'active'))
         }
         router.refresh()
       } else {
-        // Keep key for idempotent retry
         setVoidError(result.error)
       }
     })
@@ -186,7 +212,7 @@ export function PackageDetailsSheet({
         )}
 
         {loadState === 'ready' && purchases.map(p => {
-          const eligible    = isVoidEligible(p)
+          const eligible     = isVoidEligible(p)
           const isConfirming = voidingId === p.id
 
           return (
@@ -213,6 +239,7 @@ export function PackageDetailsSheet({
               {/* Void confirmation or void trigger */}
               {isConfirming ? (
                 <div className="space-y-3">
+                  {/* Warning banner */}
                   <div
                     className="rounded-xl border px-3 py-2.5 space-y-1"
                     style={{
@@ -228,18 +255,56 @@ export function PackageDetailsSheet({
                     </p>
                   </div>
 
-                  <textarea
-                    value={reason}
-                    onChange={e => { setReason(e.target.value); setVoidError(null) }}
-                    placeholder="Reason (required)"
-                    rows={2}
-                    className="w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none"
-                    style={{
-                      backgroundColor: 'var(--fd-card)',
-                      borderColor:     reason.trim() ? 'var(--fd-border)' : 'rgba(232,92,106,0.4)',
-                      color:           'var(--fd-text)',
-                    }}
-                  />
+                  {/* Reason selector */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
+                      Reason for audit log
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                      Choose the closest reason. This will be saved on the reversal ledger entry.
+                    </p>
+
+                    <div className="space-y-2 pt-1">
+                      {VOID_REASONS.map(r => (
+                        <label
+                          key={r}
+                          className="flex items-center gap-2.5 cursor-pointer"
+                        >
+                          <input
+                            type="radio"
+                            name={`void-reason-${voidingId}`}
+                            value={r}
+                            checked={selectedReason === r}
+                            onChange={() => {
+                              setSelectedReason(r)
+                              setOtherDetails('')
+                              setVoidError(null)
+                            }}
+                            className="shrink-0"
+                            style={{ accentColor: 'var(--fd-red)' }}
+                          />
+                          <span className="text-xs" style={{ color: 'var(--fd-text)' }}>
+                            {r}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    {selectedReason === 'Other' && (
+                      <textarea
+                        value={otherDetails}
+                        onChange={e => { setOtherDetails(e.target.value); setVoidError(null) }}
+                        placeholder="Please describe (required)"
+                        rows={2}
+                        className="w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none mt-1"
+                        style={{
+                          backgroundColor: 'var(--fd-card)',
+                          borderColor:     otherDetails.trim() ? 'var(--fd-border)' : 'rgba(232,92,106,0.4)',
+                          color:           'var(--fd-text)',
+                        }}
+                      />
+                    )}
+                  </div>
 
                   {voidError && (
                     <p className="text-xs" style={{ color: 'var(--fd-red)' }}>
@@ -264,7 +329,7 @@ export function PackageDetailsSheet({
                     <button
                       type="button"
                       onClick={handleConfirmVoid}
-                      disabled={!reason.trim() || isPending}
+                      disabled={!canSubmit || isPending}
                       className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-opacity disabled:opacity-50"
                       style={{
                         backgroundColor: 'rgba(232,92,106,0.12)',
