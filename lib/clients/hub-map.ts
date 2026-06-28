@@ -18,15 +18,35 @@ import type {
   ClientHubOverview,
   ClientIndex,
   ClientNoteSummary,
+  ClientPackageBalanceSummary,
 } from '@/types/clients'
+import type { PackagePurchaseWithBalance } from '@/types/billing'
 
 const MAX_RECENT_NOTES = 10
+
+/**
+ * Derives a compact package balance summary from active purchases that have a
+ * positive remaining session balance. Returns null when no qualifying purchases
+ * exist (empty state). Pure — no I/O.
+ */
+export function derivePackageBalance(
+  purchases: PackagePurchaseWithBalance[],
+): ClientPackageBalanceSummary | null {
+  const active = purchases.filter(p => p.packageStatus === 'active' && p.remainingBalance > 0)
+  if (active.length === 0) return null
+  return {
+    totalAvailableSessions: active.reduce((sum, p) => sum + p.remainingBalance, 0),
+    activePurchaseCount:    active.length,
+    displayTemplateName:    active[0]?.templateSnapshot?.name ?? null,
+  }
+}
 
 export function mapToClientHubOverview(
   index:          ClientIndex,
   goals:          ClientGoal[],
   pendingActions: ClientActionIntent[],
   events:         ClientEvent[],
+  purchases:      PackagePurchaseWithBalance[] = [],
 ): ClientHubOverview {
   const goalSummaries: ClientGoalSummary[] = goals.map(g => ({
     id:               g.id,
@@ -73,6 +93,7 @@ export function mapToClientHubOverview(
     goals:          goalSummaries,
     pendingActions: actionSummaries,
     recentNotes:    noteSummaries,
+    packageBalance: derivePackageBalance(purchases),
     placeholders: {
       trainingProgram: { status: 'not_started', label: 'Training program coming soon' },
       progress:        { status: 'not_started', label: 'Progress tracking coming soon' },

@@ -125,4 +125,26 @@ describe('ClientHubPanel — assign package integration invariants', () => {
   it('does not import from business-data/erp-adapter', () => {
     expect(HUB_SRC).not.toContain('business-data/erp-adapter')
   })
+
+  it('shows sessions available text for the active balance state', () => {
+    // Component uses a JSX ternary for plural: session{...? 's' : ''} available
+    // The literal 'session' and 'available' are present; contiguous 'sessions available'
+    // is not a source literal due to the inline expression.
+    expect(HUB_SRC).toContain('available')
+    expect(HUB_SRC).toMatch(/session.*available/s)
+  })
+
+  it('shows Assign another package button label when package balance is present', () => {
+    expect(HUB_SRC).toContain('Assign another package')
+  })
+
+  it('shows active packages count label', () => {
+    expect(HUB_SRC).toContain('active package')
+  })
+
+  it('reads packageBalance from the overview prop — no direct ERP or payment data', () => {
+    expect(HUB_SRC).toContain('overview.packageBalance')
+    expect(HUB_SRC).not.toContain('erpInvoiceId')
+    expect(HUB_SRC).not.toMatch(/payment total|priceAmount/i)
+  })
 })

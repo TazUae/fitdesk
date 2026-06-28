@@ -338,14 +338,31 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
             className="rounded-xl px-3 py-1.5 text-xs font-semibold transition-opacity active:opacity-70"
             style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
           >
-            Assign package
+            {overview.packageBalance ? 'Assign another package' : 'Assign package'}
           </button>
         </div>
-        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-          {client.billingMode === 'package'
-            ? 'Package billing active — use Assign package to add a new block.'
-            : 'Assign a session package to this client.'}
-        </p>
+
+        {overview.packageBalance ? (
+          <div className="space-y-1">
+            <p className="text-sm font-semibold" style={{ color: 'var(--fd-accent)' }}>
+              {overview.packageBalance.totalAvailableSessions}{' '}
+              session{overview.packageBalance.totalAvailableSessions !== 1 ? 's' : ''} available
+            </p>
+            {overview.packageBalance.displayTemplateName && (
+              <p className="text-xs truncate" style={{ color: 'var(--fd-text)' }}>
+                {overview.packageBalance.displayTemplateName}
+              </p>
+            )}
+            <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+              {overview.packageBalance.activePurchaseCount}{' '}
+              active package{overview.packageBalance.activePurchaseCount !== 1 ? 's' : ''}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+            Assign a session package to this client.
+          </p>
+        )}
       </div>
 
       {/* ── Recent activity ───────────────────────────────────────────────────── */}

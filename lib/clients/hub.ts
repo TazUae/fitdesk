@@ -17,9 +17,12 @@ import 'server-only'
 
 import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
+import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
+import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
 import { mapToClientHubOverview } from '@/lib/clients/hub-map'
 import { db } from '@/lib/db'
 import type { ClientHubOverview } from '@/types/clients'
+import type { PackagePurchaseWithBalance } from '@/types/billing'
 
 const HUB_ENABLED_FLAG  = 'FITDESK_CLIENT_HUB_ENABLED'
 const HUB_TENANTS_FLAG  = 'FITDESK_CLIENT_HUB_TENANTS'
@@ -60,17 +63,28 @@ export async function getClientHubOverview(
     if (!tenantId) return null
     if (!isClientHubEnabled(tenantId)) return null
 
-    const repo = new ClientRepository(db)
+    const repo          = new ClientRepository(db)
+    const purchaseRepo  = new ClientPackagePurchaseRepository(db)
+    const ledgerRepo    = new PackageLedgerRepository(db)
+
     const clientIndex = await repo.findClientByErpId({ tenantId }, erpCustomerId)
     if (!clientIndex) return null
 
-    const [goals, pendingActions, events] = await Promise.all([
-      repo.listGoals({ tenantId }, clientIndex.id),
-      repo.listPendingActions({ tenantId }, clientIndex.id),
-      repo.listEvents({ tenantId }, clientIndex.id),
+    const tenantCtx = { tenantId }
+    const [goals, pendingActions, events, rawPurchases, balances] = await Promise.all([
+      repo.listGoals(tenantCtx, clientIndex.id),
+      repo.listPendingActions(tenantCtx, clientIndex.id),
+      repo.listEvents(tenantCtx, clientIndex.id),
+      purchaseRepo.listPurchasesByClient(tenantCtx, clientIndex.id),
+      ledgerRepo.deriveBalancesByClient(tenantCtx, clientIndex.id),
     ])
 
-    return mapToClientHubOverview(clientIndex, goals, pendingActions, events)
+    const purchases: PackagePurchaseWithBalance[] = rawPurchases.map(p => ({
+      ...p,
+      remainingBalance: balances[p.id] ?? 0,
+    }))
+
+    return mapToClientHubOverview(clientIndex, goals, pendingActions, events, purchases)
   } catch (err) {
     console.error(
       '[getClientHubOverview] local read failed; hub will not render:',

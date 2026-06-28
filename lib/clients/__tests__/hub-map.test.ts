@@ -3,8 +3,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { mapToClientHubOverview } from '@/lib/clients/hub-map'
+import { derivePackageBalance, mapToClientHubOverview } from '@/lib/clients/hub-map'
 import type { ClientActionIntent, ClientEvent, ClientGoal, ClientIndex } from '@/types/clients'
+import type { PackagePurchaseWithBalance } from '@/types/billing'
+import type { PackageTemplateSnapshot } from '@/types/billing'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -187,5 +189,117 @@ describe('mapToClientHubOverview', () => {
     expect(clientKeys).toContain('primaryGoalLabel')
     expect(clientKeys).toContain('nextSessionAtUtc')
     expect(clientKeys).toContain('lastActivityAtUtc')
+  })
+
+  it('packageBalance is null when no purchases provided (default)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [])
+    expect(result.packageBalance).toBeNull()
+  })
+
+  it('packageBalance is populated when active purchase with balance is provided', () => {
+    const purchase = makePurchase('p1', 5)
+    const result   = mapToClientHubOverview(baseIndex, [], [], [], [purchase])
+    expect(result.packageBalance).not.toBeNull()
+    expect(result.packageBalance!.totalAvailableSessions).toBe(5)
+  })
+})
+
+// ─── derivePackageBalance ──────────────────────────────────────────────────────
+
+const baseSnapshot: PackageTemplateSnapshot = {
+  schemaVersion:        1,
+  templateId:           'tpl-qa-1',
+  name:                 'Gold Block 10',
+  description:          null,
+  templateType:         'standard_block',
+  sessionCount:         10,
+  priceAmount:          50000,
+  currency:             'USD',
+  expiryDays:           30,
+  erpItemCode:          null,
+  supersedesTemplateId: null,
+  templateStatus:       'active',
+  capturedAtUtc:        NOW,
+}
+
+function makePurchase(
+  id: string,
+  remainingBalance: number,
+  packageStatus: PackagePurchaseWithBalance['packageStatus'] = 'active',
+): PackagePurchaseWithBalance {
+  return {
+    id,
+    tenantId:          'tenant-a',
+    clientIndexId:     'ci-local-1',
+    erpCustomerId:     'CUST-100',
+    packageTemplateId: 'tpl-qa-1',
+    templateSnapshot:  baseSnapshot,
+    erpSalesInvoiceId: null,
+    idempotencyKey:    null,
+    paymentStatus:     'paid',
+    packageStatus,
+    purchasedAtUtc:    NOW,
+    activatedAtUtc:    NOW,
+    expiresAtUtc:      null,
+    createdAtUtc:      NOW,
+    updatedAtUtc:      NOW,
+    remainingBalance,
+  }
+}
+
+describe('derivePackageBalance', () => {
+  it('returns null for an empty purchases array', () => {
+    expect(derivePackageBalance([])).toBeNull()
+  })
+
+  it('returns null when the only active purchase has zero remaining balance', () => {
+    expect(derivePackageBalance([makePurchase('p1', 0)])).toBeNull()
+  })
+
+  it('returns null when purchases exist but none are active status', () => {
+    expect(derivePackageBalance([makePurchase('p1', 5, 'expired')])).toBeNull()
+    expect(derivePackageBalance([makePurchase('p2', 5, 'cancelled')])).toBeNull()
+  })
+
+  it('derives correct summary for one active purchase with 5 sessions', () => {
+    const result = derivePackageBalance([makePurchase('p1', 5)])
+    expect(result).toEqual({
+      totalAvailableSessions: 5,
+      activePurchaseCount:    1,
+      displayTemplateName:    'Gold Block 10',
+    })
+  })
+
+  it('aggregates balance across two active purchases — 10 sessions total, 2 active packages', () => {
+    const result = derivePackageBalance([makePurchase('p1', 5), makePurchase('p2', 5)])
+    expect(result).not.toBeNull()
+    expect(result!.totalAvailableSessions).toBe(10)
+    expect(result!.activePurchaseCount).toBe(2)
+  })
+
+  it('uses the first active purchase template name as displayTemplateName', () => {
+    const p1 = makePurchase('p1', 5)
+    const p2: PackagePurchaseWithBalance = {
+      ...makePurchase('p2', 5),
+      templateSnapshot: { ...baseSnapshot, name: 'Silver Block 5' },
+    }
+    const result = derivePackageBalance([p1, p2])
+    expect(result!.displayTemplateName).toBe('Gold Block 10')
+  })
+
+  it('excludes expired purchases from the count and total', () => {
+    const result = derivePackageBalance([
+      makePurchase('p1', 5),
+      makePurchase('p2', 3, 'expired'),
+    ])
+    expect(result!.totalAvailableSessions).toBe(5)
+    expect(result!.activePurchaseCount).toBe(1)
+  })
+
+  it('does not include ERP invoice status, payment totals, or financial data', () => {
+    const result = derivePackageBalance([makePurchase('p1', 5)])
+    expect(result).not.toHaveProperty('erpInvoiceId')
+    expect(result).not.toHaveProperty('paymentTotal')
+    expect(result).not.toHaveProperty('priceAmount')
   })
 })

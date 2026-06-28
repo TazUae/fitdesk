@@ -294,6 +294,13 @@ export type ClientNoteSummary = {
   createdAtUtc: string
 }
 
+/** Compact package session balance derived from the local ledger — shown in the Client Hub Packages card. */
+export type ClientPackageBalanceSummary = {
+  totalAvailableSessions: number
+  activePurchaseCount: number
+  displayTemplateName: string | null
+}
+
 /** One-payload overview for the Client Hub MVP — hydrated from local tables only. */
 export type ClientHubOverview = {
   client: {
@@ -314,6 +321,7 @@ export type ClientHubOverview = {
   goals: ClientGoalSummary[]
   pendingActions: ClientActionIntentSummary[]
   recentNotes: ClientNoteSummary[]
+  packageBalance: ClientPackageBalanceSummary | null
   placeholders: {
     trainingProgram: { status: 'not_started' | 'available_later'; label: string }
     progress: { status: 'not_started' | 'available_later'; label: string }
