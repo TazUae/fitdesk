@@ -284,7 +284,7 @@ describe('non-zero Pay Later happy path', () => {
     expect(mockErp.getInvoiceById).not.toHaveBeenCalled()
 
     // Invoice payload correctness
-    const payload = mockErp.createInvoice.mock.calls[0]![0] as ReturnType<typeof baseInput>
+    const payload = mockErp.createInvoice.mock.calls[0]![0] as unknown
     expect((payload as { customer: string }).customer).toBe(ERP_CUSTOMER_ID)
     expect((payload as { items: Array<{ item_code: string; qty: number; rate: number }> }).items[0]!.item_code).toBe('SVC-10')
     expect((payload as { items: Array<{ item_code: string; qty: number; rate: number }> }).items[0]!.qty).toBe(1)
@@ -310,7 +310,7 @@ describe('non-zero Pay Later happy path', () => {
     let purchaseIdAtSubmit: string | null = null
     let invoiceIdAtSubmit:  string | null = null
 
-    mockErp.submitSalesInvoice = vi.fn().mockImplementation(async (id: string) => {
+    mockErp.submitSalesInvoice.mockImplementation(async (id: string) => {
       // At submit time, find all purchases for the client
       const purchases = await purchaseRepo.listPurchasesByClient(CTX, CLIENT_ID)
       if (purchases.length > 0) {
@@ -363,9 +363,9 @@ describe('duplicate same key after full success (active replay)', () => {
     expect(mockErp.createInvoice).toHaveBeenCalledTimes(1)
 
     // Reset call counts
-    mockErp.createInvoice      = vi.fn()
-    mockErp.submitSalesInvoice = vi.fn()
-    mockErp.getInvoiceById     = vi.fn().mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
+    mockErp.createInvoice.mockClear()
+    mockErp.submitSalesInvoice.mockClear()
+    mockErp.getInvoiceById.mockClear()
 
     const second = await service.assignPackage(CTX, baseInput())
 
@@ -430,8 +430,8 @@ describe('retry after invoice created but before submit — draft invoice', () =
     await purchaseRepo.recordInvoiceCreated(CTX, purchase.id, { erpSalesInvoiceId: INVOICE_ID })
 
     // ERP returns draft → should trigger submit
-    mockErp.getInvoiceById     = vi.fn().mockResolvedValue(makeMockInvoice(INVOICE_ID, 'draft'))
-    mockErp.submitSalesInvoice = vi.fn().mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
+    mockErp.getInvoiceById.mockResolvedValue(makeMockInvoice(INVOICE_ID, 'draft'))
+    mockErp.submitSalesInvoice.mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
 
     const result = await service.assignPackage(CTX, baseInput())
 
@@ -461,8 +461,8 @@ describe('retry after invoice submitted but local finalize missing — non-draft
     await purchaseRepo.recordInvoiceCreated(CTX, purchase.id, { erpSalesInvoiceId: INVOICE_ID })
 
     // ERP already shows submitted (non-draft)
-    mockErp.getInvoiceById     = vi.fn().mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
-    mockErp.submitSalesInvoice = vi.fn()
+    mockErp.getInvoiceById.mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
+    mockErp.submitSalesInvoice.mockClear()
 
     const result = await service.assignPackage(CTX, baseInput())
 
@@ -483,9 +483,9 @@ describe('idempotency key reuse with different payload', () => {
     // Create a successful assignment first
     await service.assignPackage(CTX, baseInput())
 
-    mockErp.createInvoice      = vi.fn()
-    mockErp.submitSalesInvoice = vi.fn()
-    mockErp.getInvoiceById     = vi.fn()
+    mockErp.createInvoice.mockClear()
+    mockErp.submitSalesInvoice.mockClear()
+    mockErp.getInvoiceById.mockClear()
 
     // Attempt same key with different packageTemplateId
     await expect(
@@ -545,7 +545,7 @@ describe('unsupported currency throws before ERP call', () => {
 
 describe('ERP createInvoice failure', () => {
   it('leaves purchase pending_activation with no invoice id', async () => {
-    mockErp.createInvoice = vi.fn().mockRejectedValue(new Error('ERP 503'))
+    mockErp.createInvoice.mockRejectedValue(new Error('ERP 503'))
 
     await expect(service.assignPackage(CTX, baseInput())).rejects.toThrow('ERP 503')
 
@@ -562,7 +562,7 @@ describe('ERP createInvoice failure', () => {
 
 describe('ERP submitSalesInvoice failure', () => {
   it('leaves purchase pending_activation with invoice id recorded', async () => {
-    mockErp.submitSalesInvoice = vi.fn().mockRejectedValue(new Error('ERP submit 503'))
+    mockErp.submitSalesInvoice.mockRejectedValue(new Error('ERP submit 503'))
 
     await expect(service.assignPackage(CTX, baseInput())).rejects.toThrow('ERP submit 503')
 
@@ -591,7 +591,7 @@ describe('active replay with missing ledger event', () => {
       paymentStatus:     'unpaid',
     })
 
-    mockErp.getInvoiceById = vi.fn().mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
+    mockErp.getInvoiceById.mockResolvedValue(makeMockInvoice(INVOICE_ID, 'sent'))
 
     await expect(
       service.assignPackage(CTX, baseInput()),
