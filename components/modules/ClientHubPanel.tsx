@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -11,11 +11,13 @@ import {
   Goal,
   Loader2,
   MessageCircle,
+  Package,
   Shield,
   Sparkles,
   X,
 } from 'lucide-react'
 import { completeClientAction, dismissClientAction } from '@/actions/clients'
+import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -178,6 +180,7 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { client, goals, pendingActions, recentNotes, placeholders } = overview
+  const [assignSheetOpen, setAssignSheetOpen] = useState(false)
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -319,6 +322,32 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
         )}
       </div>
 
+      {/* ── Packages ─────────────────────────────────────────────────────────── */}
+      <div
+        className="rounded-2xl border p-4 space-y-3"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Package className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+            <SectionHeader>Packages</SectionHeader>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAssignSheetOpen(true)}
+            className="rounded-xl px-3 py-1.5 text-xs font-semibold transition-opacity active:opacity-70"
+            style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
+          >
+            Assign package
+          </button>
+        </div>
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          {client.billingMode === 'package'
+            ? 'Package billing active — use Assign package to add a new block.'
+            : 'Assign a session package to this client.'}
+        </p>
+      </div>
+
       {/* ── Recent activity ───────────────────────────────────────────────────── */}
       {recentNotes.length > 0 && (
         <div
@@ -375,6 +404,14 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
           </p>
         </div>
       </div>
+
+      {/* Assign Package sheet — mounted here so it can access the client context */}
+      <AssignPackageSheet
+        open={assignSheetOpen}
+        onClose={() => setAssignSheetOpen(false)}
+        clientIndexId={client.clientIndexId}
+        erpCustomerId={client.erpCustomerId}
+      />
     </div>
   )
 }
