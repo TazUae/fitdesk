@@ -11,7 +11,7 @@
  *  6. Cross-tenant reads return null (reads) or throw (writes) — never cross-tenant data.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
 import { isPackagePaymentStatus } from '@/lib/billing/taxonomy'
@@ -222,6 +222,38 @@ export class ClientPackagePurchaseRepository {
           eq(schema.clientPackagePurchase.tenantId, tenantId),
           eq(schema.clientPackagePurchase.idempotencyKey, idempotencyKey),
         ),
+      )
+      .limit(1)
+    return rows[0] ? hydratePurchase(rows[0]) : null
+  }
+
+  async findBestEligiblePackageForClient(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    nowUtc: string,
+  ): Promise<ClientPackagePurchase | null> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select()
+      .from(schema.clientPackagePurchase)
+      .where(
+        and(
+          eq(schema.clientPackagePurchase.tenantId, tenantId),
+          eq(schema.clientPackagePurchase.clientIndexId, clientIndexId),
+          eq(schema.clientPackagePurchase.packageStatus, 'active'),
+          or(
+            isNull(schema.clientPackagePurchase.expiresAtUtc),
+            gt(schema.clientPackagePurchase.expiresAtUtc, nowUtc),
+          ),
+        ),
+      )
+      .orderBy(
+        // NULLs sort last so no-expiry packages are consumed only after dated ones.
+        // Without this CASE guard, SQLite ASC would sort NULLs first.
+        sql`CASE WHEN ${schema.clientPackagePurchase.expiresAtUtc} IS NULL THEN 1 ELSE 0 END`,
+        asc(schema.clientPackagePurchase.expiresAtUtc),
+        asc(schema.clientPackagePurchase.activatedAtUtc),
+        asc(schema.clientPackagePurchase.id),
       )
       .limit(1)
     return rows[0] ? hydratePurchase(rows[0]) : null

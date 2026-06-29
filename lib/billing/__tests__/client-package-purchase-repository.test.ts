@@ -1377,3 +1377,208 @@ describe('buildPackageTemplateSnapshot', () => {
     expect(snap.capturedAtUtc).toBe(NOW)
   })
 })
+
+// ─── findBestEligiblePackageForClient ────────────────────────────────────────
+
+async function seedEligiblePurchase(opts: {
+  id:              string
+  tenantId:        string
+  clientIndexId:   string
+  erpCustomerId:   string
+  packageStatus?:  string
+  activatedAtUtc?: string | null
+  expiresAtUtc?:   string | null
+}) {
+  const status      = opts.packageStatus  ?? 'active'
+  const activated   = opts.activatedAtUtc !== undefined ? opts.activatedAtUtc : '2026-01-02T00:00:00.000Z'
+  const expires     = opts.expiresAtUtc   !== undefined ? opts.expiresAtUtc   : null
+  const activPart   = activated === null ? 'NULL' : `'${activated}'`
+  const expiresPart = expires   === null ? 'NULL' : `'${expires}'`
+
+  await dbClient.execute(`
+    INSERT INTO "client_package_purchase" (
+      "id","tenant_id","client_index_id","erp_customer_id","package_template_id",
+      "template_snapshot_json","payment_status","package_status",
+      "purchased_at_utc","activated_at_utc","expires_at_utc",
+      "created_at_utc","updated_at_utc"
+    ) VALUES (
+      '${opts.id}','${opts.tenantId}','${opts.clientIndexId}','${opts.erpCustomerId}',
+      'pt-1','${VALID_SNAPSHOT}','paid','${status}',
+      '2026-01-01T00:00:00.000Z',${activPart},${expiresPart},
+      '2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z'
+    )
+  `)
+}
+
+const NOW_QUERY = '2026-06-01T00:00:00.000Z'
+
+describe('findBestEligiblePackageForClient', () => {
+  it('returns null when client has no packages', async () => {
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-no-packages', NOW_QUERY,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('returns null when all active packages are expired', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-exp-only', tenantId: TENANT_A,
+      clientIndexId: 'ci-exponly', erpCustomerId: 'CUST-EXPONLY',
+      expiresAtUtc: '2026-05-31T00:00:00.000Z', // before NOW_QUERY
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-exponly', NOW_QUERY,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('excludes package whose expiresAtUtc equals nowUtc (strict greater-than)', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-exact-now', tenantId: TENANT_A,
+      clientIndexId: 'ci-exact', erpCustomerId: 'CUST-EXACT',
+      expiresAtUtc: NOW_QUERY, // exactly equal — must be excluded
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-exact', NOW_QUERY,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('returns null when no package has packageStatus=active', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-pend-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-inactive', erpCustomerId: 'CUST-INACTIVE',
+      packageStatus: 'pending_activation',
+    })
+    await seedEligiblePurchase({
+      id: 'cpp-canc-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-inactive', erpCustomerId: 'CUST-INACTIVE',
+      packageStatus: 'cancelled',
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-inactive', NOW_QUERY,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('returns the single active non-expired package', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-solo-1', tenantId: TENANT_A,
+      clientIndexId: 'ci-solo', erpCustomerId: 'CUST-SOLO',
+      expiresAtUtc: '2026-07-01T00:00:00.000Z',
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-solo', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('cpp-solo-1')
+  })
+
+  it('NULL ordering regression: dated-expiry package sorts before no-expiry package', async () => {
+    // Insert no-expiry first — insertion order must not determine result
+    await seedEligiblePurchase({
+      id: 'cpp-no-exp-reg', tenantId: TENANT_A,
+      clientIndexId: 'ci-nullreg', erpCustomerId: 'CUST-NULLREG',
+      expiresAtUtc: null, // no-expiry — must sort LAST
+    })
+    await seedEligiblePurchase({
+      id: 'cpp-dated-reg', tenantId: TENANT_A,
+      clientIndexId: 'ci-nullreg', erpCustomerId: 'CUST-NULLREG',
+      expiresAtUtc: '2026-07-01T00:00:00.000Z', // dated expiry — must sort FIRST
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-nullreg', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('cpp-dated-reg')
+  })
+
+  it('chooses earliest expiry when multiple dated packages exist', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-aug', tenantId: TENANT_A,
+      clientIndexId: 'ci-multiexp', erpCustomerId: 'CUST-MULTIEXP',
+      expiresAtUtc: '2026-09-01T00:00:00.000Z',
+    })
+    await seedEligiblePurchase({
+      id: 'cpp-jul', tenantId: TENANT_A,
+      clientIndexId: 'ci-multiexp', erpCustomerId: 'CUST-MULTIEXP',
+      expiresAtUtc: '2026-07-01T00:00:00.000Z', // earlier — must win
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-multiexp', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('cpp-jul')
+  })
+
+  it('tie-breaks by oldest activatedAtUtc when expiry dates are equal', async () => {
+    const sameExpiry = '2026-07-01T00:00:00.000Z'
+    await seedEligiblePurchase({
+      id: 'cpp-newer-act', tenantId: TENANT_A,
+      clientIndexId: 'ci-tieact', erpCustomerId: 'CUST-TIEACT',
+      expiresAtUtc:   sameExpiry,
+      activatedAtUtc: '2026-01-10T00:00:00.000Z', // newer
+    })
+    await seedEligiblePurchase({
+      id: 'cpp-older-act', tenantId: TENANT_A,
+      clientIndexId: 'ci-tieact', erpCustomerId: 'CUST-TIEACT',
+      expiresAtUtc:   sameExpiry,
+      activatedAtUtc: '2026-01-02T00:00:00.000Z', // older — must win
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-tieact', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('cpp-older-act')
+  })
+
+  it('final tie-break by id when expiry and activatedAtUtc both match', async () => {
+    const sameExpiry    = '2026-07-01T00:00:00.000Z'
+    const sameActivated = '2026-01-02T00:00:00.000Z'
+    await seedEligiblePurchase({
+      id: 'zzz-cpp-tie', tenantId: TENANT_A,
+      clientIndexId: 'ci-tieid', erpCustomerId: 'CUST-TIEID',
+      expiresAtUtc: sameExpiry, activatedAtUtc: sameActivated,
+    })
+    await seedEligiblePurchase({
+      id: 'aaa-cpp-tie', tenantId: TENANT_A,
+      clientIndexId: 'ci-tieid', erpCustomerId: 'CUST-TIEID',
+      expiresAtUtc: sameExpiry, activatedAtUtc: sameActivated,
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-tieid', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('aaa-cpp-tie') // lexicographically first
+  })
+
+  it('no-expiry packages tie-break by id when activatedAtUtc also matches', async () => {
+    const sameActivated = '2026-01-02T00:00:00.000Z'
+    await seedEligiblePurchase({
+      id: 'zzz-noexp', tenantId: TENANT_A,
+      clientIndexId: 'ci-noexptie', erpCustomerId: 'CUST-NOEXPTIE',
+      expiresAtUtc: null, activatedAtUtc: sameActivated,
+    })
+    await seedEligiblePurchase({
+      id: 'aaa-noexp', tenantId: TENANT_A,
+      clientIndexId: 'ci-noexptie', erpCustomerId: 'CUST-NOEXPTIE',
+      expiresAtUtc: null, activatedAtUtc: sameActivated,
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_A }, 'ci-noexptie', NOW_QUERY,
+    )
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('aaa-noexp')
+  })
+
+  it('does not return packages from a different tenant', async () => {
+    await seedEligiblePurchase({
+      id: 'cpp-iso-only', tenantId: TENANT_A,
+      clientIndexId: 'ci-iso', erpCustomerId: 'CUST-ISO',
+    })
+    const result = await repo.findBestEligiblePackageForClient(
+      { tenantId: TENANT_B }, 'ci-iso', NOW_QUERY,
+    )
+    expect(result).toBeNull()
+  })
+})
