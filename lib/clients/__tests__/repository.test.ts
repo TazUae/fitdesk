@@ -202,6 +202,45 @@ describe('createClientRow', () => {
   })
 })
 
+// ─── findClientById ───────────────────────────────────────────────────────────
+
+describe('findClientById', () => {
+  it('returns the client when found in the correct tenant', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const found = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(found).not.toBeNull()
+    expect(found?.id).toBe(created.clientIndex.id)
+    expect(found?.erpCustomerId).toBe(ERP_ID_1)
+    expect(found?.fullName).toBe('Sara Ahmad')
+    expect(found?.tenantId).toBe(TENANT_A)
+  })
+
+  it('returns null when the id is correct but belongs to a different tenant (cross-tenant isolation)', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+
+    const found = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(found).toBeNull()
+  })
+
+  it('returns null for an unknown client id', async () => {
+    const found = await repo.findClientById({ tenantId: TENANT_A }, 'nonexistent-id-000')
+
+    expect(found).toBeNull()
+  })
+
+  it('throws when tenantId is blank', async () => {
+    await expect(
+      repo.findClientById({ tenantId: '' }, 'some-id'),
+    ).rejects.toThrow('[ClientRepository] tenantId is required')
+  })
+})
+
 // ─── Tenant isolation ─────────────────────────────────────────────────────────
 
 describe('tenant isolation', () => {

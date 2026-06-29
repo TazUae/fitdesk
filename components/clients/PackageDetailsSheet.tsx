@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Package, X } from 'lucide-react'
-import { getClientPackageSummary, voidClientPackagePurchase } from '@/actions/packages'
+import { getClientPackageSummary, usePackageSession as recordPackageSession, voidClientPackagePurchase } from '@/actions/packages'
+import { toast } from 'sonner'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import type { PackagePurchaseWithBalance } from '@/types/billing'
 
@@ -92,6 +93,10 @@ export function PackageDetailsSheet({
   const [otherDetails, setOtherDetails]     = useState('')
   const [voidError, setVoidError]           = useState<string | null>(null)
   const ikeyRef                             = useRef<string | null>(null)
+  const isConsumingRef                      = useRef(false)
+
+  // Total available sessions across all active packages (ledger-derived)
+  const totalAvailable = purchases.reduce((sum, p) => sum + p.remainingBalance, 0)
 
   // Derived: final reason string sent to the action
   function derivedReason(): string {
@@ -173,6 +178,40 @@ export function PackageDetailsSheet({
     })
   }
 
+  // ── Use-session handler ─────────────────────────────────────────────────────
+
+  function handleUseSession() {
+    if (isPending || isConsumingRef.current) return
+    isConsumingRef.current = true
+    const ikey = crypto.randomUUID()
+    startTransition(async () => {
+      try {
+        const result = await recordPackageSession({ clientIndexId, idempotencyKey: ikey })
+        if (!result.success) {
+          toast.error(result.error ?? 'Could not record the session.')
+          return
+        }
+        const { outcome } = result.data
+        if (outcome === 'consumed') {
+          toast.success(`Session recorded. ${result.data.remainingBalance} remaining.`)
+        } else if (outcome === 'already_done') {
+          toast.info('This session was already recorded.')
+        } else if (outcome === 'no_package') {
+          toast.warning('No active package found for this client.')
+        } else if (outcome === 'no_balance') {
+          toast.warning("No sessions left to use on this client's packages.")
+        }
+        const summary = await getClientPackageSummary(clientIndexId)
+        if (summary.success) {
+          setPurchases(summary.data.purchases.filter(p => p.packageStatus === 'active'))
+        }
+        router.refresh()
+      } finally {
+        isConsumingRef.current = false
+      }
+    })
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -219,6 +258,40 @@ export function PackageDetailsSheet({
             <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
               No active packages.
             </p>
+          </div>
+        )}
+
+        {loadState === 'ready' && purchases.length > 0 && (
+          <div
+            className="rounded-xl border p-4"
+            style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                  Record a session
+                </p>
+                <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                  {totalAvailable} session{totalAvailable !== 1 ? 's' : ''} available
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleUseSession}
+                disabled={isPending || totalAvailable <= 0}
+                className="shrink-0 rounded-xl border px-4 py-2 text-xs font-semibold transition-opacity disabled:opacity-50 active:opacity-70"
+                style={{
+                  borderColor:     'var(--fd-accent)',
+                  color:           'var(--fd-accent)',
+                  backgroundColor: 'var(--fd-card)',
+                }}
+              >
+                {isPending
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : 'Use 1 session'
+                }
+              </button>
+            </div>
           </div>
         )}
 

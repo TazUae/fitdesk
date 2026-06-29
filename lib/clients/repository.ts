@@ -185,6 +185,24 @@ export class ClientRepository {
     return rows[0] ? hydrateClientIndex(rows[0]) : null
   }
 
+  async findClientById(
+    ctx: TenantCtx,
+    clientIndexId: string,
+  ): Promise<ClientIndex | null> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+      .limit(1)
+    return rows[0] ? hydrateClientIndex(rows[0]) : null
+  }
+
   async findClientsByStatus(
     ctx: TenantCtx,
     status: ClientIndexStatus,

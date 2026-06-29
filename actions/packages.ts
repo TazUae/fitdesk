@@ -12,9 +12,11 @@ import {
 import { isEnabledPaymentMethod } from '@/lib/payments/methods'
 import { PackageAssignmentService } from '@/lib/billing/package-assignment-service'
 import { PackageVoidService } from '@/lib/billing/package-void-service'
+import { PackageConsumptionService } from '@/lib/billing/package-consumption-service'
 import { PackageTemplateRepository } from '@/lib/billing/package-template-repository'
 import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
 import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
+import { ClientRepository } from '@/lib/clients/repository'
 import type {
   AssignPackageInput,
   AssignPackageResult,
@@ -23,6 +25,7 @@ import type {
   VoidPackageInput,
   VoidPackageResult,
 } from '@/types/billing'
+import type { ConsumeSessionResult } from '@/lib/billing/package-consumption-service'
 import type { ActionResult } from '@/types'
 
 /**
@@ -156,6 +159,59 @@ export async function voidClientPackagePurchase(
     const message = err instanceof Error
       ? err.message.replace(/^\[PackageVoidService\]\s*/, '')
       : 'Failed to void package.'
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Record a "Use 1 session" debit against the best available active package.
+ *
+ * clientIndexId and idempotencyKey come from the browser.
+ * erpCustomerId is always resolved server-side from the client record — never
+ * trusted from the caller. All four ConsumeSessionResult outcomes return
+ * success:true; only auth/tenant/validation/unexpected errors return success:false.
+ * No ERP writes. No invoice or payment side effects.
+ */
+export async function usePackageSession(
+  input: { clientIndexId: string; idempotencyKey: string },
+): Promise<ActionResult<ConsumeSessionResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, error: 'Workspace not provisioned. Please contact support.' }
+  }
+
+  if (!input.clientIndexId || input.clientIndexId.trim() === '') {
+    return { success: false, error: 'clientIndexId is required.' }
+  }
+  if (!input.idempotencyKey || input.idempotencyKey.trim() === '') {
+    return { success: false, error: 'idempotencyKey is required.' }
+  }
+
+  const tenantCtx = { tenantId: ctx.tenantId }
+
+  try {
+    const client = await new ClientRepository(db).findClientById(tenantCtx, input.clientIndexId)
+    if (!client) {
+      return { success: false, error: 'Client not found.' }
+    }
+
+    const service = new PackageConsumptionService(db)
+    const data = await service.consumeSession(tenantCtx, {
+      sessionId:        input.idempotencyKey,
+      clientIndexId:    input.clientIndexId,
+      erpCustomerId:    client.erpCustomerId,
+      consumedByUserId: ctx.userId,
+      nowUtc:           new Date().toISOString(),
+    })
+    return { success: true, data }
+  } catch (err) {
+    console.error('[usePackageSession]', err instanceof Error ? err.message : String(err))
+    const message = err instanceof Error
+      ? err.message.replace(/^\[PackageConsumptionService\]\s*/, '')
+      : 'Could not record the session.'
     return { success: false, error: message }
   }
 }

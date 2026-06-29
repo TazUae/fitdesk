@@ -44,6 +44,14 @@ const mocks = vi.hoisted(() => {
   const PackageLedgerRepositoryMock         = vi.fn().mockImplementation(function () {
     return { deriveBalancesByClient: deriveBalancesByClientMock }
   })
+  const consumeSessionMock = vi.fn()
+  const PackageConsumptionServiceMock = vi.fn().mockImplementation(function () {
+    return { consumeSession: consumeSessionMock }
+  })
+  const findClientByIdMock = vi.fn()
+  const ClientRepositoryMock = vi.fn().mockImplementation(function () {
+    return { findClientById: findClientByIdMock }
+  })
   return {
     resolveTrainerId:            vi.fn(),
     getTenantContext:            vi.fn(),
@@ -59,6 +67,10 @@ const mocks = vi.hoisted(() => {
     PackageTemplateRepositoryMock,
     ClientPackagePurchaseRepositoryMock,
     PackageLedgerRepositoryMock,
+    consumeSessionMock,
+    PackageConsumptionServiceMock,
+    findClientByIdMock,
+    ClientRepositoryMock,
   }
 })
 
@@ -95,8 +107,16 @@ vi.mock('@/lib/billing/package-ledger-repository', () => ({
   PackageLedgerRepository: mocks.PackageLedgerRepositoryMock,
 }))
 
+vi.mock('@/lib/billing/package-consumption-service', () => ({
+  PackageConsumptionService: mocks.PackageConsumptionServiceMock,
+}))
+
+vi.mock('@/lib/clients/repository', () => ({
+  ClientRepository: mocks.ClientRepositoryMock,
+}))
+
 // Import AFTER mocks are registered
-import { assignPackage, listAssignablePackageTemplates, getClientPackageSummary } from '@/actions/packages'
+import { assignPackage, listAssignablePackageTemplates, getClientPackageSummary, usePackageSession } from '@/actions/packages'
 
 // ─── Test fixtures ────────────────────────────────────────────────────────────
 
@@ -185,6 +205,52 @@ function makeAssignResult(): AssignPackageResult {
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
+function makeClientFixture() {
+  return {
+    id:                        'ci-c3c-1',
+    tenantId:                  'tenant-c3c',
+    erpCustomerId:             'CUST-C3C-001',
+    fullName:                  'Test Client',
+    phoneE164:                 '+96170000001',
+    whatsappEnabled:           false,
+    status:                    'active',
+    primaryGoalLabel:          null,
+    primaryGoalId:             null,
+    safetyState:               'clear',
+    onboardingState:           'not_started',
+    billingMode:               'unset',
+    paymentSummary:            'unset',
+    nextSessionAtUtc:          null,
+    lastActivityAtUtc:         '2026-06-29T00:00:00Z',
+    possibleDuplicateClientId: null,
+    duplicateOverrideReason:   null,
+    createdAtUtc:              '2026-06-29T00:00:00Z',
+    updatedAtUtc:              '2026-06-29T00:00:00Z',
+  }
+}
+
+function makeConsumedResult() {
+  return {
+    outcome:           'consumed' as const,
+    ledgerEvent: {
+      id:                'led-c6b-1',
+      tenantId:          'tenant-c3c',
+      clientIndexId:     'ci-c3c-1',
+      erpCustomerId:     'CUST-C3C-001',
+      packagePurchaseId: 'purch-c6b-1',
+      eventType:         'session_consumed',
+      deltaUnits:        -1,
+      reason:            null,
+      idempotencyKey:    'session_consumed:ikey-c6b-1',
+      erpReference:      'ikey-c6b-1',
+      createdByUserId:   'user-c3c-1',
+      createdAtUtc:      '2026-06-29T00:00:00Z',
+    },
+    packagePurchaseId: 'purch-c6b-1',
+    remainingBalance:  9,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.resolveTrainerId.mockResolvedValue({ trainerId: 'trainer-c3c-1' })
@@ -193,6 +259,8 @@ beforeEach(() => {
   mocks.listTemplatesMock.mockResolvedValue([])
   mocks.listPurchasesByClientMock.mockResolvedValue([])
   mocks.deriveBalancesByClientMock.mockResolvedValue({})
+  mocks.findClientByIdMock.mockResolvedValue(makeClientFixture())
+  mocks.consumeSessionMock.mockResolvedValue(makeConsumedResult())
 })
 
 // ─── 1. Success path ──────────────────────────────────────────────────────────
@@ -342,6 +410,180 @@ describe('ERP adapter injection', () => {
   })
 })
 
+// ─── 13. usePackageSession ───────────────────────────────────────────────────
+
+describe('usePackageSession', () => {
+  const baseInput = { clientIndexId: 'ci-c3c-1', idempotencyKey: 'ikey-c6b-1' }
+
+  it('returns success:true with consumed outcome', async () => {
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.outcome).toBe('consumed')
+  })
+
+  it('returns success:true with already_done outcome', async () => {
+    mocks.consumeSessionMock.mockResolvedValueOnce({
+      outcome:     'already_done' as const,
+      ledgerEvent: makeConsumedResult().ledgerEvent,
+    })
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.outcome).toBe('already_done')
+  })
+
+  it('returns success:true with no_package outcome', async () => {
+    mocks.consumeSessionMock.mockResolvedValueOnce({
+      outcome: 'no_package' as const,
+      reason:  'No active non-expired package found for this client.',
+    })
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.outcome).toBe('no_package')
+  })
+
+  it('returns success:true with no_balance outcome', async () => {
+    mocks.consumeSessionMock.mockResolvedValueOnce({
+      outcome:           'no_balance' as const,
+      reason:            'Package purch-c6b-1 has no remaining sessions.',
+      packagePurchaseId: 'purch-c6b-1',
+    })
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(true)
+    if (!result.success) throw new Error('expected success')
+    expect(result.data.outcome).toBe('no_balance')
+  })
+
+  it('resolves erpCustomerId from findClientById, not from caller input', async () => {
+    await usePackageSession(baseInput)
+
+    expect(mocks.findClientByIdMock).toHaveBeenCalledOnce()
+    expect(mocks.consumeSessionMock).toHaveBeenCalledOnce()
+    const [, serviceInput] = mocks.consumeSessionMock.mock.calls[0]!
+    expect(serviceInput.erpCustomerId).toBe('CUST-C3C-001')  // from mocked client
+    expect(serviceInput.sessionId).toBe('ikey-c6b-1')        // from input.idempotencyKey
+    expect(serviceInput.clientIndexId).toBe('ci-c3c-1')
+    expect(serviceInput.consumedByUserId).toBe('user-c3c-1') // from ctx.userId
+  })
+
+  it('calls findClientById with tenant context, not raw tenantId from caller', async () => {
+    await usePackageSession(baseInput)
+
+    expect(mocks.findClientByIdMock).toHaveBeenCalledWith(
+      { tenantId: 'tenant-c3c' },
+      'ci-c3c-1',
+    )
+  })
+
+  it('returns success:false when client is not found and does not call service', async () => {
+    mocks.findClientByIdMock.mockResolvedValueOnce(null)
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('Client not found.')
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when resolveTrainerId returns an error', async () => {
+    mocks.resolveTrainerId.mockResolvedValueOnce({ error: 'Not authenticated.' })
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('Not authenticated.')
+    expect(mocks.getTenantContext).not.toHaveBeenCalled()
+    expect(mocks.findClientByIdMock).not.toHaveBeenCalled()
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when getTenantContext returns null', async () => {
+    mocks.getTenantContext.mockResolvedValueOnce(null)
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/workspace not provisioned/i)
+    expect(mocks.findClientByIdMock).not.toHaveBeenCalled()
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when tenantId is null in the context', async () => {
+    mocks.getTenantContext.mockResolvedValueOnce({ ...TENANT_CTX, tenantId: null })
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/workspace not provisioned/i)
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when clientIndexId is blank', async () => {
+    const result = await usePackageSession({ clientIndexId: '  ', idempotencyKey: 'ikey-1' })
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/clientIndexId/i)
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when idempotencyKey is blank', async () => {
+    const result = await usePackageSession({ clientIndexId: 'ci-1', idempotencyKey: '' })
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/idempotencyKey/i)
+    expect(mocks.consumeSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false and strips [PackageConsumptionService] prefix when service throws', async () => {
+    mocks.consumeSessionMock.mockRejectedValueOnce(
+      new Error('[PackageConsumptionService] sessionId must not be blank'),
+    )
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('sessionId must not be blank')
+    expect(result.error).not.toContain('[PackageConsumptionService]')
+  })
+
+  it('returns success:false with fallback message when service throws a non-Error', async () => {
+    mocks.consumeSessionMock.mockRejectedValueOnce('something opaque')
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toBe('Could not record the session.')
+  })
+
+  it('does not leak stack traces in the error message', async () => {
+    mocks.consumeSessionMock.mockRejectedValueOnce(new Error('internal db error'))
+
+    const result = await usePackageSession(baseInput)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).not.toContain('at ')
+    expect(result.error).not.toContain('\n')
+  })
+})
+
 // ─── 8–12. Static source invariants ──────────────────────────────────────────
 
 describe('action source invariants', () => {
@@ -379,6 +621,21 @@ describe('action source invariants', () => {
     // Use word-boundary regex so 'createAndSubmitPaymentEntry' (our function) is not a false positive
     expect(src).not.toMatch(/\bPaymentEntry\b/)
     expect(src).not.toContain('markInvoicePaid')
+  })
+
+  it('exports usePackageSession', () => {
+    expect(src).toContain('export async function usePackageSession')
+  })
+
+  it('usePackageSession input type has no erpCustomerId — browser cannot forge it', () => {
+    // Extract the input type annotation from the function signature
+    const match = src.match(/usePackageSession\s*\(\s*input\s*:\s*\{([^}]+)\}/)
+    expect(match).toBeTruthy()
+    expect(match![1]).not.toContain('erpCustomerId')
+  })
+
+  it('does not import from lib/erpnext/client', () => {
+    expect(src).not.toContain('lib/erpnext/client')
   })
 })
 
