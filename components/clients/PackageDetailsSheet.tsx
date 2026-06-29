@@ -41,6 +41,17 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/** First 8 characters of a UUID — enough for trainer visual confirmation. */
+function shortId(id: string): string {
+  return id.slice(0, 8)
+}
+
+/** Human label for position when multiple active packages exist. */
+function orderLabel(index: number, total: number): string | null {
+  if (total < 2) return null
+  return index === 0 ? 'Newest active package' : 'Older active package'
+}
+
 function isVoidEligible(p: PackagePurchaseWithBalance): boolean {
   return (
     p.packageStatus === 'active' &&
@@ -211,9 +222,10 @@ export function PackageDetailsSheet({
           </div>
         )}
 
-        {loadState === 'ready' && purchases.map(p => {
+        {loadState === 'ready' && purchases.map((p, idx) => {
           const eligible     = isVoidEligible(p)
           const isConfirming = voidingId === p.id
+          const label        = orderLabel(idx, purchases.length)
 
           return (
             <div
@@ -221,8 +233,16 @@ export function PackageDetailsSheet({
               className="rounded-xl border p-4 space-y-3"
               style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
             >
-              {/* Package summary row */}
-              <div className="space-y-0.5">
+              {/* ── Package identity card ── */}
+              <div className="space-y-1">
+                {label && (
+                  <p
+                    className="text-xs font-semibold uppercase tracking-wide"
+                    style={{ color: 'var(--fd-accent)' }}
+                  >
+                    {label}
+                  </p>
+                )}
                 <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
                   {p.templateSnapshot.name}
                 </p>
@@ -231,17 +251,25 @@ export function PackageDetailsSheet({
                 </p>
                 {p.activatedAtUtc && (
                   <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    Activated {formatDate(p.activatedAtUtc)}
+                    Activated: {formatDate(p.activatedAtUtc)}
                   </p>
                 )}
+                {p.expiresAtUtc && (
+                  <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                    Expires: {formatDate(p.expiresAtUtc)}
+                  </p>
+                )}
+                <p className="text-xs font-mono" style={{ color: 'var(--fd-muted)' }}>
+                  Package ID: {shortId(p.id)}
+                </p>
               </div>
 
-              {/* Void confirmation or void trigger */}
+              {/* ── Void confirmation or void trigger ── */}
               {isConfirming ? (
                 <div className="space-y-3">
-                  {/* Warning banner */}
+                  {/* Identity confirmation banner */}
                   <div
-                    className="rounded-xl border px-3 py-2.5 space-y-1"
+                    className="rounded-xl border px-3 py-2.5 space-y-2"
                     style={{
                       backgroundColor: 'rgba(232,92,106,0.06)',
                       borderColor:     'rgba(232,92,106,0.25)',
@@ -251,8 +279,34 @@ export function PackageDetailsSheet({
                       Void package?
                     </p>
                     <p className="text-xs" style={{ color: 'var(--fd-red)' }}>
-                      This will remove the remaining sessions from this package without deleting the audit history.
+                      This will void this specific package assignment without deleting the audit history.
                     </p>
+
+                    {/* Package identity repeated in confirmation */}
+                    <div
+                      className="space-y-0.5 pt-1.5 border-t"
+                      style={{ borderColor: 'rgba(232,92,106,0.2)' }}
+                    >
+                      <p className="text-xs font-semibold" style={{ color: 'var(--fd-red)' }}>
+                        {p.templateSnapshot.name}
+                      </p>
+                      <p className="text-xs" style={{ color: 'var(--fd-red)' }}>
+                        {p.remainingBalance} session{p.remainingBalance !== 1 ? 's' : ''} will be reversed
+                      </p>
+                      {p.activatedAtUtc && (
+                        <p className="text-xs" style={{ color: 'var(--fd-red)' }}>
+                          Activated: {formatDate(p.activatedAtUtc)}
+                        </p>
+                      )}
+                      {p.expiresAtUtc && (
+                        <p className="text-xs" style={{ color: 'var(--fd-red)' }}>
+                          Expires: {formatDate(p.expiresAtUtc)}
+                        </p>
+                      )}
+                      <p className="text-xs font-mono" style={{ color: 'var(--fd-red)' }}>
+                        Package ID: {shortId(p.id)}
+                      </p>
+                    </div>
                   </div>
 
                   {/* Reason selector */}

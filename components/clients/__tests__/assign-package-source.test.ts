@@ -185,6 +185,28 @@ describe('PackageDetailsSheet — source invariants', () => {
     expect(DETAILS_SRC).toContain('reversal ledger entry')
   })
 
+  it('renders shortId helper and Package ID label for identity safety', () => {
+    expect(DETAILS_SRC).toContain('shortId')
+    expect(DETAILS_SRC).toContain('Package ID:')
+  })
+
+  it('renders expiry date on the package card when available', () => {
+    expect(DETAILS_SRC).toContain('expiresAtUtc')
+    expect(DETAILS_SRC).toContain('Expires:')
+  })
+
+  it('renders order label (Newest / Older) for multiple packages', () => {
+    expect(DETAILS_SRC).toContain('orderLabel')
+    expect(DETAILS_SRC).toContain('Newest active package')
+    expect(DETAILS_SRC).toContain('Older active package')
+  })
+
+  it('repeats package identity in the void confirmation panel', () => {
+    // Name, sessions-reversed copy, activated, and Package ID appear inside the confirmation block
+    expect(DETAILS_SRC).toContain('will be reversed')
+    expect(DETAILS_SRC).toContain('this specific package assignment')
+  })
+
   it('uses crypto.randomUUID for idempotency key — no server-supplied key', () => {
     expect(DETAILS_SRC).toContain('crypto.randomUUID()')
   })
