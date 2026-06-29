@@ -220,6 +220,17 @@ describe('PackageDetailsSheet — source invariants', () => {
     expect(DETAILS_SRC).not.toMatch(/deduct session|session deduct/i)
   })
 
+  it('consumed toast uses client-level totalAvailable minus 1, not per-package remainingBalance', () => {
+    // Toast must reflect total remaining across all packages, not just the consumed package balance.
+    expect(DETAILS_SRC).not.toContain('result.data.remainingBalance')
+    expect(DETAILS_SRC).toContain('totalAvailable - 1')
+    expect(DETAILS_SRC).toContain('Math.max(')
+    expect(DETAILS_SRC).toContain('Session recorded.')
+    // Singular-safe: both 'session remaining' and 'sessions remaining' forms present as string literals
+    expect(DETAILS_SRC).toContain("'session'")
+    expect(DETAILS_SRC).toContain("'sessions'")
+  })
+
   it('does not call fetch directly', () => {
     expect(DETAILS_SRC).not.toMatch(/\bfetch\s*\(/)
   })

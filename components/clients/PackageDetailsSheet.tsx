@@ -193,7 +193,8 @@ export function PackageDetailsSheet({
         }
         const { outcome } = result.data
         if (outcome === 'consumed') {
-          toast.success(`Session recorded. ${result.data.remainingBalance} remaining.`)
+          const remaining = Math.max(totalAvailable - 1, 0)
+          toast.success(`Session recorded. ${remaining} ${remaining === 1 ? 'session' : 'sessions'} remaining.`)
         } else if (outcome === 'already_done') {
           toast.info('This session was already recorded.')
         } else if (outcome === 'no_package') {
