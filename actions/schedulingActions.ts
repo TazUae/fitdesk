@@ -5,9 +5,11 @@
  *
  * C2 scope: list + config.
  * C3 scope: +buildPlanAction (server-side plan preview), +bookPlanAction (create sessions).
+ * C4B scope: +completeSessionAction (trial + billing dispatch shell).
  *
- * Not included (deferred to C4–C5):
- *   completeSessionAction, cancelSessionAction, rescheduleSessionAction, markNoShowAction
+ * Not included (deferred to C4C–C5):
+ *   cancelSessionAction, rescheduleSessionAction, markNoShowAction
+ *   Package ledger integration (C4C), pay-per-session invoice (C7).
  *
  * Auth: uses resolveTrainerId() from lib/auth/resolve-trainer (same pattern
  * as other FitDesk server actions) so all ERP queries are automatically
@@ -15,9 +17,16 @@
  */
 
 import { DateTime } from 'luxon'
+import { db } from '@/lib/db'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
+import { getTenantContext } from '@/lib/tenant/context'
+import { ClientRepository } from '@/lib/clients/repository'
 import { buildBookingPlan } from '@/lib/scheduling/engine'
-import { findSessionsInRange } from '@/lib/scheduling/sessionRepository'
+import {
+  findSessionsInRange,
+  findSessionById,
+  updateSession,
+} from '@/lib/scheduling/sessionRepository'
 import { getTrainerConfig } from '@/lib/scheduling/trainerConfig'
 import {
   bookFromPlan,
@@ -25,6 +34,14 @@ import {
   OutOfHoursError,
   type BookFromPlanResult,
 } from '@/lib/scheduling/bookingService'
+import {
+  completeSession,
+  BillingNotConfiguredError,
+  PayPerSessionCompletionDeferredError,
+  PackageCompletionNotReadyError,
+  VersionConflictError,
+  ImmutableSessionError,
+} from '@/lib/scheduling/sessionCompletionService'
 import type { BookingPlan, FDSession, TrainerConfig } from '@/types/scheduling'
 
 // ─── Result types ─────────────────────────────────────────────────────────────
@@ -34,6 +51,11 @@ export type SchedulingErrorCode =
   | 'CONFLICT'
   | 'OUT_OF_HOURS'
   | 'EMPTY_PLAN'
+  | 'BILLING_NOT_CONFIGURED'
+  | 'VERSION_CONFLICT'
+  | 'IMMUTABLE_STATUS'
+  | 'PPS_DEFERRED'
+  | 'PACKAGE_NOT_READY'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -46,16 +68,31 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
   if (err instanceof ConflictError) {
     return {
       success: false,
-      code: 'CONFLICT',
+      code:    'CONFLICT',
       message: `${err.conflicts.length} session(s) conflict with existing bookings`,
     }
   }
   if (err instanceof OutOfHoursError) {
     return {
       success: false,
-      code: 'OUT_OF_HOURS',
+      code:    'OUT_OF_HOURS',
       message: err.violations[0]?.reason ?? 'Session falls outside working hours',
     }
+  }
+  if (err instanceof BillingNotConfiguredError) {
+    return { success: false, code: 'BILLING_NOT_CONFIGURED', message: err.message }
+  }
+  if (err instanceof PayPerSessionCompletionDeferredError) {
+    return { success: false, code: 'PPS_DEFERRED', message: err.message }
+  }
+  if (err instanceof PackageCompletionNotReadyError) {
+    return { success: false, code: 'PACKAGE_NOT_READY', message: err.message }
+  }
+  if (err instanceof VersionConflictError) {
+    return { success: false, code: 'VERSION_CONFLICT', message: err.message }
+  }
+  if (err instanceof ImmutableSessionError) {
+    return { success: false, code: 'IMMUTABLE_STATUS', message: err.message }
   }
   return {
     success: false,
@@ -205,6 +242,56 @@ export async function bookPlanAction(
   try {
     const config = await getTrainerConfig(resolved.trainerId)
     const result = await bookFromPlan(plan, config, rate, sessionType, notes)
+    return { success: true, data: result }
+  } catch (err) {
+    return mapError(err)
+  }
+}
+
+/**
+ * Mark an FD Session as completed.
+ *
+ * C4B dispatch:
+ *   - Trial (isTrialSession=true): status flip only — no billing, no ledger.
+ *   - Package: blocked (PackageCompletionNotReadyError → PACKAGE_NOT_READY).
+ *     Package ledger integration arrives in C4C.
+ *   - Pay-per-session: blocked (PayPerSessionCompletionDeferredError → PPS_DEFERRED).
+ *     Invoice creation is deferred to C7.
+ *   - Unset or missing billing mode: blocked (BillingNotConfiguredError → BILLING_NOT_CONFIGURED).
+ *
+ * Guards: version check (VERSION_CONFLICT) + mutable-state check (IMMUTABLE_STATUS).
+ *
+ * No package ledger mutations. No invoice creation. No payment writes.
+ */
+export async function completeSessionAction(
+  id:              string,
+  expectedVersion: number,
+): Promise<SchedulingResult<FDSession>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, code: 'ERR', message: 'Workspace not provisioned' }
+  }
+
+  const tenantCtx = { tenantId: ctx.tenantId }
+
+  try {
+    const result = await completeSession(
+      {
+        findSessionById,
+        updateSession,
+        resolveBillingMode: async (clientId) => {
+          const client = await new ClientRepository(db).findClientByErpId(tenantCtx, clientId)
+          return client?.billingMode ?? null
+        },
+      },
+      id,
+      expectedVersion,
+    )
     return { success: true, data: result }
   } catch (err) {
     return mapError(err)

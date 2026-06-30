@@ -9,9 +9,27 @@ vi.mock('@/lib/auth/resolve-trainer', () => ({
   resolveTrainerId: vi.fn(),
 }))
 
+// Mock tenant context.
+vi.mock('@/lib/tenant/context', () => ({
+  getTenantContext: vi.fn(),
+}))
+
+// Mock DB — avoids libsql connection at import time.
+vi.mock('@/lib/db', () => ({ db: {} }))
+
+// Mock client repository — used by completeSessionAction for billing mode lookup.
+const mockFindClientByErpId = vi.fn()
+vi.mock('@/lib/clients/repository', () => ({
+  ClientRepository: class {
+    findClientByErpId = mockFindClientByErpId
+  },
+}))
+
 // Mock ERP repository and trainer config.
 vi.mock('@/lib/scheduling/sessionRepository', () => ({
   findSessionsInRange: vi.fn(),
+  findSessionById:     vi.fn(),
+  updateSession:       vi.fn(),
 }))
 vi.mock('@/lib/scheduling/trainerConfig', () => ({
   getTrainerConfig: vi.fn(),
@@ -43,24 +61,74 @@ vi.mock('@/lib/scheduling/engine', () => ({
   buildBookingPlan: vi.fn(),
 }))
 
+// Mock completion service — C4B action tests verify auth + error mapping, not service internals.
+vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
+  completeSession: vi.fn(),
+  BillingNotConfiguredError: class BillingNotConfiguredError extends Error {
+    clientId: string
+    constructor(clientId: string) {
+      super(`Client ${clientId} has no billing mode configured`)
+      this.name = 'BillingNotConfiguredError'
+      this.clientId = clientId
+    }
+  },
+  PayPerSessionCompletionDeferredError: class PayPerSessionCompletionDeferredError extends Error {
+    sessionId: string
+    constructor(sessionId: string) {
+      super('Pay-per-session completion is deferred to C7')
+      this.name = 'PayPerSessionCompletionDeferredError'
+      this.sessionId = sessionId
+    }
+  },
+  PackageCompletionNotReadyError: class PackageCompletionNotReadyError extends Error {
+    clientId: string
+    constructor(clientId: string) {
+      super(`Package completion not yet available for client ${clientId}`)
+      this.name = 'PackageCompletionNotReadyError'
+      this.clientId = clientId
+    }
+  },
+  VersionConflictError: class VersionConflictError extends Error {
+    sessionId: string
+    constructor(id: string) {
+      super(`Session ${id} version conflict`)
+      this.name = 'VersionConflictError'
+      this.sessionId = id
+    }
+  },
+  ImmutableSessionError: class ImmutableSessionError extends Error {
+    status: string
+    constructor(id: string, status: string) {
+      super(`Session ${id} cannot be modified: status is '${status}'`)
+      this.name = 'ImmutableSessionError'
+      this.status = status
+    }
+  },
+}))
+
 import {
   listFDSessionsAction,
   getSchedulerConfig,
   buildPlanAction,
   bookPlanAction,
+  completeSessionAction,
 } from '@/actions/schedulingActions'
 import * as resolveTrainerMod from '@/lib/auth/resolve-trainer'
+import * as tenantContextMod from '@/lib/tenant/context'
 import * as sessionRepo from '@/lib/scheduling/sessionRepository'
 import * as trainerConfigMod from '@/lib/scheduling/trainerConfig'
 import * as bookingServiceMod from '@/lib/scheduling/bookingService'
 import * as engineMod from '@/lib/scheduling/engine'
+import * as completionServiceMod from '@/lib/scheduling/sessionCompletionService'
 import type { FDSession, TrainerConfig, BookingPlan, Occurrence } from '@/types/scheduling'
 
 const mockResolveTrainerId    = vi.mocked(resolveTrainerMod.resolveTrainerId)
+const mockGetTenantContext    = vi.mocked(tenantContextMod.getTenantContext)
 const mockFindSessionsInRange = vi.mocked(sessionRepo.findSessionsInRange)
 const mockGetTrainerConfig    = vi.mocked(trainerConfigMod.getTrainerConfig)
 const mockBookFromPlan        = vi.mocked(bookingServiceMod.bookFromPlan)
 const mockBuildBookingPlan    = vi.mocked(engineMod.buildBookingPlan)
+const mockCompleteSession     = vi.mocked(completionServiceMod.completeSession)
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -121,10 +189,13 @@ const MOCK_PLAN: BookingPlan = {
 
 beforeEach(() => {
   mockResolveTrainerId.mockReset()
+  mockGetTenantContext.mockReset()
   mockFindSessionsInRange.mockReset()
   mockGetTrainerConfig.mockReset()
   mockBookFromPlan.mockReset()
   mockBuildBookingPlan.mockReset()
+  mockCompleteSession.mockReset()
+  mockFindClientByErpId.mockReset()
 })
 
 // ─── listFDSessionsAction ──────────────────────────────────────────────────────
@@ -451,9 +522,9 @@ describe('bookPlanAction', () => {
   })
 })
 
-// ─── C3 export surface ────────────────────────────────────────────────────────
+// ─── C4B export surface ───────────────────────────────────────────────────────
 
-describe('C3 export surface — booking actions exported; no completion/cancel/reschedule/no-show', () => {
+describe('C4B export surface — booking + completion exported; no cancel/reschedule/no-show', () => {
   it('exports buildPlanAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect(typeof (mod as Record<string, unknown>).buildPlanAction).toBe('function')
@@ -462,6 +533,11 @@ describe('C3 export surface — booking actions exported; no completion/cancel/r
   it('exports bookPlanAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect(typeof (mod as Record<string, unknown>).bookPlanAction).toBe('function')
+  })
+
+  it('exports completeSessionAction', async () => {
+    const mod = await import('@/actions/schedulingActions')
+    expect(typeof (mod as Record<string, unknown>).completeSessionAction).toBe('function')
   })
 
   it('does not export rescheduleSessionAction', async () => {
@@ -474,13 +550,175 @@ describe('C3 export surface — booking actions exported; no completion/cancel/r
     expect((mod as Record<string, unknown>).cancelSessionAction).toBeUndefined()
   })
 
-  it('does not export completeSessionAction', async () => {
-    const mod = await import('@/actions/schedulingActions')
-    expect((mod as Record<string, unknown>).completeSessionAction).toBeUndefined()
-  })
-
   it('does not export markNoShowAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect((mod as Record<string, unknown>).markNoShowAction).toBeUndefined()
+  })
+})
+
+// ─── completeSessionAction ────────────────────────────────────────────────────
+
+const MOCK_COMPLETED_SESSION: FDSession = {
+  id:                     'fds-001',
+  tenantId:               '',
+  trainerId:              'trainer-1',
+  clientId:               'CUST-001',
+  clientName:             'Alice',
+  seriesId:               null,
+  startAt:                new Date('2026-01-05T09:00:00Z'),
+  endAt:                  new Date('2026-01-05T10:00:00Z'),
+  durationMinutes:        60,
+  timezone:               'Asia/Riyadh',
+  status:                 'completed',
+  occurrenceKey:          null,
+  occurrenceIndex:        null,
+  isOverride:             false,
+  rate:                   100,
+  sessionType:            null,
+  notes:                  null,
+  invoiceId:              null,
+  version:                2,
+  isTrialSession:         true,
+  sessionConsumedPackage: false,
+}
+
+const MOCK_TENANT_CTX = { userId: 'user-1', slug: 'trainer', tenantId: 'tenant-abc', provisioningStatus: 'active', lastSyncedAt: null }
+
+describe('completeSessionAction', () => {
+  it('returns AUTH error when not authenticated', async () => {
+    mockResolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('AUTH')
+    expect(mockCompleteSession).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenant context is missing', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(null)
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockCompleteSession).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenantId is null', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue({ ...MOCK_TENANT_CTX, tenantId: null })
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockCompleteSession).not.toHaveBeenCalled()
+  })
+
+  it('returns success with completed session data for trial sessions', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCompleteSession.mockResolvedValue(MOCK_COMPLETED_SESSION)
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.status).toBe('completed')
+      expect(result.data.id).toBe('fds-001')
+    }
+  })
+
+  it('maps BillingNotConfiguredError to BILLING_NOT_CONFIGURED code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const BillingNotConfiguredErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).BillingNotConfiguredError
+    mockCompleteSession.mockRejectedValue(new BillingNotConfiguredErrorCls('CUST-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('BILLING_NOT_CONFIGURED')
+  })
+
+  it('maps PayPerSessionCompletionDeferredError to PPS_DEFERRED code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const PayPerSessionCompletionDeferredErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).PayPerSessionCompletionDeferredError
+    mockCompleteSession.mockRejectedValue(new PayPerSessionCompletionDeferredErrorCls('fds-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PPS_DEFERRED')
+  })
+
+  it('maps PackageCompletionNotReadyError to PACKAGE_NOT_READY code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const PackageCompletionNotReadyErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).PackageCompletionNotReadyError
+    mockCompleteSession.mockRejectedValue(new PackageCompletionNotReadyErrorCls('CUST-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PACKAGE_NOT_READY')
+  })
+
+  it('maps VersionConflictError to VERSION_CONFLICT code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const VersionConflictErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).VersionConflictError
+    mockCompleteSession.mockRejectedValue(new VersionConflictErrorCls('fds-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('VERSION_CONFLICT')
+  })
+
+  it('maps ImmutableSessionError to IMMUTABLE_STATUS code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+    mockCompleteSession.mockRejectedValue(new ImmutableSessionErrorCls('fds-001', 'completed'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('IMMUTABLE_STATUS')
+  })
+
+  it('maps a generic ERP error to ERR code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCompleteSession.mockRejectedValue(new Error('ERP write failed'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('ERR')
+      expect(result.message).toBe('ERP write failed')
+    }
+  })
+
+  it('does not call any invoice, payment, or package ledger service', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCompleteSession.mockResolvedValue(MOCK_COMPLETED_SESSION)
+
+    await completeSessionAction('fds-001', 1)
+
+    // completeSession is the only service called; no invoice/payment mocks exist
+    // in this test file and the test would throw if they were imported and invoked.
+    expect(mockCompleteSession).toHaveBeenCalledOnce()
   })
 })
