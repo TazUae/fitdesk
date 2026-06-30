@@ -26,6 +26,7 @@ interface SchedulerXAdapterProps {
   timezone:             string
   calendarDate:         Date
   onCalendarDateChange: (date: Date) => void
+  onSelectSession?:     (sessionId: string) => void
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -96,15 +97,18 @@ export function SchedulerXAdapter({
   timezone,
   calendarDate,
   onCalendarDateChange,
+  onSelectSession,
 }: SchedulerXAdapterProps) {
   const sessionsRef             = useRef(sessions)
   const onCalendarDateChangeRef = useRef(onCalendarDateChange)
   const calendarDateRef         = useRef(calendarDate)
+  const onSelectSessionRef      = useRef(onSelectSession)
   const wrapperRef              = useRef<HTMLDivElement>(null)
 
   useEffect(() => { sessionsRef.current             = sessions             }, [sessions])
   useEffect(() => { onCalendarDateChangeRef.current = onCalendarDateChange }, [onCalendarDateChange])
   useEffect(() => { calendarDateRef.current         = calendarDate         }, [calendarDate])
+  useEffect(() => { onSelectSessionRef.current      = onSelectSession      }, [onSelectSession])
 
   // Initial view: Day on mobile, Week on desktop
   const [currentView, setCurrentView] = useState<
@@ -137,6 +141,11 @@ export function SchedulerXAdapter({
           const newStr = `${date.year}-${pad2(date.month)}-${pad2(date.day)}`
           if (newStr === dateToYMD(calendarDateRef.current)) return
           onCalendarDateChangeRef.current(new Date(date.year, date.month - 1, date.day))
+        },
+        onEventClick: (calendarEvent) => {
+          const id = String(calendarEvent.id)
+          if (id.startsWith('tmp-')) return
+          onSelectSessionRef.current?.(id)
         },
       },
     },

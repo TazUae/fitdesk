@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import { PlannerShell } from '@/components/scheduling/PlannerShell'
 import { SchedulerErrorBoundary } from '@/components/scheduling/SchedulerErrorBoundary'
 import { BookingSheet } from '@/components/scheduling/BookingSheet'
+import { SessionCompletionSheet } from '@/components/scheduling/SessionCompletionSheet'
 import type { CalendarSession, FDSession, TrainerConfig } from '@/types/scheduling'
 import type { Client } from '@/types'
 
@@ -41,9 +42,10 @@ interface ScheduleViewProps {
 
 export function ScheduleView({ sessions, clients, trainerConfig, error }: ScheduleViewProps) {
   const router = useRouter()
-  const [calendarDate, setCalendarDate] = useState(() => new Date())
-  const [bookingOpen, setBookingOpen] = useState(false)
-  const [selectedSlots, setSelectedSlots] = useState<Date[]>([])
+  const [calendarDate, setCalendarDate]       = useState(() => new Date())
+  const [bookingOpen, setBookingOpen]         = useState(false)
+  const [selectedSlots, setSelectedSlots]     = useState<Date[]>([])
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
 
   // Seed timezone from trainerConfig if available; fall back to browser locale.
   const [timezone, setTimezone] = useState(trainerConfig?.timezone ?? 'UTC')
@@ -71,13 +73,29 @@ export function ScheduleView({ sessions, clients, trainerConfig, error }: Schedu
 
   const calendarSessions: CalendarSession[] = toCalendarSessions(sessions)
 
+  const selectedSession = selectedSessionId
+    ? (sessions.find(s => s.id === selectedSessionId) ?? null)
+    : null
+
   function handleOpenBooking() {
     setSelectedSlots([])
     setBookingOpen(true)
   }
 
   function handleBooked() {
-    // Refresh the Server Component to reload the session list from ERP.
+    routerRef.current.refresh()
+  }
+
+  function handleSelectSession(sessionId: string) {
+    setSelectedSessionId(sessionId)
+  }
+
+  function handleCompletionClose() {
+    setSelectedSessionId(null)
+  }
+
+  function handleCompleted() {
+    setSelectedSessionId(null)
     routerRef.current.refresh()
   }
 
@@ -88,15 +106,23 @@ export function ScheduleView({ sessions, clients, trainerConfig, error }: Schedu
       onCreate={handleOpenBooking}
       rightDrawerOpen={bookingOpen}
       overlays={
-        <BookingSheet
-          open={bookingOpen}
-          selectedSlots={selectedSlots}
-          clients={clients}
-          existingSessions={sessions}
-          trainerConfig={effectiveConfig}
-          onClose={() => setBookingOpen(false)}
-          onBooked={handleBooked}
-        />
+        <>
+          <BookingSheet
+            open={bookingOpen}
+            selectedSlots={selectedSlots}
+            clients={clients}
+            existingSessions={sessions}
+            trainerConfig={effectiveConfig}
+            onClose={() => setBookingOpen(false)}
+            onBooked={handleBooked}
+          />
+          <SessionCompletionSheet
+            session={selectedSession}
+            open={selectedSessionId !== null}
+            onClose={handleCompletionClose}
+            onCompleted={handleCompleted}
+          />
+        </>
       }
     >
       {/* Error banner — shown above calendar when ERP fetch failed */}
@@ -129,6 +155,7 @@ export function ScheduleView({ sessions, clients, trainerConfig, error }: Schedu
             timezone={timezone}
             calendarDate={calendarDate}
             onCalendarDateChange={setCalendarDate}
+            onSelectSession={handleSelectSession}
           />
         </SchedulerErrorBoundary>
       </div>
