@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { PlannerShell } from '@/components/scheduling/PlannerShell'
 import { SchedulerErrorBoundary } from '@/components/scheduling/SchedulerErrorBoundary'
-import type { Client, Session, SessionStatus } from '@/types'
-import type { CalendarSession, FDSessionStatus } from '@/types/scheduling'
+import type { CalendarSession, FDSession, TrainerConfig } from '@/types/scheduling'
 
 const SchedulerXAdapter = dynamic(
   () => import('@/components/scheduling/SchedulerXAdapter').then(mod => ({ default: mod.SchedulerXAdapter })),
@@ -14,52 +13,46 @@ const SchedulerXAdapter = dynamic(
 
 // ─── Session adapter ──────────────────────────────────────────────────────────
 
-const STATUS_MAP: Record<SessionStatus, FDSessionStatus> = {
-  scheduled: 'scheduled',
-  completed: 'completed',
-  missed:    'no_show',
-  cancelled: 'cancelled',
-}
-
-function toCalendarSession(s: Session): CalendarSession {
-  const [h, m] = (s.time ?? '09:00').split(':').map(Number)
-  const start = new Date(`${s.date}T00:00:00`)
-  start.setHours(h, m ?? 0, 0, 0)
-  const end = new Date(start.getTime() + (s.durationMinutes ?? 60) * 60_000)
-  return {
+function toCalendarSessions(sessions: FDSession[]): CalendarSession[] {
+  return sessions.map(s => ({
     id:         s.id,
-    start,
-    end,
+    clientId:   s.clientId,
+    start:      s.startAt,
+    end:        s.endAt,
     clientName: s.clientName,
-    status:     STATUS_MAP[s.status] ?? 'scheduled',
-  }
+    status:     s.status,
+  }))
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ScheduleViewProps {
-  sessions: Session[]
-  clients:  Client[]
-  error?:   string
+  sessions:       FDSession[]
+  /** Fetched from FitDesk Trainer Settings — provides timezone for the calendar. */
+  trainerConfig?: TrainerConfig
+  error?:         string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ScheduleView({ sessions, error }: ScheduleViewProps) {
+export function ScheduleView({ sessions, trainerConfig, error }: ScheduleViewProps) {
   const [calendarDate, setCalendarDate] = useState(() => new Date())
-  const [timezone, setTimezone] = useState('UTC')
 
+  // Seed timezone from trainerConfig if available; fall back to browser locale.
+  const [timezone, setTimezone] = useState(trainerConfig?.timezone ?? 'UTC')
   useEffect(() => {
-    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
-  }, [])
+    if (!trainerConfig?.timezone) {
+      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    }
+  }, [trainerConfig?.timezone])
 
-  const calendarSessions: CalendarSession[] = sessions.map(toCalendarSession)
+  const calendarSessions: CalendarSession[] = toCalendarSessions(sessions)
 
   return (
     <PlannerShell
       currentDate={calendarDate}
       onSelectDate={setCalendarDate}
-      // onCreate not passed → toolbar "Book session" button is hidden in D1
+      // onCreate not passed — booking button is hidden in C2
     >
       {/* Error banner — shown above calendar when ERP fetch failed */}
       {error && (
