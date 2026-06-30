@@ -121,6 +121,66 @@ export interface ERPPaymentEntry {
   creation: string
 }
 
+/** Child table row of FitDesk Trainer Settings.working_days. */
+export interface ERPFitDeskWorkingDay {
+  weekday?: 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
+  enabled?: 0 | 1
+  start_time?: string  // 'HH:MM:SS'
+  end_time?: string    // 'HH:MM:SS'
+}
+
+/** FitDesk Trainer Settings singleton document. */
+export interface ERPTrainerSettings {
+  timezone?: string
+  buffer_minutes?: number
+  default_session_duration?: number
+  working_days?: ERPFitDeskWorkingDay[]
+  initialized?: 0 | 1
+}
+
+/** Raw FD Session document from ERPNext. */
+export interface ERPFDSession {
+  name: string                        // docname (hash)
+  trainer_id: string
+  client_id: string                   // Customer docname
+  client_name?: string                // fetched from client_id.customer_name
+  series_id?: string | null
+  start_at: string                    // 'YYYY-MM-DD HH:MM:SS' UTC
+  end_at: string                      // 'YYYY-MM-DD HH:MM:SS' UTC
+  duration_minutes: number
+  timezone: string                    // IANA identifier
+  status: string                      // 'scheduled'|'confirmed'|'completed'|'cancelled'|'no_show'|'skipped'
+  occurrence_key?: string | null
+  occurrence_index?: number | null
+  is_override: 0 | 1
+  rate: number
+  session_type?: string | null
+  notes?: string | null
+  invoice_id?: string | null
+  version: number
+  is_trial_session?: 0 | 1
+  session_consumed_package?: 0 | 1
+  creation: string
+  modified: string
+}
+
+/** Raw FD Session Series document from ERPNext. */
+export interface ERPFDSessionSeries {
+  name: string                        // docname (hash)
+  trainer_id: string
+  client_id: string                   // Customer docname
+  pattern: string                     // JSON-encoded SeriesPattern
+  start_date: string                  // 'YYYY-MM-DD'
+  end_date?: string | null            // 'YYYY-MM-DD'
+  duration_minutes: number
+  timezone: string
+  default_rate: number
+  status: string                      // 'active'|'ended'|'cancelled'
+  version: number
+  creation: string
+  modified: string
+}
+
 // ─── Payload types (write / POST / PUT) ──────────────────────────────────────
 // These define what we send TO ERPNext when creating or updating records.
 

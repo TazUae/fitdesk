@@ -36,6 +36,7 @@ import type {
   ERPListResponse,
   ERPPaymentEntry,
   ERPSession,
+  ERPTrainerSettings,
   UpdateClientPayload,
 } from './types'
 
@@ -46,6 +47,8 @@ const DOCTYPE = {
   CLIENT:  'Customer',       // standard Frappe DocType
   INVOICE: 'Sales Invoice',  // standard Frappe — do not change
   PAYMENT: 'Payment Entry',  // standard Frappe — do not change
+  /** FitDesk singleton from fitdesk-app. Doctype name = singleton record name. */
+  TRAINER_SETTINGS: 'FitDesk Trainer Settings',
 } as const
 
 // ─── Local Customer shape ──────────────────────────────────────────────────────
@@ -111,7 +114,7 @@ interface FetchOptions {
  *   /api/resource/* → /api/erp/doctype/*
  *   /api/method/*   → /api/erp/method/*
  */
-async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
+export async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   const cpUrl = process.env.CONTROL_PLANE_URL
   if (!cpUrl) {
     throw new ERPNextError(
@@ -700,6 +703,35 @@ export async function createAndSubmitPaymentEntry(opts: {
   const invoice = await getInvoiceById(opts.invoiceId)
 
   return { payment: normalizePayment(submitted, opts.invoiceId), invoice }
+}
+
+// ── Trainer Settings (singleton) ──────────────────────────────────────────────
+
+/**
+ * Fetch the FitDesk Trainer Settings singleton document.
+ *
+ * The doctype name and the singleton record name are identical for
+ * Frappe singletons. Returns the raw shape — callers normalize.
+ */
+export async function getTrainerSettingsDoc(): Promise<ERPTrainerSettings> {
+  const res = await erpFetch<ERPDocResponse<ERPTrainerSettings>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}`,
+  )
+  return res.data
+}
+
+/**
+ * Update the FitDesk Trainer Settings singleton with a partial payload.
+ * Only fields supplied will be changed. Returns the saved doc.
+ */
+export async function updateTrainerSettingsDoc(
+  payload: Partial<ERPTrainerSettings>,
+): Promise<ERPTrainerSettings> {
+  const res = await erpFetch<ERPDocResponse<ERPTrainerSettings>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}/${encodeURIComponent(DOCTYPE.TRAINER_SETTINGS)}`,
+    { method: 'PUT', body: payload },
+  )
+  return res.data
 }
 
 // Keep normalizeSession in scope so ERPSession import is used.
