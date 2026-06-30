@@ -34,11 +34,13 @@ import {
   OutOfHoursError,
   type BookFromPlanResult,
 } from '@/lib/scheduling/bookingService'
+import { PackageConsumptionService } from '@/lib/billing/package-consumption-service'
 import {
   completeSession,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
   PackageCompletionNotReadyError,
+  NoPackageBalanceError,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionCompletionService'
@@ -56,6 +58,7 @@ export type SchedulingErrorCode =
   | 'IMMUTABLE_STATUS'
   | 'PPS_DEFERRED'
   | 'PACKAGE_NOT_READY'
+  | 'NO_PACKAGE_BALANCE'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -87,6 +90,9 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
   }
   if (err instanceof PackageCompletionNotReadyError) {
     return { success: false, code: 'PACKAGE_NOT_READY', message: err.message }
+  }
+  if (err instanceof NoPackageBalanceError) {
+    return { success: false, code: 'NO_PACKAGE_BALANCE', message: err.message }
   }
   if (err instanceof VersionConflictError) {
     return { success: false, code: 'VERSION_CONFLICT', message: err.message }
@@ -287,6 +293,20 @@ export async function completeSessionAction(
         resolveBillingMode: async (clientId) => {
           const client = await new ClientRepository(db).findClientByErpId(tenantCtx, clientId)
           return client?.billingMode ?? null
+        },
+        consumeForSession: async ({ sessionId, erpCustomerId }) => {
+          const client = await new ClientRepository(db).findClientByErpId(tenantCtx, erpCustomerId)
+          if (!client) {
+            throw new BillingNotConfiguredError(erpCustomerId)
+          }
+          const svc = new PackageConsumptionService(db)
+          const res = await svc.consumeSession(tenantCtx, {
+            sessionId,
+            clientIndexId:    client.id,
+            erpCustomerId:    client.erpCustomerId,
+            consumedByUserId: ctx.userId ?? null,
+          })
+          return { outcome: res.outcome }
         },
       },
       id,

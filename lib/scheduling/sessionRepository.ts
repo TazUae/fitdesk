@@ -217,27 +217,29 @@ export async function bulkCreateSessions(
 export async function updateSession(
   id: string,
   patch: {
-    status?:       FDSessionStatus
-    startAt?:      Date
-    endAt?:        Date
-    rate?:         number
-    notes?:        string | null
-    sessionType?:  string | null
-    invoiceId?:    string | null
-    isOverride?:   boolean
-    version?:      number
+    status?:                 FDSessionStatus
+    startAt?:                Date
+    endAt?:                  Date
+    rate?:                   number
+    notes?:                  string | null
+    sessionType?:            string | null
+    invoiceId?:              string | null
+    isOverride?:             boolean
+    version?:                number
+    sessionConsumedPackage?: boolean
   },
 ): Promise<FDSession> {
   const body: Record<string, unknown> = {}
-  if (patch.status      !== undefined) body.status       = patch.status
-  if (patch.startAt     !== undefined) body.start_at     = toFrappeDatetime(patch.startAt)
-  if (patch.endAt       !== undefined) body.end_at       = toFrappeDatetime(patch.endAt)
-  if (patch.rate        !== undefined) body.rate         = patch.rate
-  if (patch.notes       !== undefined) body.notes        = patch.notes       ?? ''
-  if (patch.sessionType !== undefined) body.session_type = patch.sessionType ?? ''
-  if (patch.invoiceId   !== undefined) body.invoice_id   = patch.invoiceId   ?? ''
-  if (patch.isOverride  !== undefined) body.is_override  = patch.isOverride ? 1 : 0
-  if (patch.version     !== undefined) body.version      = patch.version
+  if (patch.status                 !== undefined) body.status                   = patch.status
+  if (patch.startAt                !== undefined) body.start_at                 = toFrappeDatetime(patch.startAt)
+  if (patch.endAt                  !== undefined) body.end_at                   = toFrappeDatetime(patch.endAt)
+  if (patch.rate                   !== undefined) body.rate                     = patch.rate
+  if (patch.notes                  !== undefined) body.notes                    = patch.notes       ?? ''
+  if (patch.sessionType            !== undefined) body.session_type             = patch.sessionType ?? ''
+  if (patch.invoiceId              !== undefined) body.invoice_id               = patch.invoiceId   ?? ''
+  if (patch.isOverride             !== undefined) body.is_override              = patch.isOverride ? 1 : 0
+  if (patch.version                !== undefined) body.version                  = patch.version
+  if (patch.sessionConsumedPackage !== undefined) body.session_consumed_package = patch.sessionConsumedPackage ? 1 : 0
 
   const res = await erpFetch<ERPDocResponse<ERPFDSession>>(
     `/api/resource/${encodeURIComponent(DOCTYPE_SESSION)}/${encodeURIComponent(id)}`,

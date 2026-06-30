@@ -59,7 +59,8 @@ export class PayPerSessionCompletionDeferredError extends Error {
 
 /**
  * Thrown for package clients in C4B.
- * Package ledger consumption is implemented in C4C only.
+ * @deprecated Replaced by the full package ledger integration in C4C.
+ * Retained as an export so any callers that caught this error continue to compile.
  */
 export class PackageCompletionNotReadyError extends Error {
   constructor(public readonly clientId: string) {
@@ -70,16 +71,33 @@ export class PackageCompletionNotReadyError extends Error {
   }
 }
 
+/** Thrown when no active package with remaining sessions exists for the client. */
+export class NoPackageBalanceError extends Error {
+  constructor(public readonly clientId: string) {
+    super(
+      `No active package with available sessions found for client ${clientId} — add or top up a package before completing`,
+    )
+    this.name = 'NoPackageBalanceError'
+  }
+}
+
 // ─── Deps ─────────────────────────────────────────────────────────────────────
 
 export interface CompletionDeps {
   findSessionById:    (id: string) => Promise<FDSession>
-  updateSession:      (id: string, patch: { status?: FDSessionStatus; version?: number }) => Promise<FDSession>
+  updateSession:      (id: string, patch: { status?: FDSessionStatus; version?: number; sessionConsumedPackage?: boolean }) => Promise<FDSession>
   /**
    * Resolve the billing mode for the given ERP Customer docname.
    * Returns null when no local client_index row exists for this customer.
    */
   resolveBillingMode: (clientId: string) => Promise<BillingMode | null>
+  /**
+   * Consume one session from the client's active package.
+   * `sessionId` MUST be the FD Session docname — used as the idempotency anchor.
+   * `erpCustomerId` is the ERP Customer docname from the FD Session.
+   * Returns the consumption outcome; never throws for business-logic outcomes.
+   */
+  consumeForSession: (args: { sessionId: string; erpCustomerId: string }) => Promise<{ outcome: 'consumed' | 'already_done' | 'no_package' | 'no_balance' }>
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -142,7 +160,32 @@ export async function completeSession(
   }
 
   if (billingMode === 'package') {
-    throw new PackageCompletionNotReadyError(current.clientId)
+    // If the ledger debit already landed (e.g. retry after ERP failure), skip consumption.
+    if (current.sessionConsumedPackage) {
+      return deps.updateSession(id, {
+        status:                 'completed',
+        sessionConsumedPackage: true,
+        version:                expectedVersion + 1,
+      })
+    }
+
+    // Ledger-first: consume before any ERP status write.
+    // `id` (FD Session docname) is the stable idempotency anchor — no random key.
+    const { outcome } = await deps.consumeForSession({
+      sessionId:    id,
+      erpCustomerId: current.clientId,
+    })
+
+    if (outcome === 'no_package' || outcome === 'no_balance') {
+      throw new NoPackageBalanceError(current.clientId)
+    }
+
+    // consumed or already_done — both safe to proceed
+    return deps.updateSession(id, {
+      status:                 'completed',
+      sessionConsumedPackage: true,
+      version:                expectedVersion + 1,
+    })
   }
 
   // Defensive fallback: any unknown/reserved billing mode fails closed

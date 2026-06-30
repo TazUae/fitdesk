@@ -3,7 +3,7 @@ import {
   completeSession,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
-  PackageCompletionNotReadyError,
+  NoPackageBalanceError,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionCompletionService'
@@ -39,20 +39,23 @@ const BASE_SESSION: FDSession = {
 function makeDeps(opts: {
   session?:              Partial<FDSession>
   billingMode?:          'package' | 'pay_per_session' | 'unset' | null
+  consumeOutcome?:       'consumed' | 'already_done' | 'no_package' | 'no_balance'
   updateSessionResult?:  FDSession
 } = {}): CompletionDeps {
   const session = { ...BASE_SESSION, ...opts.session }
   const completed: FDSession = opts.updateSessionResult ?? {
     ...session,
-    status:  'completed',
-    version: session.version + 1,
+    status:                 'completed',
+    sessionConsumedPackage: true,
+    version:                session.version + 1,
   }
   // Use explicit 'in' check so that null is preserved (not replaced by ??)
   const billingMode = 'billingMode' in opts ? opts.billingMode : 'package'
   return {
-    findSessionById:    vi.fn().mockResolvedValue(session),
-    updateSession:      vi.fn().mockResolvedValue(completed),
+    findSessionById:   vi.fn().mockResolvedValue(session),
+    updateSession:     vi.fn().mockResolvedValue(completed),
     resolveBillingMode: vi.fn().mockResolvedValue(billingMode),
+    consumeForSession: vi.fn().mockResolvedValue({ outcome: opts.consumeOutcome ?? 'consumed' }),
   }
 }
 
@@ -68,6 +71,12 @@ describe('completeSession — version guard', () => {
     const deps = makeDeps({ session: { version: 2 } })
     await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
     expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('does not call consumeForSession when version does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
   })
 
   it('proceeds when version matches', async () => {
@@ -103,14 +112,22 @@ describe('completeSession — immutable-state guard', () => {
     expect(deps.updateSession).not.toHaveBeenCalled()
   })
 
-  it('allows scheduled to proceed to dispatch', async () => {
-    const deps = makeDeps({ session: { status: 'scheduled' }, billingMode: 'package' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
+  it('does not call consumeForSession for terminal statuses', async () => {
+    const deps = makeDeps({ session: { status: 'completed' } })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
   })
 
-  it('allows confirmed to proceed to dispatch', async () => {
-    const deps = makeDeps({ session: { status: 'confirmed' }, billingMode: 'package' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
+  it('allows scheduled to proceed to package dispatch', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' }, billingMode: 'package', consumeOutcome: 'consumed' })
+    const result = await completeSession(deps, 'fds-001', 1)
+    expect(result.status).toBe('completed')
+  })
+
+  it('allows confirmed to proceed to package dispatch', async () => {
+    const deps = makeDeps({ session: { status: 'confirmed' }, billingMode: 'package', consumeOutcome: 'consumed' })
+    const result = await completeSession(deps, 'fds-001', 1)
+    expect(result.status).toBe('completed')
   })
 })
 
@@ -118,7 +135,10 @@ describe('completeSession — immutable-state guard', () => {
 
 describe('completeSession — trial path', () => {
   it('flips status to completed for trial sessions', async () => {
-    const deps = makeDeps({ session: { isTrialSession: true } })
+    const deps = makeDeps({
+      session:             { isTrialSession: true },
+      updateSessionResult: { ...BASE_SESSION, isTrialSession: true, status: 'completed', version: 2, sessionConsumedPackage: false },
+    })
     const result = await completeSession(deps, 'fds-001', 1)
     expect(result.status).toBe('completed')
   })
@@ -126,7 +146,7 @@ describe('completeSession — trial path', () => {
   it('increments version by 1 in the updateSession call', async () => {
     const deps = makeDeps({
       session:             { isTrialSession: true, version: 3 },
-      updateSessionResult: { ...BASE_SESSION, isTrialSession: true, status: 'completed', version: 4 },
+      updateSessionResult: { ...BASE_SESSION, isTrialSession: true, status: 'completed', version: 4, sessionConsumedPackage: false },
     })
     await completeSession(deps, 'fds-001', 3)
     expect(deps.updateSession).toHaveBeenCalledWith('fds-001', {
@@ -141,12 +161,22 @@ describe('completeSession — trial path', () => {
     expect(deps.resolveBillingMode).not.toHaveBeenCalled()
   })
 
-  it('calls findSessionById once and updateSession once — no other I/O', async () => {
+  it('does not call consumeForSession for trial sessions', async () => {
     const deps = makeDeps({ session: { isTrialSession: true } })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+  })
+
+  it('calls findSessionById once and updateSession once — no other I/O', async () => {
+    const deps = makeDeps({
+      session:             { isTrialSession: true },
+      updateSessionResult: { ...BASE_SESSION, isTrialSession: true, status: 'completed', version: 2, sessionConsumedPackage: false },
+    })
     await completeSession(deps, 'fds-001', 1)
     expect(deps.findSessionById).toHaveBeenCalledOnce()
     expect(deps.updateSession).toHaveBeenCalledOnce()
     expect(deps.resolveBillingMode).not.toHaveBeenCalled()
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
   })
 })
 
@@ -180,15 +210,10 @@ describe('completeSession — billing mode dispatch', () => {
     expect(deps.updateSession).not.toHaveBeenCalled()
   })
 
-  it('throws PackageCompletionNotReadyError for package clients (C4C placeholder)', async () => {
-    const deps = makeDeps({ billingMode: 'package' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(PackageCompletionNotReadyError)
-  })
-
-  it('does not call updateSession for package clients in C4B', async () => {
-    const deps = makeDeps({ billingMode: 'package' })
+  it('does not call consumeForSession for pay_per_session clients', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
     await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
-    expect(deps.updateSession).not.toHaveBeenCalled()
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
   })
 
   it('resolves billing mode using the session clientId', async () => {
@@ -198,18 +223,105 @@ describe('completeSession — billing mode dispatch', () => {
   })
 })
 
+// ─── Package path (C4C) ───────────────────────────────────────────────────────
+
+describe('completeSession — package path', () => {
+  it('calls consumeForSession exactly once with sessionId === session docname', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.consumeForSession).toHaveBeenCalledOnce()
+    expect(deps.consumeForSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'fds-001' }),
+    )
+  })
+
+  it('passes the session clientId as erpCustomerId to consumeForSession', async () => {
+    const deps = makeDeps({ session: { clientId: 'CUST-42' }, billingMode: 'package', consumeOutcome: 'consumed' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.consumeForSession).toHaveBeenCalledWith({ sessionId: 'fds-001', erpCustomerId: 'CUST-42' })
+  })
+
+  it('completes with sessionConsumedPackage: true on consumed outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'completed',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('increments version by 1 on consumed outcome', async () => {
+    const deps = makeDeps({ session: { version: 7 }, billingMode: 'package', consumeOutcome: 'consumed' })
+    await completeSession(deps, 'fds-001', 7)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ version: 8 }))
+  })
+
+  it('completes with sessionConsumedPackage: true on already_done outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'already_done' })
+    const result = await completeSession(deps, 'fds-001', 1)
+    expect(result.status).toBe('completed')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'completed',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('throws NoPackageBalanceError on no_package outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_package' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(NoPackageBalanceError)
+  })
+
+  it('throws NoPackageBalanceError on no_balance outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_balance' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(NoPackageBalanceError)
+  })
+
+  it('does not call updateSession on no_package outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_package' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('does not call updateSession on no_balance outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_balance' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('skips consumeForSession when sessionConsumedPackage is already true', async () => {
+    // Simulates retry after ledger succeeded but ERP status write failed
+    const deps = makeDeps({
+      session:       { sessionConsumedPackage: true },
+      billingMode:   'package',
+      consumeOutcome: 'consumed',
+    })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'completed',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('ledger-first: consumeForSession resolves before updateSession is called', async () => {
+    const callOrder: string[] = []
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    ;(deps.consumeForSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('consume')
+      return { outcome: 'consumed' }
+    })
+    ;(deps.updateSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('update')
+      return { ...BASE_SESSION, status: 'completed', version: 2, sessionConsumedPackage: true }
+    })
+    await completeSession(deps, 'fds-001', 1)
+    expect(callOrder).toEqual(['consume', 'update'])
+  })
+})
+
 // ─── No external billing/payment/invoice calls ───────────────────────────────
 
 describe('completeSession — no package/billing/payment imports', () => {
-  it('performs exactly findSessionById + updateSession for the trial path and nothing else', async () => {
-    const deps = makeDeps({ session: { isTrialSession: true } })
-    await completeSession(deps, 'fds-001', 1)
-    // Total injected I/O calls = 2 (findSessionById + updateSession)
-    expect(deps.findSessionById.mock.calls).toHaveLength(1)
-    expect(deps.updateSession.mock.calls).toHaveLength(1)
-    expect(deps.resolveBillingMode.mock.calls).toHaveLength(0)
-  })
-
   it('the service module only imports from types — no billing, ERP, or db imports', () => {
     // Structural assertion: the service file only imports from @/types/*.
     // If someone adds an import to lib/billing/* or lib/erpnext/*, this
@@ -217,7 +329,7 @@ describe('completeSession — no package/billing/payment imports', () => {
     // where those modules are NOT mocked (this test file has no vi.mock calls).
     expect(typeof completeSession).toBe('function')
     expect(typeof BillingNotConfiguredError).toBe('function')
-    expect(typeof PackageCompletionNotReadyError).toBe('function')
+    expect(typeof NoPackageBalanceError).toBe('function')
     expect(typeof PayPerSessionCompletionDeferredError).toBe('function')
     expect(typeof VersionConflictError).toBe('function')
     expect(typeof ImmutableSessionError).toBe('function')

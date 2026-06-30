@@ -271,6 +271,29 @@ describe('updateSession', () => {
     expect(body).not.toHaveProperty('start_at')
     expect(body).not.toHaveProperty('rate')
   })
+
+  it('serializes sessionConsumedPackage: true → session_consumed_package: 1', async () => {
+    mockErpFetch.mockResolvedValue({ data: { ...BASE_SESSION, status: 'completed', session_consumed_package: 1 } })
+    await updateSession('fds-001', { status: 'completed', sessionConsumedPackage: true, version: 2 })
+    const body = (mockErpFetch.mock.calls[0][1] as { body: Record<string, unknown> }).body
+    expect(body).toHaveProperty('session_consumed_package', 1)
+    expect(body).toHaveProperty('status', 'completed')
+    expect(body).toHaveProperty('version', 2)
+  })
+
+  it('serializes sessionConsumedPackage: false → session_consumed_package: 0', async () => {
+    mockErpFetch.mockResolvedValue({ data: { ...BASE_SESSION, session_consumed_package: 0 } })
+    await updateSession('fds-001', { sessionConsumedPackage: false })
+    const body = (mockErpFetch.mock.calls[0][1] as { body: Record<string, unknown> }).body
+    expect(body).toHaveProperty('session_consumed_package', 0)
+  })
+
+  it('does not include modified in the PUT body', async () => {
+    mockErpFetch.mockResolvedValue({ data: { ...BASE_SESSION, status: 'completed', session_consumed_package: 1 } })
+    await updateSession('fds-001', { status: 'completed', sessionConsumedPackage: true, version: 2 })
+    const body = (mockErpFetch.mock.calls[0][1] as { body: Record<string, unknown> }).body
+    expect(body).not.toHaveProperty('modified')
+  })
 })
 
 // ─── cancelSession ─────────────────────────────────────────────────────────────

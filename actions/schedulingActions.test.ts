@@ -61,7 +61,7 @@ vi.mock('@/lib/scheduling/engine', () => ({
   buildBookingPlan: vi.fn(),
 }))
 
-// Mock completion service — C4B action tests verify auth + error mapping, not service internals.
+// Mock completion service — action tests verify auth + error mapping, not service internals.
 vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
   completeSession: vi.fn(),
   BillingNotConfiguredError: class BillingNotConfiguredError extends Error {
@@ -88,6 +88,14 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
       this.clientId = clientId
     }
   },
+  NoPackageBalanceError: class NoPackageBalanceError extends Error {
+    clientId: string
+    constructor(clientId: string) {
+      super(`No active package with available sessions for client ${clientId}`)
+      this.name = 'NoPackageBalanceError'
+      this.clientId = clientId
+    }
+  },
   VersionConflictError: class VersionConflictError extends Error {
     sessionId: string
     constructor(id: string) {
@@ -103,6 +111,13 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
       this.name = 'ImmutableSessionError'
       this.status = status
     }
+  },
+}))
+
+// Mock PackageConsumptionService — wired by the action for package-mode completion.
+vi.mock('@/lib/billing/package-consumption-service', () => ({
+  PackageConsumptionService: class {
+    consumeSession = vi.fn()
   },
 }))
 
@@ -710,15 +725,47 @@ describe('completeSessionAction', () => {
     }
   })
 
-  it('does not call any invoice, payment, or package ledger service', async () => {
+  it('does not call any invoice or payment service', async () => {
     mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
     mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
     mockCompleteSession.mockResolvedValue(MOCK_COMPLETED_SESSION)
 
     await completeSessionAction('fds-001', 1)
 
-    // completeSession is the only service called; no invoice/payment mocks exist
-    // in this test file and the test would throw if they were imported and invoked.
+    // completeSession is the only service called at this level — package consumption
+    // is wired as an injected dep inside the action's closure, not a direct call.
     expect(mockCompleteSession).toHaveBeenCalledOnce()
+  })
+
+  it('maps NoPackageBalanceError to NO_PACKAGE_BALANCE code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const NoPackageBalanceErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).NoPackageBalanceError
+    mockCompleteSession.mockRejectedValue(new NoPackageBalanceErrorCls('CUST-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('NO_PACKAGE_BALANCE')
+  })
+
+  it('is retryable: first attempt ERR, second attempt succeeds', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+
+    // First call: ERP status write fails
+    mockCompleteSession.mockRejectedValueOnce(new Error('ERP write failed'))
+    const first = await completeSessionAction('fds-001', 1)
+    expect(first.success).toBe(false)
+    if (!first.success) expect(first.code).toBe('ERR')
+
+    // Second call: completeSession succeeds (ledger returned already_done internally)
+    mockCompleteSession.mockResolvedValueOnce({
+      ...MOCK_COMPLETED_SESSION,
+      sessionConsumedPackage: true,
+    })
+    const second = await completeSessionAction('fds-001', 1)
+    expect(second.success).toBe(true)
   })
 })
