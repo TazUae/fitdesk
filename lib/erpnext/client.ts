@@ -299,7 +299,7 @@ function invoiceFields(): string {
   return JSON.stringify([
     'name', 'customer', 'customer_name', 'posting_date', 'due_date',
     'grand_total', 'outstanding_amount', 'paid_amount', 'currency',
-    'status', 'remarks', 'creation',
+    'status', 'remarks', 'custom_fd_session', 'creation',
   ])
 }
 
@@ -508,6 +508,25 @@ export async function getInvoiceById(id: string): Promise<Invoice> {
  */
 export async function getInvoiceByIdForTrainer(id: string, _trainerId: string): Promise<Invoice> {
   return getInvoiceById(id)
+}
+
+/**
+ * Find the Sales Invoice whose custom_fd_session equals the given FD Session docname.
+ * Returns the first match or null when no invoice has been issued for this session yet.
+ * Used as the pre-create idempotency check in the pay-per-session completion flow.
+ */
+export async function findInvoiceBySession(fdSessionDocname: string): Promise<Invoice | null> {
+  const params: Record<string, string> = {
+    fields:  invoiceFields(),
+    filters: JSON.stringify([['custom_fd_session', '=', fdSessionDocname]]),
+    limit:   '1',
+  }
+  const res = await erpFetch<ERPListResponse<ERPInvoice>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}`,
+    { params },
+  )
+  const first = res.data[0]
+  return first ? normalizeInvoice(first) : null
 }
 
 /** Create a new Sales Invoice in ERPNext (saved as draft). */

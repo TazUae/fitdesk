@@ -21,6 +21,7 @@ import {
   ERPNextError,
   clampDueDate,
   createAndSubmitPaymentEntry,
+  findInvoiceBySession,
   getClientById,
   getInvoiceById,
   getInvoiceByIdForTrainer,
@@ -409,5 +410,67 @@ describe('mapInvoiceStatus — ERPNext status → app InvoiceStatus', () => {
     )
     const invoice = await getInvoiceById(INVOICE_ID)
     expect(invoice.status).toBe('partially_paid')
+  })
+})
+
+// ─── findInvoiceBySession ─────────────────────────────────────────────────────
+
+const FD_SESSION_DOCNAME = 'fd-session-abc123'
+
+describe('findInvoiceBySession', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null when no invoice exists for the given FD Session docname', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([]))
+
+    const result = await findInvoiceBySession(FD_SESSION_DOCNAME)
+
+    expect(result).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the normalized invoice when one exists', async () => {
+    const inv = { ...rawInvoice(), custom_fd_session: FD_SESSION_DOCNAME }
+    fetchMock.mockResolvedValueOnce(erpOk([inv]))
+
+    const result = await findInvoiceBySession(FD_SESSION_DOCNAME)
+
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe(INVOICE_ID)
+    expect(result!.clientId).toBe(CLIENT_ID)
+  })
+
+  it('returns only the first match (limit 1 behaviour)', async () => {
+    const inv = { ...rawInvoice(), custom_fd_session: FD_SESSION_DOCNAME }
+    fetchMock.mockResolvedValueOnce(erpOk([inv, { ...inv, name: 'SINV-99999' }]))
+
+    const result = await findInvoiceBySession(FD_SESSION_DOCNAME)
+
+    expect(result!.id).toBe(INVOICE_ID)
+  })
+
+  it('filters by custom_fd_session in the query params', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([]))
+
+    await findInvoiceBySession(FD_SESSION_DOCNAME)
+
+    const [calledUrl] = fetchMock.mock.calls[0] as [string, unknown]
+    expect(calledUrl).toContain('custom_fd_session')
+    expect(calledUrl).toContain(encodeURIComponent(FD_SESSION_DOCNAME))
+  })
+
+  it('propagates ERPNextError when the ERP call fails', async () => {
+    fetchMock.mockResolvedValueOnce(erpError(500, 'Internal Server Error'))
+
+    await expect(findInvoiceBySession(FD_SESSION_DOCNAME)).rejects.toBeInstanceOf(ERPNextError)
   })
 })

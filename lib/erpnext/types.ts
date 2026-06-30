@@ -98,6 +98,10 @@ export interface ERPInvoice {
    */
   set_posting_time?: 0 | 1
   company?: string
+  /** FD Session docname — back-reference for idempotency lookup (custom field). */
+  custom_fd_session?: string | null
+  /** Invoice origin discriminator: 'Package' | 'Session' (custom field). */
+  custom_invoice_kind?: string | null
   creation: string
   modified: string
 }
@@ -228,6 +232,10 @@ export interface CreateInvoicePayload {
   /** At minimum one line item is required by ERPNext. */
   items: CreateInvoiceItem[]
   remarks?: string
+  /** FD Session docname — durable idempotency anchor for pay-per-session invoices. */
+  custom_fd_session?: string
+  /** Invoice origin discriminator: 'Package' | 'Session'. */
+  custom_invoice_kind?: string
 }
 
 export interface CreateInvoiceItem {
