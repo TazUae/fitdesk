@@ -625,6 +625,79 @@ export class ClientRepository {
   // ── Write: backfill upsert ────────────────────────────────────────────────
 
   /**
+   * Repair local billing mode from ERP canonical truth.
+   *
+   * This is intentionally narrow:
+   * - only transitions unset -> package/pay_per_session
+   * - never overwrites an existing Package/PPS mode
+   * - writes a local audit event in the same transaction
+   * - performs no ERP, invoice, payment, package, or ledger writes
+   */
+  async setBillingModeIfUnset(
+    ctx: TenantCtx,
+    erpCustomerId: string,
+    mode: Exclude<BillingMode, 'unset'>,
+  ): Promise<ClientIndex | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    let updated: ClientIndex | null = null
+
+    await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.clientIndex)
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+          ),
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) return
+      if (row.billingMode !== 'unset') return
+
+      await tx
+        .update(schema.clientIndex)
+        .set({
+          billingMode:  mode,
+          updatedAtUtc: now,
+        })
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+            eq(schema.clientIndex.billingMode, 'unset'),
+          ),
+        )
+
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId:   row.id,
+        erpCustomerId:   row.erpCustomerId,
+        type:            'client.billing_mode_synced',
+        payloadJson:     JSON.stringify({
+          previousMode: 'unset',
+          newMode:      mode,
+          source:       'erp_customer',
+        }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+
+      updated = hydrateClientIndex({
+        ...row,
+        billingMode:  mode,
+        updatedAtUtc: now,
+      })
+    })
+
+    return updated
+  }
+  /**
    * Idempotent upsert used by the backfill script.
    * INSERT OR IGNORE on the (tenantId, erpCustomerId) unique index.
    * If the row already exists, updates safe summary fields only.

@@ -16,7 +16,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
-import { completeClientAction, dismissClientAction } from '@/actions/clients'
+import { completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import type { ClientHubOverview } from '@/types/clients'
@@ -183,6 +183,7 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
   const { client, goals, pendingActions, recentNotes, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
+  const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -206,6 +207,33 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
     })
   }
 
+  function handleSyncBilling() {
+    setBillingSyncMessage(null)
+
+    startTransition(async () => {
+      const result = await syncClientBillingMode(client.erpCustomerId)
+
+      if (!result.success) {
+        toast.error(result.error ?? 'Could not sync billing setup.')
+        return
+      }
+
+      if (result.data.applied) {
+        const label = result.data.mode === 'pay_per_session' ? 'Per session' : 'Package'
+        toast.success('Billing synced to ' + label + '.')
+        router.refresh()
+        return
+      }
+
+      if (result.data.reason === 'erp_unset') {
+        setBillingSyncMessage('No billing setup found yet.')
+        return
+      }
+
+      toast.success('Billing setup is already synced.')
+      router.refresh()
+    })
+  }
   return (
     <div className="space-y-4">
       {/* ── Safety banner (only when not clear) ─────────────────────────────── */}
@@ -261,6 +289,34 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
             <Chip label="Goal" value={client.primaryGoalLabel} accent />
           )}
         </div>
+        {client.billingMode === 'unset' && (
+          <div
+            className="rounded-xl border px-3 py-3 space-y-2"
+            style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)' }}
+          >
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--fd-muted)' }}>
+              Sync the existing ERP billing setup into FitDesk before session invoicing.
+            </p>
+            {billingSyncMessage && (
+              <p className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                {billingSyncMessage}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={handleSyncBilling}
+              disabled={isPending}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
+            >
+              {isPending
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <CheckCircle2 className="h-3.5 w-3.5" />
+              }
+              Sync billing setup
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Goals ────────────────────────────────────────────────────────────── */}

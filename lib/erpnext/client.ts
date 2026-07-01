@@ -22,6 +22,7 @@ import type {
   SessionStatus,
 } from '@/types'
 import type { PaymentProvider } from '@/lib/whish'
+import type { BillingMode } from '@/types/clients'
 
 import { getTenantContext } from '@/lib/tenant/context'
 
@@ -62,6 +63,7 @@ interface ERPCustomer {
   email_id?:             string
   custom_fitness_goals?: string
   custom_trainer_notes?: string
+  custom_billing_mode?:  string
   creation:              string
 }
 
@@ -336,6 +338,30 @@ export async function getClients(_trainerId: string): Promise<Client[]> {
     { params },
   )
   return res.data.map(normalizeClient)
+}
+
+/**
+ * Read the ERP Customer billing mode without changing the shared Client shape.
+ *
+ * ERP Customer is canonical; this helper is used only to repair the local
+ * client_index billingMode projection when local state is still unset.
+ */
+export async function getCustomerBillingMode(
+  erpCustomerId: string,
+): Promise<Exclude<BillingMode, 'unset'> | null> {
+  const res = await erpFetch<ERPDocResponse<Pick<ERPCustomer, 'custom_billing_mode'>>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.CLIENT)}/${encodeURIComponent(erpCustomerId)}`,
+    { params: { fields: JSON.stringify(['custom_billing_mode']) } },
+  )
+
+  switch (res.data.custom_billing_mode) {
+    case 'Package':
+      return 'package'
+    case 'Pay Per Session':
+      return 'pay_per_session'
+    default:
+      return null
+  }
 }
 
 /**

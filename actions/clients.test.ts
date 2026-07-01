@@ -39,6 +39,9 @@ vi.mock('@/lib/business-data/erp-adapter', () => ({
   createSession: vi.fn(),
 }))
 
+vi.mock('@/lib/erpnext/client', () => ({
+  getCustomerBillingMode: vi.fn(),
+}))
 vi.mock('@/lib/clients/ai-parse', () => ({
   parseClientText:    vi.fn(),
   failedParseResult:  vi.fn(() => ({
@@ -53,8 +56,9 @@ vi.mock('@/lib/clients/ai-parse', () => ({
   })),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode } from '@/actions/clients'
 import * as erp from '@/lib/business-data/erp-adapter'
+import * as erpNext from '@/lib/erpnext/client'
 import * as aiParse from '@/lib/clients/ai-parse'
 import { auth } from '@/lib/auth'
 import { getTenantContext } from '@/lib/tenant/context'
@@ -930,5 +934,71 @@ describe('dismissClientAction', () => {
 
     const result = await dismissClientAction('ghost-id')
     expect(result.success).toBe(false)
+  })
+})
+
+
+describe('syncClientBillingMode', () => {
+  async function seedClient(payload: Parameters<typeof addClient>[0] = PAYLOAD): Promise<void> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addClient(payload)
+    expect(result.success).toBe(true)
+  }
+
+  it('syncs ERP Pay Per Session into an unset local client billing mode', async () => {
+    await seedClient()
+    vi.mocked(erpNext.getCustomerBillingMode).mockResolvedValue('pay_per_session')
+
+    const result = await syncClientBillingMode('CUST-100')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toMatchObject({ applied: true, mode: 'pay_per_session' })
+
+    const { rows } = await dbClient.execute(`SELECT billing_mode FROM client_index WHERE erp_customer_id = 'CUST-100'`)
+    expect(rows[0].billing_mode).toBe('pay_per_session')
+    expect(await count('client_event', `type = 'client.billing_mode_synced'`)).toBe(1)
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite an existing package billing mode or call ERP billing lookup', async () => {
+    await seedClient()
+    await dbClient.execute(`UPDATE client_index SET billing_mode = 'package' WHERE erp_customer_id = 'CUST-100'`)
+
+    const result = await syncClientBillingMode('CUST-100')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toMatchObject({ applied: false, mode: 'package', reason: 'already_set' })
+    expect(erpNext.getCustomerBillingMode).not.toHaveBeenCalled()
+
+    const { rows } = await dbClient.execute(`SELECT billing_mode FROM client_index WHERE erp_customer_id = 'CUST-100'`)
+    expect(rows[0].billing_mode).toBe('package')
+    expect(await count('client_event', `type = 'client.billing_mode_synced'`)).toBe(0)
+  })
+
+  it('returns erp_unset when ERP has no canonical billing mode', async () => {
+    await seedClient()
+    vi.mocked(erpNext.getCustomerBillingMode).mockResolvedValue(null)
+
+    const result = await syncClientBillingMode('CUST-100')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toMatchObject({ applied: false, reason: 'erp_unset' })
+
+    const { rows } = await dbClient.execute(`SELECT billing_mode FROM client_index WHERE erp_customer_id = 'CUST-100'`)
+    expect(rows[0].billing_mode).toBe('unset')
+    expect(await count('client_event', `type = 'client.billing_mode_synced'`)).toBe(0)
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await syncClientBillingMode('CUST-100')
+
+    expect(result.success).toBe(false)
+    expect(erpNext.getCustomerBillingMode).not.toHaveBeenCalled()
   })
 })

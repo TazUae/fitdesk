@@ -23,6 +23,7 @@ import {
   createAndSubmitPaymentEntry,
   findInvoiceBySession,
   getClientById,
+  getCustomerBillingMode,
   getInvoiceById,
   getInvoiceByIdForTrainer,
   getPaymentEntry,
@@ -472,5 +473,43 @@ describe('findInvoiceBySession', () => {
     fetchMock.mockResolvedValueOnce(erpError(500, 'Internal Server Error'))
 
     await expect(findInvoiceBySession(FD_SESSION_DOCNAME)).rejects.toBeInstanceOf(ERPNextError)
+  })
+})
+
+
+describe('getCustomerBillingMode', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('maps ERP Customer Package to local package mode', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ custom_billing_mode: 'Package' }))
+
+    const result = await getCustomerBillingMode(CLIENT_ID)
+
+    expect(result).toBe('package')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain(encodeURIComponent(CLIENT_ID))
+    expect(fetchMock.mock.calls[0][0]).toContain('custom_billing_mode')
+  })
+
+  it('maps ERP Customer Pay Per Session to local pay_per_session mode', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ custom_billing_mode: 'Pay Per Session' }))
+
+    await expect(getCustomerBillingMode(CLIENT_ID)).resolves.toBe('pay_per_session')
+  })
+
+  it('returns null for Trial, empty, missing, or unknown ERP values', async () => {
+    for (const value of ['Trial', '', undefined, 'Something Else']) {
+      fetchMock.mockResolvedValueOnce(erpOk({ custom_billing_mode: value }))
+      await expect(getCustomerBillingMode(CLIENT_ID)).resolves.toBeNull()
+    }
   })
 })

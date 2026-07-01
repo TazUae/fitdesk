@@ -475,3 +475,58 @@ describe('createClientRow — billing mode', () => {
     expect(result.clientIndex.billingMode).toBe('pay_per_session')
   })
 })
+
+
+describe('setBillingModeIfUnset', () => {
+  it('updates unset billing mode and writes a billing sync audit event', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const updated = await repo.setBillingModeIfUnset({ tenantId: TENANT_A }, ERP_ID_1, 'pay_per_session')
+
+    expect(updated?.billingMode).toBe('pay_per_session')
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    expect(found?.billingMode).toBe('pay_per_session')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    const syncEvent = events.find((event) => event.type === 'client.billing_mode_synced')
+    expect(syncEvent).toBeTruthy()
+    expect(syncEvent?.payloadJson).toMatchObject({
+      previousMode: 'unset',
+      newMode:      'pay_per_session',
+      source:       'erp_customer',
+    })
+  })
+
+  it('does not overwrite an existing package billing mode', async () => {
+    const draft: ClientCreateDraft = { ...baseDraft, billingMode: 'package' }
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, draft)
+
+    const updated = await repo.setBillingModeIfUnset({ tenantId: TENANT_A }, ERP_ID_1, 'pay_per_session')
+
+    expect(updated).toBeNull()
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    expect(found?.billingMode).toBe('package')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(events.map((event) => event.type)).not.toContain('client.billing_mode_synced')
+  })
+
+  it('does not update another tenant row with the same ERP customer id', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const updated = await repo.setBillingModeIfUnset({ tenantId: TENANT_A }, ERP_ID_1, 'pay_per_session')
+
+    expect(updated).toBeNull()
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_B }, ERP_ID_1)
+    expect(found?.billingMode).toBe('unset')
+
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.map((event) => event.type)).not.toContain('client.billing_mode_synced')
+  })
+})

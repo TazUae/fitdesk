@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient, getClientById, getClients, updateClient } from '@/lib/business-data/erp-adapter'
+import { getCustomerBillingMode } from '@/lib/erpnext/client'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
@@ -277,6 +278,64 @@ export async function editClient(
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to update client' }
+  }
+}
+
+export async function syncClientBillingMode(
+  erpCustomerId: string,
+): Promise<ActionResult<{ applied: boolean; mode?: Exclude<BillingMode, 'unset'>; reason?: 'already_set' | 'erp_unset' }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const existing = await repo.findClientByErpId({ tenantId: ctx.tenantId }, erpCustomerId)
+    if (!existing) return { success: false, error: 'Client profile not found.' }
+
+    if (existing.billingMode !== 'unset') {
+      return {
+        success: true,
+        data: {
+          applied: false,
+          mode: existing.billingMode as Exclude<BillingMode, 'unset'>,
+          reason: 'already_set',
+        },
+      }
+    }
+
+    const erpMode = await getCustomerBillingMode(erpCustomerId)
+    if (!erpMode) {
+      return { success: true, data: { applied: false, reason: 'erp_unset' } }
+    }
+
+    const updated = await repo.setBillingModeIfUnset({ tenantId: ctx.tenantId }, erpCustomerId, erpMode)
+    if (!updated) {
+      const latest = await repo.findClientByErpId({ tenantId: ctx.tenantId }, erpCustomerId)
+      if (latest && latest.billingMode !== 'unset') {
+        return {
+          success: true,
+          data: {
+            applied: false,
+            mode: latest.billingMode as Exclude<BillingMode, 'unset'>,
+            reason: 'already_set',
+          },
+        }
+      }
+      return { success: false, error: 'Billing setup could not be synced.' }
+    }
+
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(erpCustomerId)}`)
+    revalidatePath('/dashboard/clients')
+
+    return { success: true, data: { applied: true, mode: erpMode } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to sync billing setup.',
+    }
   }
 }
 
