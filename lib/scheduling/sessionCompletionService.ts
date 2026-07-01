@@ -1,20 +1,21 @@
 /**
  * Session completion service — marks an FD Session as completed.
  *
- * C4B scope: trial completion + billing-mode dispatch shell only.
- *   - Trial (isTrialSession=true): status flip, no billing side-effects.
- *   - Package: placeholder error — C4C integrates the package ledger.
- *   - Pay-per-session: deferred error — C7 owns invoice creation.
+ * Billing dispatch:
+ *   - Trial (isTrialSession=true): status flip only, no billing side-effects.
+ *   - Package: ledger-first package consumption (C4C), no invoice.
+ *   - Pay-per-session: idempotent Sales Invoice create+submit (C7C), then status flip.
  *   - Unset or missing client projection: fail closed.
  *
- * All I/O dependencies are injected (findSessionById, updateSession,
- * resolveBillingMode) so this module has zero direct imports of ERP clients,
- * billing services, or database — making it unit-testable without mocking
+ * All I/O dependencies are injected so this module has zero direct imports of ERP
+ * clients, billing services, or database — making it unit-testable without mocking
  * module internals.
  */
 
 import type { FDSession, FDSessionStatus } from '@/types/scheduling'
 import type { BillingMode } from '@/types/clients'
+import type { Invoice } from '@/types'
+import type { CreateInvoicePayload } from '@/lib/erpnext/types'
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -45,8 +46,22 @@ export class BillingNotConfiguredError extends Error {
 }
 
 /**
- * Thrown for pay-per-session clients.
- * Invoice creation is deferred to C7 — this code path must not create ERP invoices.
+ * Thrown when a pay-per-session FD Session has no rate configured (rate <= 0).
+ * Set a session rate before completing a pay-per-session booking.
+ */
+export class SessionRateNotConfiguredError extends Error {
+  constructor(public readonly sessionId: string) {
+    super(
+      `FD Session ${sessionId} has no session rate configured — set a rate before completing a pay-per-session booking`,
+    )
+    this.name = 'SessionRateNotConfiguredError'
+  }
+}
+
+/**
+ * @deprecated PPS completion now creates a real invoice (C7C). This class is retained
+ * so existing callers that catch it continue to compile. The service no longer throws it
+ * on the successful PPS path.
  */
 export class PayPerSessionCompletionDeferredError extends Error {
   constructor(public readonly sessionId: string) {
@@ -84,8 +99,13 @@ export class NoPackageBalanceError extends Error {
 // ─── Deps ─────────────────────────────────────────────────────────────────────
 
 export interface CompletionDeps {
-  findSessionById:    (id: string) => Promise<FDSession>
-  updateSession:      (id: string, patch: { status?: FDSessionStatus; version?: number; sessionConsumedPackage?: boolean }) => Promise<FDSession>
+  findSessionById: (id: string) => Promise<FDSession>
+  updateSession: (id: string, patch: {
+    status?:                 FDSessionStatus
+    version?:                number
+    sessionConsumedPackage?: boolean
+    invoiceId?:              string | null
+  }) => Promise<FDSession>
   /**
    * Resolve the billing mode for the given ERP Customer docname.
    * Returns null when no local client_index row exists for this customer.
@@ -98,6 +118,17 @@ export interface CompletionDeps {
    * Returns the consumption outcome; never throws for business-logic outcomes.
    */
   consumeForSession: (args: { sessionId: string; erpCustomerId: string }) => Promise<{ outcome: 'consumed' | 'already_done' | 'no_package' | 'no_balance' }>
+  // ── Pay-per-session invoice deps (C7C) ──────────────────────────────────────
+  /** Query Sales Invoice by FD Session docname — idempotency check before create. */
+  findInvoiceBySession: (sessionId: string) => Promise<Invoice | null>
+  /** Build a Sales Invoice payload for a pay-per-session completion. */
+  buildSessionInvoicePayload: (args: { sessionId: string; erpCustomerId: string; rate: number; postingDate: string }) => CreateInvoicePayload
+  /** Create a draft Sales Invoice in ERPNext. */
+  createInvoice: (payload: CreateInvoicePayload) => Promise<Invoice>
+  /** Submit a draft Sales Invoice so it becomes payable (status: sent). */
+  submitSalesInvoice: (invoiceId: string) => Promise<Invoice>
+  /** Returns today's date as YYYY-MM-DD for the invoice posting_date / due_date. */
+  getPostingDate: () => string
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -115,13 +146,13 @@ const MUTABLE_STATUSES: FDSessionStatus[] = ['scheduled', 'confirmed']
  *
  * Billing dispatch (after guards):
  *  - isTrialSession=true wins over billing mode: status flip only, no charge.
- *  - billingMode='package': throws PackageCompletionNotReadyError (C4C placeholder).
- *  - billingMode='pay_per_session': throws PayPerSessionCompletionDeferredError (C7 deferred).
+ *  - billingMode='package': ledger-first consumption, then status flip.
+ *  - billingMode='pay_per_session': invoice-first (idempotent), then status flip + invoiceId.
  *  - billingMode='unset' or null (missing client projection): throws BillingNotConfiguredError.
  *
- * Ordering guarantee (trial path): updateSession is called AFTER all guards pass and
- * BEFORE returning, consistent with the retryable-side-effect principle — a failure
- * inside updateSession leaves the session in its mutable state and can be retried.
+ * PPS ordering guarantee: invoice is created and submitted BEFORE the FD Session status
+ * write. If the status write fails, a retry finds the existing invoice via
+ * findInvoiceBySession (custom_fd_session anchor) and reuses it — no duplicate invoice.
  */
 export async function completeSession(
   deps: CompletionDeps,
@@ -156,7 +187,49 @@ export async function completeSession(
   }
 
   if (billingMode === 'pay_per_session') {
-    throw new PayPerSessionCompletionDeferredError(id)
+    // Validate session rate
+    if (!current.rate || current.rate <= 0) {
+      throw new SessionRateNotConfiguredError(id)
+    }
+
+    // Pre-create idempotency check: reuse any existing invoice for this session.
+    // Handles retries where the invoice was issued but the FD Session write failed.
+    let invoice = await deps.findInvoiceBySession(id)
+
+    if (invoice !== null) {
+      if (invoice.status === 'cancelled') {
+        // Cancelled invoices cannot be reused; a second one with the same
+        // custom_fd_session would be a duplicate. Surface as ERR.
+        throw new Error(
+          `FD Session ${id} has a cancelled Sales Invoice (${invoice.id}). ` +
+          'Cancel and re-book this session to issue a new invoice.',
+        )
+      }
+      if (invoice.status === 'draft') {
+        // Prior attempt created the invoice but submit failed — submit it now.
+        invoice = await deps.submitSalesInvoice(invoice.id)
+      }
+      // Any other status (sent, paid, overdue, partially_paid) → reuse as-is.
+    } else {
+      // No prior invoice — build, create, and submit one.
+      const postingDate = deps.getPostingDate()
+      const payload = deps.buildSessionInvoicePayload({
+        sessionId:     id,
+        erpCustomerId: current.clientId,
+        rate:          current.rate,
+        postingDate,
+      })
+      const draft = await deps.createInvoice(payload)
+      invoice = await deps.submitSalesInvoice(draft.id)
+    }
+
+    // Invoice is safely issued (submitted or reused). Write FD Session completion.
+    // If this write fails, retry finds the invoice via findInvoiceBySession — no duplicate.
+    return deps.updateSession(id, {
+      status:    'completed',
+      invoiceId: invoice.id,
+      version:   expectedVersion + 1,
+    })
   }
 
   if (billingMode === 'package') {

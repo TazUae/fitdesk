@@ -41,9 +41,16 @@ import {
   PayPerSessionCompletionDeferredError,
   PackageCompletionNotReadyError,
   NoPackageBalanceError,
+  SessionRateNotConfiguredError,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionCompletionService'
+import {
+  findInvoiceBySession,
+  createInvoice,
+  submitSalesInvoice,
+} from '@/lib/erpnext/client'
+import { buildSessionInvoicePayload } from '@/lib/scheduling/sessionInvoiceBuilder'
 import type { BookingPlan, FDSession, TrainerConfig } from '@/types/scheduling'
 
 // ─── Result types ─────────────────────────────────────────────────────────────
@@ -59,6 +66,7 @@ export type SchedulingErrorCode =
   | 'PPS_DEFERRED'
   | 'PACKAGE_NOT_READY'
   | 'NO_PACKAGE_BALANCE'
+  | 'SESSION_RATE_NOT_CONFIGURED'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -93,6 +101,9 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
   }
   if (err instanceof NoPackageBalanceError) {
     return { success: false, code: 'NO_PACKAGE_BALANCE', message: err.message }
+  }
+  if (err instanceof SessionRateNotConfiguredError) {
+    return { success: false, code: 'SESSION_RATE_NOT_CONFIGURED', message: err.message }
   }
   if (err instanceof VersionConflictError) {
     return { success: false, code: 'VERSION_CONFLICT', message: err.message }
@@ -257,17 +268,17 @@ export async function bookPlanAction(
 /**
  * Mark an FD Session as completed.
  *
- * C4B dispatch:
+ * Dispatch:
  *   - Trial (isTrialSession=true): status flip only — no billing, no ledger.
- *   - Package: blocked (PackageCompletionNotReadyError → PACKAGE_NOT_READY).
- *     Package ledger integration arrives in C4C.
- *   - Pay-per-session: blocked (PayPerSessionCompletionDeferredError → PPS_DEFERRED).
- *     Invoice creation is deferred to C7.
- *   - Unset or missing billing mode: blocked (BillingNotConfiguredError → BILLING_NOT_CONFIGURED).
+ *   - Package: ledger-first package consumption (C4C) → PACKAGE_NOT_READY / NO_PACKAGE_BALANCE.
+ *   - Pay-per-session (C7C): creates+submits one Sales Invoice, then writes status+invoiceId.
+ *     Idempotent: existing invoice found via custom_fd_session anchor → reused, not duplicated.
+ *     Missing/zero rate → SESSION_RATE_NOT_CONFIGURED.
+ *   - Unset or missing billing mode → BILLING_NOT_CONFIGURED.
  *
  * Guards: version check (VERSION_CONFLICT) + mutable-state check (IMMUTABLE_STATUS).
  *
- * No package ledger mutations. No invoice creation. No payment writes.
+ * No payment entries. No manual invoice UI.
  */
 export async function completeSessionAction(
   id:              string,
@@ -308,6 +319,12 @@ export async function completeSessionAction(
           })
           return { outcome: res.outcome }
         },
+        // Pay-per-session invoice deps (C7C)
+        findInvoiceBySession,
+        buildSessionInvoicePayload,
+        createInvoice,
+        submitSalesInvoice,
+        getPostingDate: () => new Date().toISOString().slice(0, 10),
       },
       id,
       expectedVersion,

@@ -3,14 +3,32 @@ import {
   completeSession,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
+  SessionRateNotConfiguredError,
   NoPackageBalanceError,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionCompletionService'
 import type { FDSession } from '@/types/scheduling'
+import type { Invoice } from '@/types'
 import type { CompletionDeps } from '@/lib/scheduling/sessionCompletionService'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
+  return {
+    id:                'SINV-001',
+    clientId:          'CUST-001',
+    clientName:        'Alice',
+    trainerId:         '',
+    amount:            100,
+    outstandingAmount: 100,
+    currency:          'SAR',
+    status:            'sent',
+    dueDate:           '2026-07-01',
+    issuedAt:          '2026-07-01',
+    ...overrides,
+  }
+}
 
 const BASE_SESSION: FDSession = {
   id:                     'fds-001',
@@ -41,6 +59,10 @@ function makeDeps(opts: {
   billingMode?:          'package' | 'pay_per_session' | 'unset' | null
   consumeOutcome?:       'consumed' | 'already_done' | 'no_package' | 'no_balance'
   updateSessionResult?:  FDSession
+  // PPS opts:
+  existingInvoice?:      Invoice | null
+  draftInvoice?:         Invoice           // returned by createInvoice
+  submittedInvoice?:     Invoice           // returned by submitSalesInvoice
 } = {}): CompletionDeps {
   const session = { ...BASE_SESSION, ...opts.session }
   const completed: FDSession = opts.updateSessionResult ?? {
@@ -51,11 +73,23 @@ function makeDeps(opts: {
   }
   // Use explicit 'in' check so that null is preserved (not replaced by ??)
   const billingMode = 'billingMode' in opts ? opts.billingMode : 'package'
+
+  const draftInvoice     = opts.draftInvoice     ?? makeInvoice({ id: 'SINV-001', status: 'draft' })
+  const submittedInvoice = opts.submittedInvoice  ?? makeInvoice({ id: 'SINV-001', status: 'sent' })
+  // existingInvoice defaults to null (no prior invoice)
+  const existingInvoice  = 'existingInvoice' in opts ? opts.existingInvoice : null
+
   return {
-    findSessionById:   vi.fn().mockResolvedValue(session),
-    updateSession:     vi.fn().mockResolvedValue(completed),
+    findSessionById:    vi.fn().mockResolvedValue(session),
+    updateSession:      vi.fn().mockResolvedValue(completed),
     resolveBillingMode: vi.fn().mockResolvedValue(billingMode),
-    consumeForSession: vi.fn().mockResolvedValue({ outcome: opts.consumeOutcome ?? 'consumed' }),
+    consumeForSession:  vi.fn().mockResolvedValue({ outcome: opts.consumeOutcome ?? 'consumed' }),
+    // PPS invoice deps
+    findInvoiceBySession:       vi.fn().mockResolvedValue(existingInvoice),
+    buildSessionInvoicePayload: vi.fn().mockReturnValue({ customer: 'CUST-001', items: [] }),
+    createInvoice:              vi.fn().mockResolvedValue(draftInvoice),
+    submitSalesInvoice:         vi.fn().mockResolvedValue(submittedInvoice),
+    getPostingDate:             vi.fn().mockReturnValue('2026-07-01'),
   }
 }
 
@@ -79,9 +113,10 @@ describe('completeSession — version guard', () => {
     expect(deps.consumeForSession).not.toHaveBeenCalled()
   })
 
-  it('proceeds when version matches', async () => {
-    const deps = makeDeps({ session: { version: 5 }, billingMode: 'pay_per_session' })
-    await expect(completeSession(deps, 'fds-001', 5)).rejects.toBeInstanceOf(PayPerSessionCompletionDeferredError)
+  it('proceeds past the version guard when version matches', async () => {
+    // Use billingMode=unset so the function reaches billing dispatch (proving version guard passed)
+    const deps = makeDeps({ session: { version: 5 }, billingMode: 'unset' })
+    await expect(completeSession(deps, 'fds-001', 5)).rejects.toBeInstanceOf(BillingNotConfiguredError)
   })
 })
 
@@ -199,27 +234,16 @@ describe('completeSession — billing mode dispatch', () => {
     expect(deps.updateSession).not.toHaveBeenCalled()
   })
 
-  it('throws PayPerSessionCompletionDeferredError for pay_per_session clients', async () => {
-    const deps = makeDeps({ billingMode: 'pay_per_session' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(PayPerSessionCompletionDeferredError)
-  })
-
-  it('does not call updateSession for pay_per_session clients', async () => {
-    const deps = makeDeps({ billingMode: 'pay_per_session' })
+  it('resolves billing mode using the session clientId', async () => {
+    const deps = makeDeps({ session: { clientId: 'CUST-XYZ' }, billingMode: 'unset' })
     await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
-    expect(deps.updateSession).not.toHaveBeenCalled()
+    expect(deps.resolveBillingMode).toHaveBeenCalledWith('CUST-XYZ')
   })
 
   it('does not call consumeForSession for pay_per_session clients', async () => {
     const deps = makeDeps({ billingMode: 'pay_per_session' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    await completeSession(deps, 'fds-001', 1)
     expect(deps.consumeForSession).not.toHaveBeenCalled()
-  })
-
-  it('resolves billing mode using the session clientId', async () => {
-    const deps = makeDeps({ session: { clientId: 'CUST-XYZ' }, billingMode: 'pay_per_session' })
-    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
-    expect(deps.resolveBillingMode).toHaveBeenCalledWith('CUST-XYZ')
   })
 })
 
@@ -319,18 +343,179 @@ describe('completeSession — package path', () => {
   })
 })
 
-// ─── No external billing/payment/invoice calls ───────────────────────────────
+// ─── Pay-per-session path (C7C) ───────────────────────────────────────────────
 
-describe('completeSession — no package/billing/payment imports', () => {
-  it('the service module only imports from types — no billing, ERP, or db imports', () => {
-    // Structural assertion: the service file only imports from @/types/*.
-    // If someone adds an import to lib/billing/* or lib/erpnext/*, this
-    // test catches it by verifying the module can be imported in an environment
-    // where those modules are NOT mocked (this test file has no vi.mock calls).
+describe('completeSession — pay-per-session path', () => {
+  it('creates and submits a new invoice when none exists, then updates FD Session', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    const result = await completeSession(deps, 'fds-001', 1)
+    expect(result.status).toBe('completed')
+    expect(deps.createInvoice).toHaveBeenCalledOnce()
+    expect(deps.submitSalesInvoice).toHaveBeenCalledOnce()
+    expect(deps.updateSession).toHaveBeenCalledOnce()
+  })
+
+  it('invoice-first: createInvoice resolves before updateSession is called', async () => {
+    const callOrder: string[] = []
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.createInvoice as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('create')
+      return makeInvoice({ status: 'draft' })
+    })
+    ;(deps.submitSalesInvoice as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('submit')
+      return makeInvoice({ status: 'sent' })
+    })
+    ;(deps.updateSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('update')
+      return { ...BASE_SESSION, status: 'completed', version: 2 }
+    })
+    await completeSession(deps, 'fds-001', 1)
+    expect(callOrder).toEqual(['create', 'submit', 'update'])
+  })
+
+  it('passes session docname as sessionId to buildSessionInvoicePayload', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.buildSessionInvoicePayload).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'fds-001' }),
+    )
+  })
+
+  it('passes current.clientId as erpCustomerId to buildSessionInvoicePayload', async () => {
+    const deps = makeDeps({ session: { clientId: 'CUST-999' }, billingMode: 'pay_per_session' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.buildSessionInvoicePayload).toHaveBeenCalledWith(
+      expect.objectContaining({ erpCustomerId: 'CUST-999' }),
+    )
+  })
+
+  it('passes current.rate to buildSessionInvoicePayload', async () => {
+    const deps = makeDeps({ session: { rate: 250 }, billingMode: 'pay_per_session' })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.buildSessionInvoicePayload).toHaveBeenCalledWith(
+      expect.objectContaining({ rate: 250 }),
+    )
+  })
+
+  it('writes invoiceId to FD Session with the submitted invoice id', async () => {
+    const deps = makeDeps({
+      billingMode:     'pay_per_session',
+      submittedInvoice: makeInvoice({ id: 'SINV-XYZ', status: 'sent' }),
+    })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      invoiceId: 'SINV-XYZ',
+    }))
+  })
+
+  it('writes status completed and increments version by 1', async () => {
+    const deps = makeDeps({ session: { version: 3 }, billingMode: 'pay_per_session' })
+    await completeSession(deps, 'fds-001', 3)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:  'completed',
+      version: 4,
+    }))
+  })
+
+  it('checks for an existing invoice before creating one', async () => {
+    const callOrder: string[] = []
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.findInvoiceBySession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('find')
+      return null
+    })
+    ;(deps.createInvoice as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('create')
+      return makeInvoice({ status: 'draft' })
+    })
+    await completeSession(deps, 'fds-001', 1)
+    expect(callOrder[0]).toBe('find')
+    expect(callOrder[1]).toBe('create')
+  })
+
+  it('reuses an existing submitted invoice — does not call createInvoice', async () => {
+    const existing = makeInvoice({ id: 'SINV-EXISTING', status: 'sent' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: existing })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      invoiceId: 'SINV-EXISTING',
+    }))
+  })
+
+  it('submits an existing draft invoice — does not call createInvoice', async () => {
+    const draft = makeInvoice({ id: 'SINV-DRAFT', status: 'draft' })
+    const submitted = makeInvoice({ id: 'SINV-DRAFT', status: 'sent' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: draft, submittedInvoice: submitted })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).toHaveBeenCalledWith('SINV-DRAFT')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      invoiceId: 'SINV-DRAFT',
+    }))
+  })
+
+  it('reuses an existing paid invoice without calling createInvoice or submitSalesInvoice', async () => {
+    const paid = makeInvoice({ id: 'SINV-PAID', status: 'paid' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: paid })
+    await completeSession(deps, 'fds-001', 1)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      invoiceId: 'SINV-PAID',
+    }))
+  })
+
+  it('throws when existing invoice is cancelled — does not create a second invoice', async () => {
+    const cancelled = makeInvoice({ id: 'SINV-CANCELLED', status: 'cancelled' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: cancelled })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('throws SessionRateNotConfiguredError when rate is 0', async () => {
+    const deps = makeDeps({ session: { rate: 0 }, billingMode: 'pay_per_session' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('throws SessionRateNotConfiguredError when rate is negative', async () => {
+    const deps = makeDeps({ session: { rate: -50 }, billingMode: 'pay_per_session' })
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('does not call updateSession when createInvoice throws', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.createInvoice as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ERP create failed'))
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow('ERP create failed')
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('does not call updateSession when submitSalesInvoice throws', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.submitSalesInvoice as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ERP submit failed'))
+    await expect(completeSession(deps, 'fds-001', 1)).rejects.toThrow('ERP submit failed')
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+})
+
+// ─── No direct ERP/billing/db runtime imports ─────────────────────────────────
+
+describe('completeSession — no direct ERP, billing, or db runtime imports', () => {
+  it('exports all error classes and completeSession (module loads without mocking ERP or billing)', () => {
+    // Structural assertion: the service only has side-effect-free type imports from
+    // @/lib/erpnext/types (pure interfaces, no runtime code). This test verifies the
+    // module loads cleanly in an unmocked environment.
     expect(typeof completeSession).toBe('function')
     expect(typeof BillingNotConfiguredError).toBe('function')
     expect(typeof NoPackageBalanceError).toBe('function')
     expect(typeof PayPerSessionCompletionDeferredError).toBe('function')
+    expect(typeof SessionRateNotConfiguredError).toBe('function')
     expect(typeof VersionConflictError).toBe('function')
     expect(typeof ImmutableSessionError).toBe('function')
   })

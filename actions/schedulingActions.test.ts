@@ -80,6 +80,14 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
       this.sessionId = sessionId
     }
   },
+  SessionRateNotConfiguredError: class SessionRateNotConfiguredError extends Error {
+    sessionId: string
+    constructor(sessionId: string) {
+      super(`FD Session ${sessionId} has no session rate configured`)
+      this.name = 'SessionRateNotConfiguredError'
+      this.sessionId = sessionId
+    }
+  },
   PackageCompletionNotReadyError: class PackageCompletionNotReadyError extends Error {
     clientId: string
     constructor(clientId: string) {
@@ -112,6 +120,18 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
       this.status = status
     }
   },
+}))
+
+// Mock ERP client functions used by PPS completion deps.
+vi.mock('@/lib/erpnext/client', () => ({
+  findInvoiceBySession: vi.fn(),
+  createInvoice:        vi.fn(),
+  submitSalesInvoice:   vi.fn(),
+}))
+
+// Mock session invoice builder used by PPS completion deps.
+vi.mock('@/lib/scheduling/sessionInvoiceBuilder', () => ({
+  buildSessionInvoicePayload: vi.fn(),
 }))
 
 // Mock PackageConsumptionService — wired by the action for package-mode completion.
@@ -748,6 +768,34 @@ describe('completeSessionAction', () => {
 
     expect(result.success).toBe(false)
     if (!result.success) expect(result.code).toBe('NO_PACKAGE_BALANCE')
+  })
+
+  it('maps SessionRateNotConfiguredError to SESSION_RATE_NOT_CONFIGURED code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const SessionRateNotConfiguredErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).SessionRateNotConfiguredError
+    mockCompleteSession.mockRejectedValue(new SessionRateNotConfiguredErrorCls('fds-001'))
+
+    const result = await completeSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('SESSION_RATE_NOT_CONFIGURED')
+  })
+
+  it('wires PPS invoice deps into completeSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCompleteSession.mockResolvedValue(MOCK_COMPLETED_SESSION)
+
+    await completeSessionAction('fds-001', 1)
+
+    const [deps] = mockCompleteSession.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    expect(typeof deps.findInvoiceBySession).toBe('function')
+    expect(typeof deps.createInvoice).toBe('function')
+    expect(typeof deps.submitSalesInvoice).toBe('function')
+    expect(typeof deps.buildSessionInvoicePayload).toBe('function')
+    expect(typeof deps.getPostingDate).toBe('function')
   })
 
   it('is retryable: first attempt ERR, second attempt succeeds', async () => {
