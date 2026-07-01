@@ -189,6 +189,20 @@ export function SessionCompletionSheet({
               </div>
             </div>
 
+            {/* PPS invoice hint — visible when completing will trigger invoice creation */}
+            {eligible && session.rate > 0 && !session.isTrialSession && !session.sessionConsumedPackage && !session.invoiceId && (
+              <div
+                className="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  backgroundColor: 'var(--fd-card)',
+                  color:           'var(--fd-muted)',
+                  border:          '1px solid var(--fd-border)',
+                }}
+              >
+                Completing this session will issue an invoice for {session.rate.toLocaleString()}.
+              </div>
+            )}
+
             {/* Eligibility notices */}
             {isFuture && (
               <div

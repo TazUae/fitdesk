@@ -10,11 +10,13 @@ import type { FDSession } from '@/types/scheduling'
 // ─── Error code → user-facing message ─────────────────────────────────────────
 
 const ERROR_CODE_MESSAGES: Record<string, string> = {
-  BILLING_NOT_CONFIGURED: 'Billing setup is required before this session can be completed.',
-  NO_PACKAGE_BALANCE:     'This client has no remaining package sessions.',
-  PPS_DEFERRED:           'Pay-per-session completion will be available in the next billing phase.',
-  VERSION_CONFLICT:       'This session changed. Refresh and try again.',
-  IMMUTABLE_STATUS:       'This session is already finalized.',
+  BILLING_NOT_CONFIGURED:      'Billing setup is required before this session can be completed.',
+  NO_PACKAGE_BALANCE:          'This client has no remaining package sessions.',
+  SESSION_RATE_NOT_CONFIGURED: 'No session rate is set — add a rate to this session before completing.',
+  VERSION_CONFLICT:            'This session changed. Refresh and try again.',
+  IMMUTABLE_STATUS:            'This session is already finalized.',
+  // Kept as a fallback; the service no longer issues this code on the PPS path.
+  PPS_DEFERRED:                'Could not complete the session. Please try again.',
 }
 
 export function mapCompletionError(code: string): string {
