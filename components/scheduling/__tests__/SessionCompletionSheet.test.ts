@@ -113,7 +113,7 @@ describe('mapCompletionError — error codes map to exact user-facing messages',
 
   it('maps PPS_DEFERRED', () => {
     expect(mapCompletionError('PPS_DEFERRED')).toBe(
-      'Pay-per-session completion will be available in the next billing phase.',
+      'Could not complete the session. Please try again.',
     )
   })
 
