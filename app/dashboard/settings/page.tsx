@@ -1,4 +1,5 @@
-import { Banknote, CreditCard, Landmark, SlidersHorizontal } from 'lucide-react'
+import Link from 'next/link'
+import { Banknote, ChevronRight, CreditCard, Landmark, Package, SlidersHorizontal } from 'lucide-react'
 import { Badge } from '@/components/modules/Badge'
 
 const PAYMENT_METHODS = [
@@ -31,6 +32,26 @@ export default function SettingsPage() {
           Manage your schedule, payments, and reminders.
         </p>
       </div>
+
+      {/* ── Package Catalog ────────────────────────────────────────────────── */}
+      <Link
+        href="/dashboard/settings/packages"
+        className="flex items-center justify-between rounded-2xl border p-4 transition-opacity active:opacity-70"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-2.5">
+          <Package className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-accent)' }} />
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+              Package Catalog
+            </p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+              Create and activate package templates for client billing.
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="h-4 w-4 shrink-0 ml-2" style={{ color: 'var(--fd-muted)' }} />
+      </Link>
 
       {/* ── Business hours ─────────────────────────────────────────────────── */}
       <section
