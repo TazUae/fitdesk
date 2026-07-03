@@ -2,6 +2,11 @@
 
 > **Status:** Canonical · **Owner:** FitDesk engineering · **Last verified:** 2026-06-25
 > **Repo:** `C:\Users\Lenovo\Dev\axis-erp\FitDesk` · **Branch verified:** `main`
+> **Truth-repair update (2026-07-03):** the "Next actions" below are stale — cleanup Phase A/B0/C
+> are closed, and the PT/FD Session decision is resolved (FD Session shipped, PT Session dead).
+> Product work has resumed; see
+> [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) for
+> the current phase plan, and `01`/`02`/`09` for the corrected per-topic truth.
 
 This folder is the **canonical architecture reference for FitDesk**. When a question about
 "how is FitDesk supposed to be built / deployed / cleaned up" arises, the answer lives here
@@ -89,7 +94,12 @@ and the live repository state.
 
 ## Next actions
 
-- Resolve the **Open Decisions** consolidated in `01` and `09` (notably **PT Session vs FD Session**).
-- Begin the cleanup at **Phase A** (`02`/`03`) once decisions are acknowledged.
-- After Phase A is GREEN, run **Phase B0** — Graphify knowledge graph audit — before starting B, C, or D.
-- Backfill the **missing ADRs** listed in `14`.
+- Historical: resolve the **Open Decisions** consolidated in `01` and `09` (notably **PT Session vs
+  FD Session**); begin cleanup at **Phase A**; run **Phase B0** (Graphify) after Phase A is GREEN.
+- Current (2026-07-03): **PT Session vs FD Session is resolved** (FD Session shipped, PT Session
+  legacy/dead); **Phase A, B0 (Graphify), and C (design tokens) are done.** Cleanup is closed
+  enough and product work has resumed — see
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md),
+  starting at its Phase 0 (this truth repair) → Phase 1 → Phase 1.5 (basic CI, still open).
+- Still open regardless of the above: `features/` migration (Phase E / roadmap Phase 8), CI
+  (Phase H / roadmap Phase 1.5), and backfilling the **missing ADRs** listed in `14`.

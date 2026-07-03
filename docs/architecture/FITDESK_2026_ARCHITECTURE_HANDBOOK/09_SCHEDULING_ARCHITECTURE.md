@@ -1,9 +1,31 @@
 # 09 — Scheduling Architecture
 
 > **Purpose:** Document what is **known** about scheduling/sessions, and what must **not** be
-> decided or deleted yet. This document deliberately does **not** declare a final session
-> architecture, because the files do not yet support one.
-> **Last verified:** 2026-06-25.
+> decided or deleted yet.
+> **Last verified:** 2026-06-25 · **Update 2026-07-03:** the session-architecture decision this
+> document previously deferred is now settled by code — see "Session architecture (current
+> truth)" below. The rest of this document's classifications (scheduler engine, orphans, branches)
+> stand as of 2026-06-25 and were not re-verified in this pass.
+
+## Session architecture (current truth, confirmed 2026-07-03)
+
+**FD Session is the shipped, canonical session architecture.** Evidence:
+`lib/scheduling/sessionRepository.ts` (`DOCTYPE_SESSION = 'FD Session'`, `DOCTYPE_SERIES = 'FD
+Session Series'`), `lib/scheduling/bookingService.ts`, `lib/scheduling/sessionCompletionService.ts`,
+and `lib/dashboard/dashboardDataService.ts` all read/write through this repository.
+
+**PT Session (`lib/erpnext/client.ts:411-459`) is legacy / dead / stubbed** — kept in the codebase,
+not deleted:
+- `getSessions()` unconditionally returns `[]`.
+- `getSessionById`, `createSession`, `markSessionComplete`, `cancelSession`, `markSessionMissed`
+  all throw (`404`/`503`) with messages stating the PT Session DocType is unavailable.
+
+**Known consequence (not fixed by this doc pass):** `app/dashboard/clients/[id]/page.tsx:61` still
+calls the dead PT Session path (`getSessions` via `lib/business-data`), so the client detail page
+shows an empty session history even when live FD Sessions exist for that client. Rewiring this to
+`lib/scheduling/sessionRepository.ts` (`findSessionsInRange`) is scoped as **Phase 4** in
+[`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) — not
+done here. **Do not delete the PT Session stub before that rewire lands and is verified.**
 
 ## Scope
 
@@ -52,21 +74,37 @@ ERP-side session DocType.
   plan's ERP-adapter implementation step (threading `trainerId` into the ERP query) is
   **still required** and must be completed when PT Session is deployed. H5 is **not closed**.
 
-### Sessions (data) — the critical ambiguity
+### Sessions (data) — historical ambiguity (SUPERSEDED — see "Session architecture (current truth)" above)
+> The bullets below describe the state as of 2026-06-25, when only the dead PT Session path was
+> known and FD Session's deployment/wiring was unconfirmed. That ambiguity is now resolved; kept
+> here for history, not as current truth.
 - FitDesk session **UI + actions + types are fully built** (`actions/sessions.ts` with ownership gates;
   `ERPSession` type; `getSessions` wrapper). 🟩 FACT.
 - The ERP **read is intentionally stubbed**: `lib/erpnext/client.ts` states *"The PT Session DocType
-  does not exist in this ERP instance."* 🟩 FACT.
-- **Naming mismatch (🟥 PROBLEM + 🟦 DECISION):** FitDesk reads **"PT Session"** while `provisioning_api`
-  defines an untracked **"FD Session"** DocType (+ `fd_session_series`, `api/scheduling.py`).
+  does not exist in this ERP instance."* 🟩 FACT — but this describes the dead PT Session path only.
+- ~~**Naming mismatch (🟥 PROBLEM + 🟦 DECISION)**~~ — **RESOLVED:** FD Session is deployed and is
+  the live path FitDesk actually reads/writes through (`sessionRepository.ts` et al.); PT Session
+  is the dead stub.
 - Session completion is **status-only** today: PT Session lacks `custom_billing_mode` / `invoice_id`,
-  so no invoicing/decrement happens on complete (deferred by design). 🟩 FACT.
+  so no invoicing/decrement happens on complete (deferred by design). 🟩 FACT — again, this is the
+  dead PT Session path. FD Session completion **does** carry billing hooks; see the updated
+  contract status directly below.
 
 ## Billing & Session Outcome Contract
 
-> **Status:** TARGET BEHAVIOR — session billing hooks are **not yet implemented** because the
-> PT Session DocType is absent (all mutation stubs return `ERPNextError(503)`). This section
-> documents what the billing flow **must** look like when the DocType is deployed.
+> **Status update (confirmed 2026-07-03):** session billing hooks **are implemented** on the live
+> FD Session path — `lib/scheduling/sessionCompletionService.ts` implements ledger-first package
+> consumption (tagged `C4C`) and idempotent pay-per-session Sales Invoice create+submit (tagged
+> `C7C`). The paragraph below ("TARGET BEHAVIOR... not yet implemented") describes the old,
+> PT-Session-only assumption and is **stale** for the FD Session path; it remains accurate only as
+> a description of the dead PT Session stub. Live-ERP QA for the PPS invoice path has **not** been
+> run yet (mock-only verification per the roadmap's C7 freeze report) — see Phase 7 in
+> `FITDESK_REMAINING_ROADMAP_V2.md`.
+>
+> **Original status text (historical, PT-Session-only):** TARGET BEHAVIOR — session billing hooks
+> are **not yet implemented** because the PT Session DocType is absent (all mutation stubs return
+> `ERPNextError(503)`). This section documents what the billing flow **must** look like when the
+> DocType is deployed.
 > **Billing hooks must be preserved during any scheduler cleanup (F0/F1/G/H).** See `00`.
 
 ### Add Client — no financial side effects (binding, `ADR-001`)
@@ -122,16 +160,31 @@ scheduler UX, merging branches, renaming components, or replacing the calendar e
 silently remove the session-completion billing trigger. Any commit that touches `actions/sessions.ts`,
 the ERP session adapter, or the scheduler engine must verify the billing hook chain is intact.
 
-### Current implementation status (2026-06-25)
+### Current implementation status (updated 2026-07-03 — two parallel action layers exist)
 
-All session mutation stubs (`markSessionComplete`, `cancelSession`, `markSessionMissed`, `createSession`)
-return `ERPNextError(503)` — PT Session DocType is absent. This means:
-- No billing hook can fire today.
-- `completeSession` already calls `getSessionById` as an ownership gate, which throws 404 first — all
-  mutations fail safely and with a clear error.
-- This is intentional; see comments in `lib/erpnext/client.ts:389–416`.
-- When PT Session is deployed, the **full billing contract above must be implemented** before session
-  completion is enabled in production.
+There are **two separate session action layers** in the codebase today; do not confuse them:
+
+- **`actions/sessions.ts` (dead / legacy PT Session layer).** Still imports `getSessionById`,
+  `markSessionComplete`, etc. from `lib/erpnext/client.ts`. All of those mutation stubs
+  (`markSessionComplete`, `cancelSession`, `markSessionMissed`, `createSession`) return
+  `ERPNextError(503)`/404 — PT Session DocType is absent, so this layer cannot fire a billing hook
+  and fails safely. This matches the original 2026-06-25 finding below, but it now describes **only
+  this dead layer**, not FitDesk's real session-completion path.
+- **`actions/schedulingActions.ts` (live FD Session layer).** Calls
+  `lib/scheduling/sessionCompletionService.ts`, which **does** implement the billing contract:
+  ledger-first package consumption (`C4C`) and idempotent pay-per-session Sales Invoice
+  create+submit (`C7C`). This is the layer real bookings/completions go through.
+
+**Original 2026-06-25 finding (accurate only for the dead `actions/sessions.ts` / `lib/erpnext/client.ts`
+layer):** all session mutation stubs return `ERPNextError(503)` — PT Session DocType is absent —
+so no billing hook can fire on that path; `completeSession` calls `getSessionById` as an ownership
+gate, which throws 404 first, so mutations on that layer fail safely. See comments in
+`lib/erpnext/client.ts:389–416`.
+
+**Open follow-up (not resolved by this doc pass):** `actions/sessions.ts` being dead but still
+present/imported is itself a truth risk if a caller invokes it expecting real behavior — worth a
+grep-audit of its callers before Phase 4 lands, so the client-detail rewire doesn't accidentally
+route through the dead layer instead of `sessionCompletionService.ts` / `sessionRepository.ts`.
 
 ## Architecture rules
 
@@ -147,15 +200,20 @@ return `ERPNextError(503)` — PT Session DocType is absent. This means:
 
 - All `scheduler/*` branches, `backup/prepush-schedule-c0-before-rewrite`, `TimeGrid`, `SessionBlock`
   — frozen until F0.
-- The session DocType identity — frozen until the PT/FD decision.
+- The session DocType identity is **decided** (FD Session — see "Session architecture (current
+  truth)" above); the dead PT Session stub code stays untouched/undeleted until Phase 4 of
+  `FITDESK_REMAINING_ROADMAP_V2.md` lands and is verified.
 
 ## Open decisions
 
-1. **PT Session vs FD Session** — canonical name + which side renames. **Blocks Phase G**; deploying
-   the wrong name leaves sessions silently empty.
+1. ~~**PT Session vs FD Session**~~ — **RESOLVED (2026-07-03):** FD Session is canonical/shipped.
+   Remaining work is the client-detail-page rewire (Phase 4) and `getSessionById` trainer scoping
+   (item 5 below, H5) — not the naming decision itself.
 2. **Integration-branch UX** — port drag-to-create / drag-to-reschedule into `main`, or accept reduced scope?
 3. **`backup/prepush-schedule-c0`** — keep / extract / discard (after review)?
 4. Session billing fields (`custom_billing_mode`, `invoice_id`) — when to add (Path-C), if at all.
+   *Note:* this applies to the dead PT Session stub; FD Session's completion path already carries
+   equivalent billing wiring via `sessionCompletionService.ts` (see status update above).
 5. **`getSessionById` ERP implementation (H5 — not closed).** When PT Session DocType is deployed,
    `lib/erpnext/client.ts:getSessionById` must scope the ERP query by `trainerId`; otherwise the
    intra-tenant IDOR described in `H5-trainer-ownership.md` returns. The actions-layer gate is
@@ -193,4 +251,8 @@ return `ERPNextError(503)` — PT Session DocType is absent. This means:
 
 ## Next actions
 
-- Run F0 (UX Archaeology) early; resolve the PT/FD Session decision; only then plan F1/G.
+- Historical: run F0 (UX Archaeology) early; resolve the PT/FD Session decision; only then plan F1/G.
+- Current (2026-07-03): the PT/FD Session decision is resolved (see above). Next real work on this
+  area is Phase 4 (client-detail-page FD Session rewire) in
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md);
+  F0 (scheduler UX archaeology) remains a separate, still-open item for the scheduler-engine track.

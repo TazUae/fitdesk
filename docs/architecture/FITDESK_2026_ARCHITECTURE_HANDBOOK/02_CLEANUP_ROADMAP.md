@@ -1,21 +1,50 @@
 # 02 — Cleanup Roadmap
 
 > **Purpose:** The phased program to remove architectural drift before resuming feature work.
-> **Last verified:** 2026-06-25 · **Companion:** `03_EXECUTION_PLAN.md` (order + gates).
+> **Last verified:** 2026-07-03 · **Companion:** `03_EXECUTION_PLAN.md` (order + gates).
+> **Superseded by:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md)
+> for current-state phase planning. This file remains the historical cleanup record; see the
+> "Current known state" update below for what has actually shipped since 2026-06-25.
 
 ## Scope
 
 Substrate-first cleanup of FitDesk and its sibling service repos. Each phase is independently
 gated. Phase A is a hard prerequisite for everything else.
 
-## Current known state
+## Current known state (updated 2026-07-03)
 
-Drift is concentrated in the source-control substrate and a few architecture seams, not in product
-logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.**
+Workspace cleanup is **closed enough** and product work has resumed. The "0 / 9 phases started"
+framing below is **stale** — Phase A (source control recovery), Phase B0 (Graphify audit), and
+Phase C (design tokens) have shipped since this file was last verified. Do not cite "0 / 9" going
+forward; see the roadmap linked above for the authoritative phase count.
+
+- **Phase B0 (Graphify audit) — COMPLETE.** See
+  [`docs/audits/PHASE_B0_GRAPHIFY_KNOWLEDGE_GRAPH_AUDIT.md`](../../audits/PHASE_B0_GRAPHIFY_KNOWLEDGE_GRAPH_AUDIT.md)
+  (Status: COMPLETE, dated 2026-06-25) and `graphify-out/` (graph + targeted evidence reports,
+  gitignored per plan).
+- **Phase C (design-token OKLCH repair) — COMPLETE.** `app/globals.css` defines shadcn tokens as
+  raw OKLCH triplets (e.g. `--border: 0.92 0.008 240`) and `tailwind.config.ts` now wraps them as
+  `oklch(var(--border))` etc. — the `hsl(var(--x))`/OKLCH mismatch described in `01` (C1) is fixed.
+- **FD Session vs PT Session (Open decision, `01`/G3) — RESOLVED BY CODE.** FD Session is the
+  shipped, live session architecture (`lib/scheduling/sessionRepository.ts`:
+  `DOCTYPE_SESSION = 'FD Session'`, plus `bookingService.ts`, `sessionCompletionService.ts`,
+  `lib/dashboard/dashboardDataService.ts`). PT Session (`lib/erpnext/client.ts:411-459`) is a dead
+  stub: `getSessions()` returns `[]`; `createSession` / `markSessionComplete` / `cancelSession` /
+  `markSessionMissed` throw 503/404. It is **not deleted yet** — only isolated as legacy. See `09`
+  for the full detail and the still-open `getSessionById` trainer-scoping item (H5).
+- **`features/` migration (Phase E) — still open, scaffold-only.** 28 `.gitkeep` placeholders +
+  one real component (`features/clients/components/ClientWorkspaceOverlay.tsx`). No migration has
+  started.
+- **CI (Phase H) — still open.** No `.github/workflows` directory exists in FitDesk today. The
+  current roadmap (`FITDESK_REMAINING_ROADMAP_V2.md`) pulls a minimal CI gate forward as **Phase
+  1.5**, ahead of write-path changes, rather than leaving it to the end as Phase H implied.
 
 ## The phases
 
 ### Phase A — Source Control Recovery (P0)
+- **Status (2026-07-03): CLOSED ENOUGH.** See the "Current known state" update above; product work
+  has resumed. Not re-verified item-by-item in this pass — if a specific gate item needs
+  re-confirmation, re-run the checks below rather than assuming.
 - **Objective:** All repos attached, deployable, with one canonical checkout each; no commit lost.
 - **Targets:** detached HEADs (EES, PA); FitDesk `main` ahead-17; `provisioning_api` untracked ERP
   backend + behind-1; 17 extra worktrees; `FitDesk;C`; `fitdesk-app` classification.
@@ -25,6 +54,10 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
   `git fsck` shows no lost objects; safety tags exist in all repos.
 
 ### Phase B0 — Graphify Knowledge Graph Audit (post-A, pre-B)
+- **Status: COMPLETE (2026-06-25).** See
+  [`docs/audits/PHASE_B0_GRAPHIFY_KNOWLEDGE_GRAPH_AUDIT.md`](../../audits/PHASE_B0_GRAPHIFY_KNOWLEDGE_GRAPH_AUDIT.md)
+  and `graphify-out/` (graph + targeted evidence reports). All 8 audit questions answered;
+  output stayed gitignored per the governing rules below.
 - **Objective:** Generate a read-only repository knowledge graph (Graphify) on a freshly stabilised
   repo to surface high-blast-radius files, duplicate logic paths, feature boundary violations, and
   code/doc drift. Use findings as **evidence** to sharpen Phases B–F. No code changes in this phase.
@@ -57,6 +90,9 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 - **Gate (GO):** `local:up` + `local:check` green on the canonical compose/env; one documented template.
 
 ### Phase C — Design Token Repair
+- **Status: COMPLETE (confirmed 2026-07-03).** `app/globals.css` defines shadcn tokens as raw
+  OKLCH triplets (`--border: 0.92 0.008 240`, etc.); `tailwind.config.ts` consumes them via
+  `oklch(var(--border))` etc. — the `hsl(var(--x))` mismatch is fixed.
 - **Objective:** Fix the OKLCH/`hsl()` bridge; one token source of truth (see `07`).
 - **Targets:** `app/globals.css`, `tailwind.config.ts`; arbitrary-value scan.
 - **Risk:** Medium (broad visual surface, small active blast radius). 
@@ -70,6 +106,10 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 - **Gate (GO):** every removal grep-proven + green; scheduler primitives untouched until F.
 
 ### Phase E — Feature Architecture Migration (split)
+- **Status: STILL OPEN — scaffold only.** `features/` holds 28 `.gitkeep` placeholders + one real
+  component (`features/clients/components/ClientWorkspaceOverlay.tsx`). No migration map, shim,
+  or move has started. Tracked as Phase 8 in `FITDESK_REMAINING_ROADMAP_V2.md`, sequenced after
+  basic CI (Phase 1.5) so moves land under automated gates.
 - **E1 Feature Architecture Audit** — produce the file→`features/*` migration map + shim plan.
 - **E2 Clients Migration** — move + re-export shim; green after each.
 - **E3 Dashboard Migration** — same pattern.
@@ -86,13 +126,28 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 - **Risk:** Medium (+variable if regressions must be ported). 
 - **Gate (GO):** one scheduler; ADR-SCH-001 committed; no UX regression unaddressed; losing branches archived as tags.
 
-### Phase G — Session Architecture Deployment (FROZEN)
+### Phase G — Session Architecture Deployment (unfrozen — PT/FD decision resolved by code)
+- **Status update (2026-07-03):** the **PT Session vs FD Session** decision that froze this phase
+  is resolved: **FD Session is the shipped, live session architecture**
+  (`lib/scheduling/sessionRepository.ts`: `DOCTYPE_SESSION = 'FD Session'`, plus
+  `bookingService.ts`, `sessionCompletionService.ts`, `lib/dashboard/dashboardDataService.ts`).
+  **PT Session is a dead/legacy stub** (`lib/erpnext/client.ts:411-459`) — kept in place, not yet
+  deleted. One known user-visible gap remains: the client detail page still reads the dead PT
+  Session path (`app/dashboard/clients/[id]/page.tsx:61`), so client-level session history shows
+  empty despite live FD Sessions existing. That rewire is tracked as Phase 4 in
+  `FITDESK_REMAINING_ROADMAP_V2.md`, not done in this pass. The `getSessionById` trainer-scoping
+  gap (H5) also remains open — see `09`.
 - **Objective:** Make sessions real through the proxy — replacing the stub.
-- **Blocked by:** A + B + C + F complete **and** the **PT Session vs FD Session** decision (`09`, `01`/G3)
-  **and** DocType/provisioning approval.
-- **Risk:** High (ERP DocTypes + provisioning). **Do not start until unfrozen.**
+- **Blocked by (historical):** A + B + C + F complete **and** the **PT Session vs FD Session** decision
+  (`09`, `01`/G3) **and** DocType/provisioning approval.
+- **Risk:** High (ERP DocTypes + provisioning). Treat any further session-completion / billing-hook
+  change as approval-gated per workspace `CLAUDE.md` §4, even though the naming decision is settled.
 
 ### Phase H — CI/CD Hardening
+- **Status: STILL OPEN.** No `.github/workflows` directory exists in FitDesk today. A minimal CI
+  gate (install/typecheck/test/lint/build using existing scripts) is pulled forward as **Phase
+  1.5** in `FITDESK_REMAINING_ROADMAP_V2.md`, ahead of write-path changes — full per-repo pipeline
+  hardening as originally scoped here remains later work.
 - **Objective:** Encode every phase's verification in per-repo pipelines + a token-governance guard.
 - **Gate (GO):** each repo has a green pipeline reproducing its manual checks.
 
@@ -111,7 +166,10 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 
 ## Open decisions
 
-- The six items in `01` (PT/FD Session is the program-blocking one for G).
+- The six items in `01` — **PT/FD Session (the program-blocking one for G) is now RESOLVED BY
+  CODE:** FD Session is the shipped architecture, PT Session is legacy/dead. The remaining open
+  item under G is the client-detail-page rewire (Phase 4 in `FITDESK_REMAINING_ROADMAP_V2.md`) and
+  the `getSessionById` trainer-scoping gap (H5, `09`) — not the naming decision itself.
 
 ## Verification checklist
 
@@ -125,4 +183,8 @@ logic. See `01` for the evidence base. Program progress: **0 / 9 phases started.
 
 ## Next actions
 
-- Read `03` for the execution order and gates; start at Phase A, then B0.
+- Historical: read `03` for the execution order and gates; start at Phase A, then B0.
+- Current (2026-07-03): see
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) for
+  the active phase plan — Phase 0 (this truth repair) → Phase 1 (re-open safely) → Phase 1.5
+  (basic CI) → onward.
