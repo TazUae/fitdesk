@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { bookPlanAction, buildPlanAction } from '@/actions/schedulingActions'
-import { fetchClientById } from '@/actions/clients'
 import { BookingStepper, type BookingStep } from '@/components/scheduling/booking/BookingStepper'
 import { BookingClientStep } from '@/components/scheduling/booking/BookingClientStep'
 import { BookingDateTimeStep } from '@/components/scheduling/booking/BookingDateTimeStep'
@@ -187,19 +186,18 @@ export function BookingSheet(props: BookingSheetProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Package balance is not yet derivable from the main-branch Client type
-  // (remainingSessions is a C4 addition). Clear balance when client changes;
-  // this keeps pkgBalance null and prevents PACKAGE_OVERDRAW until C4 wires it.
+  // When the selected client changes: reset fee and re-seed from the client's
+  // default session rate when billing mode is pay_per_session.
+  // Package balance stays null until C4 wires remainingSessions into ClientIndex.
   useEffect(() => {
-    if (!draft.clientId) { setPkgBalance(null); return }
-    let cancelled = false
-    fetchClientById(draft.clientId).then(result => {
-      if (cancelled) return
-      // Client type on this branch has no remainingSessions — treat as no_package.
-      void result
-      setPkgBalance(null)
-    })
-    return () => { cancelled = true }
+    const client = draft.clientId ? clients.find(c => c.id === draft.clientId) : null
+    setPkgBalance(null)
+    const seedRate =
+      client?.billingMode === 'pay_per_session' && (client.defaultSessionRate ?? 0) > 0
+        ? client.defaultSessionRate!
+        : null
+    updateDraft({ fee: seedRate })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.clientId])
 
   // ── Client-side preview plan (pure engine) ───────────────────────────────
@@ -248,8 +246,14 @@ export function BookingSheet(props: BookingSheetProps) {
     if (draft.packageOptIn && pkgBalance?.status === 'overdraw') {
       return { kind: 'blocked', reason: 'PACKAGE_OVERDRAW', details: `Will consume ${pkgBalance.willConsume} of ${pkgBalance.remainingSessions ?? 0}` }
     }
+    // PPS clients must have a positive fee snapshotted before booking — the
+    // completion guardrail in sessionCompletionService rejects rate=0.
+    const clientBillingMode = clients.find(c => c.id === draft.clientId)?.billingMode
+    if (clientBillingMode === 'pay_per_session' && (draft.fee === null || draft.fee <= 0)) {
+      return { kind: 'invalid', reason: 'NO_FEE' }
+    }
     return { kind: 'ready', plan: previewPlan, total: previewPlan.occurrences.length }
-  }, [draft, previewPlan, pkgBalance])
+  }, [draft, previewPlan, pkgBalance, clients])
 
   // ── Draft mutation handler with auto-pattern suggestion ─────────────────
   const updateDraft = useCallback((patch: Partial<BookingDraft>) => {
@@ -470,6 +474,7 @@ export function BookingSheet(props: BookingSheetProps) {
               sessionType={draft.sessionType}
               fee={draft.fee}
               notes={draft.notes}
+              clientBillingMode={selectedClient?.billingMode}
               onChange={patch => updateDraft(patch)}
               onSelectDifferentTime={() => setStep(hidePattern ? 'datetime' : 'pattern')}
             />

@@ -69,6 +69,10 @@ export interface Client {
   goal?: string
   notes?: string
   createdAt: string
+  /** Billing mode — mapped from ERP Customer custom_billing_mode. */
+  billingMode?: 'package' | 'pay_per_session' | 'unset'
+  /** Per-session default rate — from ERP Customer custom_default_session_rate; present when > 0. */
+  defaultSessionRate?: number
 }
 
 /**

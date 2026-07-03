@@ -11,12 +11,14 @@ import type { Client } from '@/types'
 const SESSION_TYPES = ['Strength', 'Cardio', 'Rehab', 'Mobility', 'Flexibility'] as const
 
 interface BookingReviewStepProps {
-  plan:            BookingPlan
-  client:          Client | null
-  packageBalance:  PackageBalanceState | null
-  sessionType:     string | null
-  fee:             number | null
-  notes:           string | null
+  plan:              BookingPlan
+  client:            Client | null
+  packageBalance:    PackageBalanceState | null
+  sessionType:       string | null
+  fee:               number | null
+  notes:             string | null
+  /** When 'pay_per_session', the fee field is shown prominently and is required. */
+  clientBillingMode?: 'package' | 'pay_per_session' | 'unset'
   onChange: (next: {
     sessionType?: string | null
     fee?:         number | null
@@ -46,9 +48,11 @@ export function BookingReviewStep({
   sessionType,
   fee,
   notes,
+  clientBillingMode,
   onChange,
   onSelectDifferentTime,
 }: BookingReviewStepProps) {
+  const isPPS = clientBillingMode === 'pay_per_session'
   const conflictTimes = new Set(plan.conflicts.map(c => c.occurrence.startAt.getTime()))
   const totalLabel = plan.occurrences.length === 1 ? '1 Session' : `${plan.occurrences.length} Sessions`
 
@@ -110,13 +114,45 @@ export function BookingReviewStep({
         <CompactSessionPreview occurrences={plan.occurrences} conflictTimes={conflictTimes} />
       </div>
 
-      {/* Optional fields */}
+      {/* PPS session rate — shown prominently and is required */}
+      {isPPS && (
+        <div
+          className="rounded-lg border p-3 space-y-1.5"
+          style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-bg)' }}
+        >
+          <p className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+            Session rate{' '}
+            <span className="text-[10px] font-normal" style={{ color: 'var(--fd-red)' }}>required</span>
+          </p>
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            value={fee ?? ''}
+            onChange={e => onChange({ fee: e.target.value === '' ? null : Number(e.target.value) })}
+            placeholder="e.g. 20"
+            className="input-base"
+          />
+          {(fee === null || fee <= 0) ? (
+            <p className="text-[11px]" style={{ color: 'var(--fd-red)' }}>
+              Session fee is required for pay-per-session clients.
+            </p>
+          ) : (
+            <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+              Snapped to this session — used when invoicing on completion.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Optional fields — session type, fee (non-PPS), notes */}
       <details className="rounded-lg border" style={{ borderColor: 'var(--fd-border)' }}>
         <summary
           className="cursor-pointer select-none rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--fd-card-hover)]"
           style={{ color: 'var(--fd-text)' }}
         >
-          Optional — type, fee, notes
+          {isPPS ? 'Optional — type, notes' : 'Optional — type, fee, notes'}
         </summary>
         <div className="space-y-3 px-3 pb-3 pt-1">
           <div>
@@ -143,18 +179,21 @@ export function BookingReviewStep({
             </div>
           </div>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>Session fee</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={fee ?? ''}
-              onChange={e => onChange({ fee: e.target.value === '' ? null : Number(e.target.value) })}
-              placeholder="0.00"
-              className="input-base"
-            />
-          </label>
+          {/* Fee — only for non-PPS clients; PPS shows it above as required */}
+          {!isPPS && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>Session fee</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={fee ?? ''}
+                onChange={e => onChange({ fee: e.target.value === '' ? null : Number(e.target.value) })}
+                placeholder="0.00"
+                className="input-base"
+              />
+            </label>
+          )}
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>Notes</span>

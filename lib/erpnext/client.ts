@@ -56,15 +56,16 @@ const DOCTYPE = {
 // Frappe Customer has different fields from the old custom Client DocType.
 
 interface ERPCustomer {
-  name:                  string
-  customer_name:         string
-  mobile_no?:            string
-  disabled?:             0 | 1
-  email_id?:             string
-  custom_fitness_goals?: string
-  custom_trainer_notes?: string
-  custom_billing_mode?:  string
-  creation:              string
+  name:                         string
+  customer_name:                string
+  mobile_no?:                   string
+  disabled?:                    0 | 1
+  email_id?:                    string
+  custom_fitness_goals?:        string
+  custom_trainer_notes?:        string
+  custom_billing_mode?:         string
+  custom_default_session_rate?: number
+  creation:                     string
 }
 
 // ─── Error class ─────────────────────────────────────────────────────────────
@@ -167,6 +168,12 @@ export async function erpFetch<T>(path: string, opts: FetchOptions = {}): Promis
 
 // ─── Status mappers ───────────────────────────────────────────────────────────
 
+function mapBillingMode(raw: string | undefined): 'package' | 'pay_per_session' | 'unset' {
+  if (raw === 'Package') return 'package'
+  if (raw === 'Pay Per Session') return 'pay_per_session'
+  return 'unset'
+}
+
 function mapClientStatus(s: string): ClientStatus {
   const map: Record<string, ClientStatus> = {
     Active:   'active',
@@ -210,24 +217,30 @@ function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
-function normalizeClient(raw: ERPCustomer): Client {
+export function normalizeClient(raw: ERPCustomer): Client {
   const full = raw.customer_name ?? ''
   const lastSpace = full.lastIndexOf(' ')
   const firstName = lastSpace > 0 ? full.slice(0, lastSpace) : full
   const lastName  = lastSpace > 0 ? full.slice(lastSpace + 1) : undefined
+  const defaultSessionRate =
+    typeof raw.custom_default_session_rate === 'number' && raw.custom_default_session_rate > 0
+      ? raw.custom_default_session_rate
+      : undefined
   return {
-    id:           raw.name,
+    id:                 raw.name,
     firstName,
     lastName,
-    name:         full,
-    email:        raw.email_id ?? undefined,
-    phone:        raw.mobile_no ?? '',
-    status:       raw.disabled === 1 ? 'inactive' : 'active',
-    trainerId:    '',
-    sessionCount: 0,
-    goal:         raw.custom_fitness_goals,
-    notes:        raw.custom_trainer_notes,
-    createdAt:    raw.creation,
+    name:               full,
+    email:              raw.email_id ?? undefined,
+    phone:              raw.mobile_no ?? '',
+    status:             raw.disabled === 1 ? 'inactive' : 'active',
+    trainerId:          '',
+    sessionCount:       0,
+    goal:               raw.custom_fitness_goals,
+    notes:              raw.custom_trainer_notes,
+    createdAt:          raw.creation,
+    billingMode:        mapBillingMode(raw.custom_billing_mode),
+    defaultSessionRate,
   }
 }
 
@@ -287,6 +300,7 @@ function clientFields(): string {
   return JSON.stringify([
     'name', 'customer_name', 'mobile_no', 'disabled',
     'custom_fitness_goals', 'custom_trainer_notes', 'creation',
+    'custom_billing_mode', 'custom_default_session_rate',
   ])
 }
 
@@ -779,7 +793,7 @@ export async function updateTrainerSettingsDoc(
   return res.data
 }
 
-// Keep normalizeSession in scope so ERPSession import is used.
+// Keep these in scope so their imports are used.
 void normalizeSession
 void sessionFields
 void mapClientStatus
