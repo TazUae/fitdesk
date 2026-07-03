@@ -60,7 +60,9 @@ export function PlannerShell({
         {/* Main calendar area */}
         <main
           className={cn(
-            'relative flex min-w-0 flex-1 flex-col overflow-hidden',
+            // isolate: contains all ScheduleX z-indexes (--sx-z-index-week-header: 100 etc.)
+            // within this stacking context so they cannot bleed through modal overlays.
+            'relative isolate flex min-w-0 flex-1 flex-col overflow-hidden',
             'transition-[padding-right] duration-200 ease-out',
             rightDrawerOpen && 'md:pr-[520px]',
           )}
