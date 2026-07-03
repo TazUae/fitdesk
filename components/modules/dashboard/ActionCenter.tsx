@@ -1,14 +1,17 @@
 /**
  * ActionCenter — lightweight attention panel.
  *
- * Renders itemized overdue invoice cards (Phase 2) with client name, amount,
- * age label, and severity-driven accent treatment. Link-only — no mutation.
+ * Renders itemized invoice attention cards:
+ *   overdue_invoice  — red urgency (past due)
+ *   pending_invoice  — amber collection prompt (sent / partially_paid)
+ *   invoice_overflow — "+N more" cap link to invoices list
  *
+ * Link-only — no mutation.
  * Caller must guard: if (attentionItems.length === 0) don't render this.
  */
 
 import Link from 'next/link'
-import { AlertTriangle, ArrowRight } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Clock } from 'lucide-react'
 import { fmtMoneyCompact } from '@/lib/format/money'
 import type { AttentionItem } from '@/lib/dashboard/derive'
 
@@ -22,15 +25,16 @@ export function ActionCenter({ items }: ActionCenterProps) {
   return (
     <div className="space-y-2">
       {items.map((item, idx) => {
-        if (item.type === 'overdue_invoice_overflow') {
+        // ── Overflow cap ────────────────────────────────────────────────────
+        if (item.type === 'invoice_overflow') {
           return (
             <Link
               key={idx}
               href={item.href}
               className="flex items-center gap-3 rounded-xl border px-4 py-2.5 transition-opacity active:opacity-70"
               style={{
-                backgroundColor: 'rgba(232,92,106,0.04)',
-                borderColor:     'rgba(232,92,106,0.15)',
+                backgroundColor: 'var(--fd-surface)',
+                borderColor:     'var(--fd-border)',
               }}
             >
               <p className="min-w-0 flex-1 text-sm" style={{ color: 'var(--fd-muted)' }}>
@@ -41,6 +45,41 @@ export function ActionCenter({ items }: ActionCenterProps) {
           )
         }
 
+        // ── Pending invoice — sent / partially_paid (amber) ────────────────
+        if (item.type === 'pending_invoice') {
+          const hasMeta = item.outstandingAmount !== undefined && !!item.currency
+          return (
+            <Link
+              key={idx}
+              href={item.href}
+              aria-label={item.label}
+              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-opacity active:opacity-70"
+              style={{
+                backgroundColor: 'rgba(232,197,71,0.07)',
+                borderColor:     'rgba(232,197,71,0.28)',
+              }}
+            >
+              <Clock
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--fd-accent)' }}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                  {item.clientName ?? item.label}
+                </p>
+                {hasMeta && (
+                  <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+                    {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
+                    {' · To collect'}
+                  </p>
+                )}
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+            </Link>
+          )
+        }
+
+        // ── Overdue invoice — red urgency ──────────────────────────────────
         const isHigh  = item.severity === 'high'
         const hasMeta = item.outstandingAmount !== undefined && !!item.currency
 

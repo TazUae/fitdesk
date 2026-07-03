@@ -44,17 +44,22 @@ export interface MoneySnapshot {
 
 /** A single lightweight attention item — link only, no mutation. */
 export interface AttentionItem {
-  type: 'overdue_invoice' | 'overdue_invoice_overflow'
+  /**
+   * overdue_invoice   — past due, strongest urgency (red).
+   * pending_invoice   — sent / partially_paid, collection prompt (amber).
+   * invoice_overflow  — "+N more" cap item linking to the invoices list.
+   */
+  type: 'overdue_invoice' | 'pending_invoice' | 'invoice_overflow'
   label: string
   href: string
-  /** Present on 'overdue_invoice' items — rich data for UI rendering. */
+  /** Present on 'overdue_invoice' and 'pending_invoice' items. */
   clientName?: string
   outstandingAmount?: number
   currency?: string
   dueDate?: string
-  /** Days since the due date (0+ means past due). */
+  /** Days since the due date (0+ means past due). Only on overdue_invoice. */
   ageDays?: number
-  /** 'high' for invoices ≥ 14 days overdue; 'normal' otherwise. */
+  /** 'high' for invoices ≥ 14 days overdue; 'normal' otherwise. Only on overdue_invoice. */
   severity?: 'high' | 'normal'
 }
 
@@ -143,10 +148,19 @@ function daysSinceDue(today: string, dueDate: string): number {
   return Math.max(0, Math.floor((todayMs - dueMs) / 86_400_000))
 }
 
+/** Sort invoices: oldest dueDate first, then larger outstandingAmount first. */
+function sortByAge(a: Invoice, b: Invoice): number {
+  const dateCmp = a.dueDate.localeCompare(b.dueDate)
+  if (dateCmp !== 0) return dateCmp
+  return b.outstandingAmount - a.outstandingAmount
+}
+
 /**
  * Derives lightweight attention items for the Action Center.
- * Emits one item per overdue invoice, ordered oldest-first then larger-amount-first,
- * capped at ATTENTION_CAP with an overflow item when there are more.
+ *
+ * Overdue invoices appear first (highest urgency), followed by sent /
+ * partially_paid invoices (collection prompt). Combined list is capped at
+ * ATTENTION_CAP with a single overflow item when there are more.
  *
  * `today` is optional (YYYY-MM-DD) — defaults to the real UTC date.
  * Pass a fixed value in tests for deterministic ageDays.
@@ -154,21 +168,13 @@ function daysSinceDue(today: string, dueDate: string): number {
 export function getAttentionItems(invoices: Invoice[], today?: string): AttentionItem[] {
   const refDate = today ?? new Date().toISOString().slice(0, 10)
 
-  const overdue = invoices
-    .filter(i => i.status === 'overdue')
-    .sort((a, b) => {
-      const dateCmp = a.dueDate.localeCompare(b.dueDate)
-      if (dateCmp !== 0) return dateCmp
-      return b.outstandingAmount - a.outstandingAmount
-    })
+  const overdue = invoices.filter(i => i.status === 'overdue').sort(sortByAge)
+  const pending = invoices.filter(i => i.status === 'sent' || i.status === 'partially_paid').sort(sortByAge)
 
-  if (overdue.length === 0) return []
+  if (overdue.length === 0 && pending.length === 0) return []
 
-  const visible      = overdue.slice(0, ATTENTION_CAP)
-  const overflowCount = overdue.length - ATTENTION_CAP
-
-  const items: AttentionItem[] = visible.map(inv => {
-    const ageDays = daysSinceDue(refDate, inv.dueDate)
+  const overdueItems: AttentionItem[] = overdue.map(inv => {
+    const ageDays  = daysSinceDue(refDate, inv.dueDate)
     const severity: 'high' | 'normal' = ageDays >= HIGH_SEVERITY_DAYS ? 'high' : 'normal'
     return {
       type:              'overdue_invoice' as const,
@@ -183,10 +189,26 @@ export function getAttentionItems(invoices: Invoice[], today?: string): Attentio
     }
   })
 
+  const pendingItems: AttentionItem[] = pending.map(inv => ({
+    type:              'pending_invoice' as const,
+    label:             `${inv.clientName} — ${inv.outstandingAmount} ${inv.currency} to collect`,
+    href:              `/dashboard/invoices/${inv.id}`,
+    clientName:        inv.clientName,
+    outstandingAmount: inv.outstandingAmount,
+    currency:          inv.currency,
+    dueDate:           inv.dueDate,
+  }))
+
+  const combined      = [...overdueItems, ...pendingItems]
+  const visible       = combined.slice(0, ATTENTION_CAP)
+  const overflowCount = combined.length - ATTENTION_CAP
+
+  const items: AttentionItem[] = [...visible]
+
   if (overflowCount > 0) {
     items.push({
-      type:  'overdue_invoice_overflow' as const,
-      label: `+${overflowCount} more overdue invoice${overflowCount !== 1 ? 's' : ''}`,
+      type:  'invoice_overflow' as const,
+      label: `+${overflowCount} more invoice${overflowCount !== 1 ? 's' : ''}`,
       href:  '/dashboard/invoices',
     })
   }

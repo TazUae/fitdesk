@@ -6,6 +6,7 @@
 import { CalendarPlus, UserPlus, MessageCircle, Receipt } from 'lucide-react'
 
 const ACTIONS = [
+  { href: '/dashboard/schedule',     Icon: CalendarPlus,  label: 'Book'    },
   { href: '/dashboard/clients/new',  Icon: UserPlus,      label: 'Client'  },
   { href: '/dashboard/invoices/new', Icon: Receipt,       label: 'Invoice' },
   { href: '/dashboard/whatsapp',     Icon: MessageCircle, label: 'WhatsApp'},
@@ -14,25 +15,6 @@ const ACTIONS = [
 export function QuickActions() {
   return (
     <div className="grid grid-cols-4 gap-2">
-      {/* Book — disabled until session writes are connected */}
-      <div
-        className="flex flex-col items-center gap-2 rounded-2xl border bg-[var(--fd-card)] py-3.5 opacity-35 cursor-not-allowed select-none"
-        style={{ borderColor: 'var(--fd-border)' }}
-        aria-disabled="true"
-        title="Session booking coming soon"
-      >
-        <div
-          className="flex h-9 w-9 items-center justify-center rounded-xl"
-          style={{ backgroundColor: 'rgba(232,197,71,0.10)' }}
-        >
-          <CalendarPlus className="h-[18px] w-[18px]" style={{ color: 'var(--fd-accent)' }} />
-        </div>
-        <span className="text-[10px] font-semibold" style={{ color: 'var(--fd-muted)' }}>
-          Book
-        </span>
-        <span className="sr-only">Session booking coming soon</span>
-      </div>
-
       {ACTIONS.map(({ href, Icon, label }) => (
         <a
           key={href}

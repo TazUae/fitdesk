@@ -245,16 +245,22 @@ describe('getUpcoming', () => {
 const REF_DATE = '2024-06-15'
 
 describe('getAttentionItems', () => {
-  it('returns empty array when no overdue invoices', () => {
-    const invoices = [makeInvoice({ id: 'I1', status: 'sent' })]
-    expect(getAttentionItems(invoices, REF_DATE)).toHaveLength(0)
-  })
-
   it('returns empty array when invoice list is empty', () => {
     expect(getAttentionItems([], REF_DATE)).toHaveLength(0)
   })
 
-  it('returns one item per overdue invoice', () => {
+  it('returns empty array when all invoices are paid, draft, or cancelled', () => {
+    const invoices = [
+      makeInvoice({ id: 'I1', status: 'paid' }),
+      makeInvoice({ id: 'I2', status: 'draft' }),
+      makeInvoice({ id: 'I3', status: 'cancelled' }),
+    ]
+    expect(getAttentionItems(invoices, REF_DATE)).toHaveLength(0)
+  })
+
+  // ── overdue_invoice items ──────────────────────────────────────────────────
+
+  it('returns one overdue_invoice item per overdue invoice', () => {
     const invoices = [
       makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10' }),
       makeInvoice({ id: 'I2', status: 'overdue', dueDate: '2024-06-05' }),
@@ -304,7 +310,7 @@ describe('getAttentionItems', () => {
     expect(items[0].severity).toBe('normal')
   })
 
-  it('orders by oldest dueDate first', () => {
+  it('orders overdue by oldest dueDate first', () => {
     const invoices = [
       makeInvoice({ id: 'I1', status: 'overdue', dueDate: '2024-06-10' }),
       makeInvoice({ id: 'I2', status: 'overdue', dueDate: '2024-06-03' }),
@@ -337,14 +343,14 @@ describe('getAttentionItems', () => {
     expect(items.every(i => i.type === 'overdue_invoice')).toBe(true)
   })
 
-  it('appends overflow item when more than 4 overdue', () => {
+  it('appends invoice_overflow item when more than 4 overdue', () => {
     const invoices = Array.from({ length: 6 }, (_, i) =>
       makeInvoice({ id: `I${i}`, status: 'overdue', dueDate: `2024-06-0${i + 1}` }),
     )
     const items = getAttentionItems(invoices, REF_DATE)
     expect(items).toHaveLength(5)
     const overflow = items[4]
-    expect(overflow.type).toBe('overdue_invoice_overflow')
+    expect(overflow.type).toBe('invoice_overflow')
     expect(overflow.href).toBe('/dashboard/invoices')
     expect(overflow.label).toContain('+2')
   })
@@ -355,16 +361,79 @@ describe('getAttentionItems', () => {
     )
     const items = getAttentionItems(invoices, REF_DATE)
     const overflow = items[4]
-    expect(overflow.label).toMatch(/\+1 more overdue invoice\b(?!s)/)
+    expect(overflow.label).toMatch(/\+1 more invoice\b(?!s)/)
   })
 
-  it('excludes sent, partially_paid, paid, and draft invoices', () => {
+  // ── pending_invoice items ──────────────────────────────────────────────────
+
+  it('sent invoice appears as pending_invoice item (a)', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'sent', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items).toHaveLength(1)
+    expect(items[0].type).toBe('pending_invoice')
+    expect(items[0].href).toBe('/dashboard/invoices/I1')
+  })
+
+  it('partially_paid invoice appears as pending_invoice item (b)', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'partially_paid', outstandingAmount: 60, dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items).toHaveLength(1)
+    expect(items[0].type).toBe('pending_invoice')
+    expect(items[0].outstandingAmount).toBe(60)
+  })
+
+  it('pending_invoice maps clientName, outstandingAmount, and currency', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'sent', clientName: 'Bob T.', outstandingAmount: 80, currency: 'USD', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].clientName).toBe('Bob T.')
+    expect(items[0].outstandingAmount).toBe(80)
+    expect(items[0].currency).toBe('USD')
+  })
+
+  it('pending_invoice has no ageDays or severity', () => {
+    const invoices = [makeInvoice({ id: 'I1', status: 'sent', dueDate: '2024-06-10' })]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].ageDays).toBeUndefined()
+    expect(items[0].severity).toBeUndefined()
+  })
+
+  it('overdue items appear before pending_invoice items (c)', () => {
     const invoices = [
-      makeInvoice({ id: 'I1', status: 'sent' }),
-      makeInvoice({ id: 'I2', status: 'partially_paid' }),
-      makeInvoice({ id: 'I3', status: 'paid' }),
-      makeInvoice({ id: 'I4', status: 'draft' }),
+      makeInvoice({ id: 'P1', status: 'sent',    dueDate: '2024-06-01' }),
+      makeInvoice({ id: 'O1', status: 'overdue', dueDate: '2024-06-10' }),
+    ]
+    const items = getAttentionItems(invoices, REF_DATE)
+    expect(items[0].type).toBe('overdue_invoice')
+    expect(items[0].href).toBe('/dashboard/invoices/O1')
+    expect(items[1].type).toBe('pending_invoice')
+    expect(items[1].href).toBe('/dashboard/invoices/P1')
+  })
+
+  it('paid, draft, and cancelled invoices are excluded (d)', () => {
+    const invoices = [
+      makeInvoice({ id: 'I1', status: 'paid' }),
+      makeInvoice({ id: 'I2', status: 'draft' }),
+      makeInvoice({ id: 'I3', status: 'cancelled' }),
     ]
     expect(getAttentionItems(invoices, REF_DATE)).toHaveLength(0)
+  })
+
+  it('combined overdue + pending overflow fires as invoice_overflow (e)', () => {
+    const invoices = [
+      makeInvoice({ id: 'O1', status: 'overdue', dueDate: '2024-06-01' }),
+      makeInvoice({ id: 'O2', status: 'overdue', dueDate: '2024-06-02' }),
+      makeInvoice({ id: 'O3', status: 'overdue', dueDate: '2024-06-03' }),
+      makeInvoice({ id: 'P1', status: 'sent',    dueDate: '2024-06-04' }),
+      makeInvoice({ id: 'P2', status: 'sent',    dueDate: '2024-06-05' }),
+    ]
+    const items = getAttentionItems(invoices, REF_DATE)
+    // 4 visible (3 overdue + 1 pending) + 1 overflow
+    expect(items).toHaveLength(5)
+    expect(items[0].type).toBe('overdue_invoice')
+    expect(items[3].type).toBe('pending_invoice')
+    const overflow = items[4]
+    expect(overflow.type).toBe('invoice_overflow')
+    expect(overflow.label).toContain('+1')
+    expect(overflow.href).toBe('/dashboard/invoices')
   })
 })

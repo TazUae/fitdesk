@@ -1,6 +1,13 @@
-import { headers }      from 'next/headers'
-import { auth }          from '@/lib/auth'
-import { getClients, getInvoices, getSessions } from '@/lib/business-data'
+import { headers }           from 'next/headers'
+import { auth }              from '@/lib/auth'
+import { getInvoices, getClients } from '@/lib/business-data'
+import { resolveTrainerId }  from '@/lib/auth/resolve-trainer'
+import { getTrainerConfig }  from '@/lib/scheduling/trainerConfig'
+import { getDashboardSessions } from '@/lib/dashboard/dashboardDataService'
+import {
+  todayInTimezone,
+  localHourInTimezone,
+} from '@/lib/dashboard/fdSessionAdapter'
 import { DashboardView } from '@/components/modules/DashboardView'
 import {
   getNextUp,
@@ -11,7 +18,7 @@ import {
 } from '@/lib/dashboard/derive'
 import type { Client, Session, Invoice } from '@/types'
 
-// ─── Greeting ────────────────────────────────────────────────────────────────
+// ─── Greeting ─────────────────────────────────────────────────────────────────
 
 function timeGreeting(hour: number): string {
   if (hour < 12) return 'Good morning'
@@ -19,31 +26,42 @@ function timeGreeting(hour: number): string {
   return 'Good evening'
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  // ── Auth ────────────────────────────────────────────────────────────────────
-  const session     = await auth.api.getSession({ headers: headers() })
-  const trainerName = session?.user?.name ?? 'Trainer'
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const authSession = await auth.api.getSession({ headers: headers() })
+  const trainerName = authSession?.user?.name ?? 'Trainer'
 
-  // ── Dates ───────────────────────────────────────────────────────────────────
+  // ── Trainer resolution + timezone ─────────────────────────────────────────
+  // resolveTrainerId() calls ensureTrainerIdForUser() — an ERP call used to
+  // scope all subsequent queries to this trainer's workspace.
+  // getTrainerConfig() is React.cache-memoised per render pass.
+  const resolved      = await resolveTrainerId()
+  const trainerId     = 'trainerId' in resolved ? resolved.trainerId : null
+  const trainerConfig = trainerId ? await getTrainerConfig(trainerId) : null
+  const timezone      = trainerConfig?.timezone ?? 'UTC'
+
+  // ── Dates in trainer's local timezone ─────────────────────────────────────
   const now        = new Date()
-  const today      = now.toISOString().slice(0, 10)
-  const greeting   = timeGreeting(now.getUTCHours())
+  const today      = todayInTimezone(timezone)
+  const greeting   = timeGreeting(localHourInTimezone(now, timezone))
   const monthStart = today.slice(0, 8) + '01'
 
-  // ── Parallel data fetch ─────────────────────────────────────────────────────
-  // Promise.allSettled — a single ERP failure must not blank the whole dashboard.
+  // ── Parallel data fetch ───────────────────────────────────────────────────
+  // getDashboardSessions replaces the dead getSessions() path — it reads live
+  // FD Sessions via the ERP proxy and maps them to the Session type.
+  // getInvoices / getClients are unchanged.
   const [sessionsResult, invoicesResult, clientsResult] = await Promise.allSettled([
-    getSessions(),
+    trainerId
+      ? getDashboardSessions(trainerId, timezone)
+      : Promise.resolve<Session[]>([]),
     getInvoices(),
     getClients(),
   ])
 
   const sessions: Session[] =
-    sessionsResult.status === 'fulfilled' && sessionsResult.value.success
-      ? sessionsResult.value.data
-      : []
+    sessionsResult.status === 'fulfilled' ? sessionsResult.value : []
 
   const invoices: Invoice[] =
     invoicesResult.status === 'fulfilled' && invoicesResult.value.success
@@ -56,16 +74,16 @@ export default async function DashboardPage() {
       : null
 
   const activeClientsCount: number | null =
-    clients !== null ? clients.filter((c) => c.status === 'active').length : null
+    clients !== null ? clients.filter(c => c.status === 'active').length : null
 
-  // ── Derived values ──────────────────────────────────────────────────────────
+  // ── Derived values ────────────────────────────────────────────────────────
   const nextUp         = getNextUp(sessions, today)
   const todaySection   = getTodaySections(sessions, today)
   const moneySnapshot  = getMoneySnapshot(invoices, monthStart)
   const upcoming       = getUpcoming(sessions, today)
   const attentionItems = getAttentionItems(invoices)
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardView
       trainerName={trainerName}
