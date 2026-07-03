@@ -5,7 +5,8 @@
  * (client_index, client_goal, client_action_intent, client_event). No ERP I/O.
  *
  * Feature flags (server-side only — never reaches the client bundle):
- *   FITDESK_CLIENT_HUB_ENABLED = '1'           → enable hub for all tenants
+ *   FITDESK_CLIENT_HUB_ENABLED unset / '1'     → enabled (default)
+ *   FITDESK_CLIENT_HUB_ENABLED = '0' | 'false' → disabled
  *   FITDESK_CLIENT_HUB_TENANTS = 'a,b'          → optional allowlist; if set,
  *                                                 only listed tenants see the hub
  *
@@ -29,10 +30,13 @@ const HUB_TENANTS_FLAG  = 'FITDESK_CLIENT_HUB_TENANTS'
 
 /**
  * Whether the Client Hub local read is enabled for this tenant.
- * Mirrors isLocalDirectoryEnabled() in lib/clients/directory.ts.
+ *
+ * Enabled by default. Opt-out by setting FITDESK_CLIENT_HUB_ENABLED=0 or
+ * FITDESK_CLIENT_HUB_ENABLED=false in the environment.
  */
 export function isClientHubEnabled(tenantId: string): boolean {
-  if (process.env[HUB_ENABLED_FLAG] !== '1') return false
+  const flag = process.env[HUB_ENABLED_FLAG]
+  if (flag === '0' || flag?.toLowerCase() === 'false') return false
   if (!tenantId || tenantId.trim() === '') return false
 
   const allow = process.env[HUB_TENANTS_FLAG]
