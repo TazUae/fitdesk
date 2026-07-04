@@ -1,5 +1,5 @@
 import { getWhatsAppStatus } from '@/actions/whatsapp'
-import { WhatsAppView } from '@/components/modules/WhatsAppView'
+import { WhatsAppView } from '@/features/messaging/components/WhatsAppView'
 
 export default async function WhatsAppPage() {
   const result = await getWhatsAppStatus()

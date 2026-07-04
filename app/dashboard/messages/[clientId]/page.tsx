@@ -3,7 +3,7 @@ import Link               from 'next/link'
 import { ArrowLeft }      from 'lucide-react'
 import { getClientById } from '@/lib/business-data'
 import { getMessages }     from '@/actions/messages'
-import { MessagesView }    from '@/components/modules/MessagesView'
+import { MessagesView }    from '@/features/messaging/components/MessagesView'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 
 interface Props {
