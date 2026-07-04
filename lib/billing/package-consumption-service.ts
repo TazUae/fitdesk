@@ -82,41 +82,46 @@ export class PackageConsumptionService {
       return { outcome: 'no_package', reason: 'No active non-expired package found for this client.' }
     }
 
-    // 3. Derive current balance for that package
-    const balance = await this.ledgerRepo.deriveBalanceByPurchase(ctx, purchase.id)
-    if (balance <= 0) {
+    // 3. Atomic conditional debit (Phase 6C). The balance check and the
+    //    insert happen in ONE SQL statement (see
+    //    PackageLedgerRepository.appendSessionConsumedIfBalanceAvailable) so
+    //    a concurrent different-session attempt on this purchase's final
+    //    unit cannot also pass a stale (pre-debit) balance check the way the
+    //    prior read-then-insert implementation could.
+    const ledgerEvent = await this.ledgerRepo.appendSessionConsumedIfBalanceAvailable(ctx, {
+      clientIndexId:     input.clientIndexId,
+      erpCustomerId:     input.erpCustomerId,
+      packagePurchaseId: purchase.id,
+      idempotencyKey,
+      erpReference:      input.sessionId,
+      createdByUserId:   input.consumedByUserId ?? null,
+    })
+
+    if (ledgerEvent) {
+      const remainingBalance = await this.ledgerRepo.deriveBalanceByPurchase(ctx, purchase.id)
       return {
-        outcome:           'no_balance',
-        reason:            `Package ${purchase.id} has no remaining sessions (balance ${balance}).`,
+        outcome:           'consumed',
+        ledgerEvent,
         packagePurchaseId: purchase.id,
+        remainingBalance,
       }
     }
 
-    // 4. Append session_consumed event in a transaction
-    let ledgerEvent!: PackageLedgerEvent
-
-    await this.db.transaction(async (tx) => {
-      ledgerEvent = await this.ledgerRepo.appendEvent(
-        ctx,
-        {
-          clientIndexId:     input.clientIndexId,
-          erpCustomerId:     input.erpCustomerId,
-          packagePurchaseId: purchase.id,
-          eventType:         'session_consumed',
-          deltaUnits:        -1,
-          idempotencyKey,
-          erpReference:      input.sessionId,
-          createdByUserId:   input.consumedByUserId ?? null,
-        },
-        tx as unknown as AppDb,
-      )
-    })
+    // The atomic insert affected zero rows. This is ambiguous between "this
+    // sessionId already consumed" (same-session replay) and "no balance
+    // left" (this session lost the final-slot race, or the package was
+    // already empty) — disambiguate with a follow-up read. Safe: package_ledger
+    // rows are immutable and never deleted once inserted, so a found row here
+    // is definitive, not a stale read.
+    const replay = await this.ledgerRepo.findEventByIdempotencyKey(ctx, idempotencyKey)
+    if (replay) {
+      return { outcome: 'already_done', ledgerEvent: replay }
+    }
 
     return {
-      outcome:           'consumed',
-      ledgerEvent,
+      outcome:           'no_balance',
+      reason:            `Package ${purchase.id} has no remaining sessions.`,
       packagePurchaseId: purchase.id,
-      remainingBalance:  balance - 1,
     }
   }
 }

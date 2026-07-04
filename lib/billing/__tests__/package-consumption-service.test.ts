@@ -478,6 +478,40 @@ describe('consumeSession — sequential exhaustion never goes negative', () => {
   })
 })
 
+// ─── 5c. Different-session final-slot race (Phase 6C) ────────────────────────
+// Dispatches two different sessions' consumeSession calls concurrently
+// (Promise.all, no await between them) against a balance-1 package. This
+// exercises real interleaving at the JS/await level; it cannot force a true
+// OS-thread/process race (vitest is single-threaded against one connection),
+// so it does not by itself prove the concurrency guarantee. The actual
+// protection is PackageLedgerRepository.appendSessionConsumedIfBalanceAvailable's
+// single atomic SQL statement, which relies on SQLite/libSQL's single-writer
+// serialization (documented there) — this test proves the guard's outcome
+// contract holds under concurrent dispatch, not that it holds under genuine
+// parallel hardware execution.
+
+describe('consumeSession — different-session final-slot race', () => {
+  it('exactly one of two different sessions consumes the last unit; the loser gets no_balance; balance never goes negative', async () => {
+    await seedPurchase({ id: 'cpp-race1' })
+    await seedLedgerEvent({ purchaseId: 'cpp-race1', deltaUnits: 1, idempotencyKey: 'act-race1' })
+
+    const [r1, r2] = await Promise.all([
+      service.consumeSession(TENANT, baseInput({ sessionId: 'sess-race1a' })),
+      service.consumeSession(TENANT, baseInput({ sessionId: 'sess-race1b' })),
+    ])
+
+    const outcomes = [r1.outcome, r2.outcome].sort()
+    expect(outcomes).toEqual(['consumed', 'no_balance'])
+
+    const balance = await ledgerRepo.deriveBalanceByPurchase(TENANT, 'cpp-race1')
+    expect(balance).toBe(0)
+    expect(balance).toBeGreaterThanOrEqual(0)
+
+    const events = await ledgerRepo.listEventsByPurchase(TENANT, 'cpp-race1')
+    expect(events.filter(e => e.eventType === 'session_consumed')).toHaveLength(1)
+  })
+})
+
 // ─── 6. Expired package exclusion ────────────────────────────────────────────
 
 describe('consumeSession — expired package handling', () => {

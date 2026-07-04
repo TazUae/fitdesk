@@ -457,6 +457,136 @@ describe('appendEvent — idempotency', () => {
   })
 })
 
+// ─── appendSessionConsumedIfBalanceAvailable (Phase 6C atomic guard) ─────────
+
+describe('appendSessionConsumedIfBalanceAvailable', () => {
+  function guardInput(overrides: Partial<{
+    clientIndexId:     string
+    erpCustomerId:     string
+    packagePurchaseId: string
+    idempotencyKey:    string
+    erpReference:      string
+    createdByUserId:   string | null
+  }> = {}) {
+    return {
+      clientIndexId:     'ci-1',
+      erpCustomerId:     'CUST-001',
+      packagePurchaseId: 'cpp-1',
+      idempotencyKey:    'session_consumed:fds-1',
+      erpReference:      'fds-1',
+      createdByUserId:   null,
+      ...overrides,
+    }
+  }
+
+  it('inserts a session_consumed(-1) event when balance is sufficient', async () => {
+    await repo.appendEvent(CTX_A, baseInput({ deltaUnits: 1 }))
+
+    const event = await repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput())
+
+    expect(event).not.toBeNull()
+    expect(event?.eventType).toBe('session_consumed')
+    expect(event?.deltaUnits).toBe(-1)
+    expect(event?.idempotencyKey).toBe('session_consumed:fds-1')
+    expect(event?.packagePurchaseId).toBe('cpp-1')
+
+    const balance = await repo.deriveBalanceByPurchase(CTX_A, 'cpp-1')
+    expect(balance).toBe(0)
+  })
+
+  it('refuses to insert when balance is exactly zero — returns null, no row written', async () => {
+    // No grant seeded — balance is 0.
+    const event = await repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput())
+
+    expect(event).toBeNull()
+    const events = await repo.listEventsByPurchase(CTX_A, 'cpp-1')
+    expect(events).toHaveLength(0)
+  })
+
+  it('refuses to insert when balance is already negative (corrupted upstream state)', async () => {
+    await seedRow({ id: 'led-neg', tenantId: 'tenant-a', deltaUnits: -3 })
+
+    const event = await repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput())
+
+    expect(event).toBeNull()
+    const balance = await repo.deriveBalanceByPurchase(CTX_A, 'cpp-1')
+    expect(balance).toBe(-3) // unchanged — the guard did not make it more negative
+  })
+
+  it('refuses a second insert with the same idempotency key even though balance remains', async () => {
+    await repo.appendEvent(CTX_A, baseInput({ deltaUnits: 5 }))
+
+    const first  = await repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput())
+    const second = await repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput())
+
+    expect(first).not.toBeNull()
+    expect(second).toBeNull() // same idempotencyKey — NOT EXISTS guard rejects it
+
+    const events = await repo.listEventsByPurchase(CTX_A, 'cpp-1')
+    const consumed = events.filter(e => e.eventType === 'session_consumed')
+    expect(consumed).toHaveLength(1) // not two — balance alone would have allowed a second debit
+  })
+
+  it('allows a second debit with a different idempotency key while balance remains', async () => {
+    await repo.appendEvent(CTX_A, baseInput({ deltaUnits: 5 }))
+
+    const first  = await repo.appendSessionConsumedIfBalanceAvailable(
+      CTX_A, guardInput({ idempotencyKey: 'session_consumed:fds-1' }),
+    )
+    const second = await repo.appendSessionConsumedIfBalanceAvailable(
+      CTX_A, guardInput({ idempotencyKey: 'session_consumed:fds-2', erpReference: 'fds-2' }),
+    )
+
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(await repo.deriveBalanceByPurchase(CTX_A, 'cpp-1')).toBe(3)
+  })
+
+  it('is tenant-scoped — a guessed packagePurchaseId in another tenant sees no balance', async () => {
+    // Tenant A has 1 unit on cpp-1.
+    await repo.appendEvent(CTX_A, baseInput({ deltaUnits: 1 }))
+
+    // Tenant B attempts to consume against the SAME packagePurchaseId string —
+    // both the idempotency NOT EXISTS check and the balance SUM are tenant-filtered,
+    // so tenant B must see balance 0 regardless of tenant A's real balance.
+    const event = await repo.appendSessionConsumedIfBalanceAvailable(CTX_B, guardInput())
+
+    expect(event).toBeNull()
+    // Tenant A's balance is untouched by tenant B's rejected attempt.
+    expect(await repo.deriveBalanceByPurchase(CTX_A, 'cpp-1')).toBe(1)
+  })
+
+  it('rejects blank clientIndexId', async () => {
+    await expect(
+      repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput({ clientIndexId: '' })),
+    ).rejects.toThrow('clientIndexId must not be blank')
+  })
+
+  it('rejects blank erpCustomerId', async () => {
+    await expect(
+      repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput({ erpCustomerId: '' })),
+    ).rejects.toThrow('erpCustomerId must not be blank')
+  })
+
+  it('rejects blank packagePurchaseId', async () => {
+    await expect(
+      repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput({ packagePurchaseId: '' })),
+    ).rejects.toThrow('packagePurchaseId must not be blank')
+  })
+
+  it('rejects blank idempotencyKey', async () => {
+    await expect(
+      repo.appendSessionConsumedIfBalanceAvailable(CTX_A, guardInput({ idempotencyKey: '' })),
+    ).rejects.toThrow('idempotencyKey must not be blank')
+  })
+
+  it('throws when tenantId is missing', async () => {
+    await expect(
+      repo.appendSessionConsumedIfBalanceAvailable({ tenantId: '' }, guardInput()),
+    ).rejects.toThrow('tenantId is required')
+  })
+})
+
 // ─── tenant isolation (comprehensive) ────────────────────────────────────────
 
 describe('tenant isolation', () => {
@@ -487,6 +617,7 @@ describe('API surface invariants', () => {
     const expected = new Set([
       'constructor',
       'appendEvent',
+      'appendSessionConsumedIfBalanceAvailable',
       'findEventByIdempotencyKey',
       'listEventsByPurchase',
       'deriveBalanceByPurchase',

@@ -277,4 +277,127 @@ export class PackageLedgerRepository {
       createdAtUtc,
     }
   }
+
+  /**
+   * Atomically appends a single-unit (-1) session_consumed debit ONLY IF the
+   * package purchase's derived balance is currently >= 1 — the balance check
+   * and the insert happen in ONE SQL statement, so a concurrent different-
+   * session attempt on the same purchase's final unit cannot observe a
+   * stale (pre-debit) balance the way two separate statements could
+   * (Phase 6C — closes the read-then-insert gap in
+   * PackageConsumptionService.consumeSession).
+   *
+   * Same-session idempotency is enforced in the same statement via a
+   * NOT EXISTS guard on (tenant_id, idempotency_key) — this is defense in
+   * depth alongside, not a replacement for, the DB-level partial unique
+   * index, which remains the storage-engine-enforced backstop against any
+   * successful double-insert.
+   *
+   * Returns the inserted event on success, or null when the conditional
+   * insert affected zero rows. A null result is ambiguous by design between
+   * "idempotency key already exists" (same-session replay) and "balance
+   * insufficient" (no_balance) — the caller distinguishes the two with a
+   * follow-up findEventByIdempotencyKey call, which is race-free because
+   * package_ledger rows are immutable and never deleted once inserted.
+   *
+   * ATOMICITY NOTE: this relies on SQLite/libSQL's single-writer
+   * serialization, not on an explicit transaction or a special isolation
+   * level. Two concurrent single-statement writers against the same
+   * database cannot have overlapping write phases — one fully commits
+   * before the other's WHERE clause is evaluated — so the second writer's
+   * balance subquery always observes the first writer's already-committed
+   * debit.
+   */
+  async appendSessionConsumedIfBalanceAvailable(
+    ctx: TenantCtx,
+    input: {
+      clientIndexId:     string
+      erpCustomerId:     string
+      packagePurchaseId: string
+      idempotencyKey:    string
+      erpReference:      string
+      createdByUserId?:  string | null
+    },
+    executor?: AppDb,
+  ): Promise<PackageLedgerEvent | null> {
+    const tenantId = assertTenantId(ctx)
+
+    if (!input.clientIndexId || input.clientIndexId.trim() === '') {
+      throw new Error('[PackageLedgerRepository] clientIndexId must not be blank')
+    }
+    if (!input.erpCustomerId || input.erpCustomerId.trim() === '') {
+      throw new Error('[PackageLedgerRepository] erpCustomerId must not be blank')
+    }
+    if (!input.packagePurchaseId || input.packagePurchaseId.trim() === '') {
+      throw new Error('[PackageLedgerRepository] packagePurchaseId must not be blank')
+    }
+    if (!input.idempotencyKey || input.idempotencyKey.trim() === '') {
+      throw new Error(
+        '[PackageLedgerRepository] idempotencyKey must not be blank for a guarded consumption',
+      )
+    }
+
+    const id           = crypto.randomUUID()
+    const createdAtUtc = new Date().toISOString()
+    const db           = executor ?? this.db
+    const clientIndexId     = input.clientIndexId
+    const erpCustomerId     = input.erpCustomerId
+    const packagePurchaseId = input.packagePurchaseId
+    const idempotencyKey    = input.idempotencyKey
+    const erpReference      = input.erpReference
+    const createdByUserId   = input.createdByUserId ?? null
+
+    let rowsAffected: number
+
+    try {
+      const result = await db.run(sql`
+        INSERT INTO "package_ledger"
+          ("id","tenant_id","client_index_id","erp_customer_id","package_purchase_id",
+           "event_type","delta_units","reason","idempotency_key","erp_reference",
+           "created_by_user_id","created_at_utc")
+        SELECT
+          ${id}, ${tenantId}, ${clientIndexId}, ${erpCustomerId}, ${packagePurchaseId},
+          'session_consumed', -1, NULL, ${idempotencyKey}, ${erpReference},
+          ${createdByUserId}, ${createdAtUtc}
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "package_ledger"
+          WHERE "tenant_id" = ${tenantId} AND "idempotency_key" = ${idempotencyKey}
+        )
+        AND (
+          SELECT COALESCE(SUM("delta_units"), 0) FROM "package_ledger"
+          WHERE "tenant_id" = ${tenantId} AND "package_purchase_id" = ${packagePurchaseId}
+        ) >= 1
+      `)
+      rowsAffected = (result as { rowsAffected?: number }).rowsAffected ?? 0
+    } catch (err) {
+      // Defense in depth: the NOT EXISTS guard above should make this
+      // unreachable under normal operation (see ATOMICITY NOTE), but if the
+      // storage-engine unique index is ever hit anyway, treat it the same as
+      // "zero rows affected" rather than surfacing a raw constraint error.
+      if (isUniqueConstraintError(err)) {
+        rowsAffected = 0
+      } else {
+        throw err
+      }
+    }
+
+    if (rowsAffected !== 1) {
+      return null
+    }
+
+    return {
+      id,
+      tenantId,
+      clientIndexId,
+      erpCustomerId,
+      packagePurchaseId,
+      eventType:       'session_consumed',
+      deltaUnits:      -1,
+      reason:          null,
+      idempotencyKey,
+      erpReference,
+      createdByUserId,
+      createdAtUtc,
+    }
+  }
 }
