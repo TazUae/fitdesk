@@ -2,7 +2,10 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, CalendarDays, Mail, MessageCircle, Pencil, Phone, Target } from 'lucide-react'
 import { fmtMonthDayYear } from '@/lib/date'
-import { getClientById, getInvoices, getSessions } from '@/lib/business-data'
+import { getClientById, getInvoices } from '@/lib/business-data'
+import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
+import { getTrainerConfig } from '@/lib/scheduling/trainerConfig'
+import { getClientSessions } from '@/lib/clients/clientSessions'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
@@ -56,9 +59,19 @@ type Props = { params: { id: string } }
 
 export default async function ClientDetailPage({ params }: Props) {
   const clientId = decodeURIComponent(params.id)
-  const [clientResult, sessionsResult, invoicesResult, hub] = await Promise.all([
+
+  // Phase 4 — trainerId/timezone resolution, same pattern as the Home
+  // Dashboard (app/dashboard/page.tsx), so session history reads live FD
+  // Sessions instead of the dead PT Session stub (getSessions() from
+  // lib/business-data, which always returns []).
+  const resolved      = await resolveTrainerId()
+  const trainerId     = 'trainerId' in resolved ? resolved.trainerId : null
+  const trainerConfig = trainerId ? await getTrainerConfig(trainerId) : null
+  const timezone      = trainerConfig?.timezone ?? 'UTC'
+
+  const [clientResult, sessions, invoicesResult, hub] = await Promise.all([
     getClientById(clientId),
-    getSessions({ clientId }),
+    trainerId ? getClientSessions(trainerId, clientId, timezone) : Promise.resolve<Session[]>([]),
     getInvoices({ clientId }),
     getClientHubOverview(clientId),
   ])
@@ -97,7 +110,6 @@ export default async function ClientDetailPage({ params }: Props) {
   }
 
   const client = clientResult.data
-  const sessions = sessionsResult.success ? sessionsResult.data : []
   const invoices = invoicesResult.success ? invoicesResult.data : []
   const balance = outstandingBalance(invoices)
 
@@ -240,7 +252,7 @@ export default async function ClientDetailPage({ params }: Props) {
                 style={{ borderColor: 'var(--fd-border)' }}
               >
                 <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-                  Scheduling is not connected yet.
+                  No sessions yet.
                 </p>
               </div>
             ) : (

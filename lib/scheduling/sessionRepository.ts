@@ -146,6 +146,36 @@ export async function findSessionsInRange(
 }
 
 /**
+ * Fetch all FD Sessions for a specific client, most recent first.
+ *
+ * Unlike findSessionsInRange (used for conflict-window checks), this does NOT
+ * exclude cancelled/skipped sessions and has no date window — a client detail
+ * history view should show cancellations too, and a client's full history can
+ * predate any fixed rolling window. Capped at 500 rows, consistent with the
+ * safety cap used elsewhere in this file.
+ */
+export async function findSessionsForClient(
+  trainerId: string,
+  clientId: string,
+): Promise<FDSession[]> {
+  const res = await erpFetch<ERPListResponse<ERPFDSession>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE_SESSION)}`,
+    {
+      params: {
+        fields:  sessionFields(),
+        filters: JSON.stringify([
+          ['trainer_id', '=', trainerId],
+          ['client_id',  '=', clientId],
+        ]),
+        orderby:           'start_at desc',
+        limit_page_length: '500',
+      },
+    },
+  )
+  return res.data.map(normalizeSession)
+}
+
+/**
  * Fetch a single FD Session by docname.
  * Throws ERPNextError(404) if not found.
  */

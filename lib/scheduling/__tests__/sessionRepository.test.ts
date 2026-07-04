@@ -16,6 +16,7 @@ import {
   sessionFields,
   normalizeSession,
   findSessionsInRange,
+  findSessionsForClient,
   findSessionById,
   bulkCreateSessions,
   updateSession,
@@ -179,6 +180,54 @@ describe('findSessionsInRange', () => {
   it('returns empty array when no sessions exist', async () => {
     mockErpFetch.mockResolvedValue({ data: [] })
     const result = await findSessionsInRange('trainer-1', new Date('2026-01-05T00:00:00Z'), new Date('2026-01-05T23:59:59Z'))
+    expect(result).toEqual([])
+  })
+})
+
+// ─── findSessionsForClient (Phase 4 — client detail session history) ─────────
+
+describe('findSessionsForClient', () => {
+  it('calls erpFetch with the FD Session doctype path', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsForClient('trainer-1', 'CUST-001')
+    const [path] = mockErpFetch.mock.calls[0]
+    expect(path).toContain('FD%20Session')
+  })
+
+  it('filters by both trainer_id and client_id (tenant/trainer ownership boundary)', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsForClient('trainer-1', 'CUST-001')
+    const [, opts] = mockErpFetch.mock.calls[0]
+    const filters = JSON.parse((opts as { params: { filters: string } }).params.filters)
+    expect(filters).toContainEqual(['trainer_id', '=', 'trainer-1'])
+    expect(filters).toContainEqual(['client_id', '=', 'CUST-001'])
+  })
+
+  it('does NOT exclude cancelled/skipped sessions (history should show them)', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsForClient('trainer-1', 'CUST-001')
+    const [, opts] = mockErpFetch.mock.calls[0]
+    const filters = JSON.parse((opts as { params: { filters: string } }).params.filters) as unknown[]
+    expect(filters.some(f => Array.isArray(f) && f[0] === 'status')).toBe(false)
+  })
+
+  it('orders by start_at desc (most recent first)', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsForClient('trainer-1', 'CUST-001')
+    const [, opts] = mockErpFetch.mock.calls[0]
+    expect((opts as { params: { orderby: string } }).params.orderby).toBe('start_at desc')
+  })
+
+  it('returns normalized sessions for the requested client only', async () => {
+    mockErpFetch.mockResolvedValue({ data: [BASE_SESSION] })
+    const result = await findSessionsForClient('trainer-1', 'CUST-001')
+    expect(result).toHaveLength(1)
+    expect(result[0].clientId).toBe('CUST-001')
+  })
+
+  it('returns empty array when the client has no sessions', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    const result = await findSessionsForClient('trainer-1', 'CUST-999')
     expect(result).toEqual([])
   })
 })
