@@ -452,6 +452,32 @@ describe('consumeSession — no_balance', () => {
   })
 })
 
+// ─── 5b. Sequential exhaustion (Phase 6B regression) ─────────────────────────
+// Confirms today's read-then-insert path never drives the derived balance
+// negative under *sequential* consumption. Phase 6C's atomic guard exists to
+// extend this same invariant to *concurrent* different-session attempts,
+// which cannot be proven in this single-threaded harness (see Phase 6 plan).
+
+describe('consumeSession — sequential exhaustion never goes negative', () => {
+  it('floors at zero after exactly consuming the granted balance, then rejects further attempts', async () => {
+    await seedPurchase({ id: 'cpp-seq1' })
+    await seedLedgerEvent({ purchaseId: 'cpp-seq1', deltaUnits: 2, idempotencyKey: 'act-seq1' })
+
+    const first = await service.consumeSession(TENANT, baseInput({ sessionId: 'sess-seq1a' }))
+    expect(first.outcome).toBe('consumed')
+
+    const second = await service.consumeSession(TENANT, baseInput({ sessionId: 'sess-seq1b' }))
+    expect(second.outcome).toBe('consumed')
+
+    const third = await service.consumeSession(TENANT, baseInput({ sessionId: 'sess-seq1c' }))
+    expect(third.outcome).toBe('no_balance')
+
+    const balance = await ledgerRepo.deriveBalanceByPurchase(TENANT, 'cpp-seq1')
+    expect(balance).toBe(0)
+    expect(balance).toBeGreaterThanOrEqual(0)
+  })
+})
+
 // ─── 6. Expired package exclusion ────────────────────────────────────────────
 
 describe('consumeSession — expired package handling', () => {
