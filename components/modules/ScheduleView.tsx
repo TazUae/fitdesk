@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { Plus } from 'lucide-react'
 import { PlannerShell } from '@/components/scheduling/PlannerShell'
 import { SchedulerErrorBoundary } from '@/components/scheduling/SchedulerErrorBoundary'
 import { BookingSheet } from '@/components/scheduling/BookingSheet'
@@ -122,6 +123,24 @@ export function ScheduleView({ sessions, clients, trainerConfig, error }: Schedu
             onClose={handleCompletionClose}
             onCompleted={handleCompleted}
           />
+          {/* Mobile booking FAB — the toolbar's "Book session" button is md:flex only,
+              so mobile needs its own trigger for the same handleOpenBooking/BookingSheet.
+              Hidden while the sheet is open so it never sits above the scrim. */}
+          {!bookingOpen && (
+            <button
+              type="button"
+              onClick={handleOpenBooking}
+              aria-label="Book session"
+              className="fixed right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 md:hidden"
+              style={{
+                bottom:          'calc(1.5rem + env(safe-area-inset-bottom))',
+                backgroundColor: 'var(--fd-blue)',
+                color:           'var(--fd-text-on-primary)',
+              }}
+            >
+              <Plus className="h-6 w-6" strokeWidth={2.5} />
+            </button>
+          )}
         </>
       }
     >
