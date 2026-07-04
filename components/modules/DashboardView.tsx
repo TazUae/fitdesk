@@ -25,7 +25,7 @@ import { BusinessHealth } from '@/components/modules/dashboard/BusinessHealth'
 import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
 import { NeedsAttentionEmpty } from '@/features/dashboard/components/NeedsAttentionEmpty'
 import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
-import { UpcomingList }  from '@/components/modules/dashboard/UpcomingList'
+import { UpcomingList }  from '@/features/dashboard/components/UpcomingList'
 import { QuickActions }  from '@/features/dashboard/components/QuickActions'
 import { AiCopilotRail } from '@/components/modules/dashboard/AiCopilotRail'
 import type {
