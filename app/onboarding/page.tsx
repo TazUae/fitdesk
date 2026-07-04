@@ -1,8 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { ProvisioningStatus } from "@/components/onboarding/provisioning-status";
-import { WorkspaceSetupForm } from "@/components/onboarding/workspace-setup-form";
+import { ProvisioningStatus } from "@/features/onboarding/components/provisioning-status";
+import { WorkspaceSetupForm } from "@/features/onboarding/components/workspace-setup-form";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
