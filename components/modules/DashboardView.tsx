@@ -19,7 +19,7 @@
  */
 
 import { Sparkles } from 'lucide-react'
-import { TodayHero }     from '@/components/modules/dashboard/TodayHero'
+import { TodayHero }     from '@/features/dashboard/components/TodayHero'
 import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
 import { BusinessHealth } from '@/components/modules/dashboard/BusinessHealth'
 import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
