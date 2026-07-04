@@ -530,3 +530,93 @@ describe('setBillingModeIfUnset', () => {
     expect(events.map((event) => event.type)).not.toContain('client.billing_mode_synced')
   })
 })
+
+describe('setClientNextSessionAtUtc', () => {
+  it('updates nextSessionAtUtc and updatedAtUtc only', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const before = created.clientIndex
+
+    const updated = await repo.setClientNextSessionAtUtc(
+      { tenantId: TENANT_A },
+      before.id,
+      '2026-07-01T09:00:00.000Z',
+    )
+
+    expect(updated?.nextSessionAtUtc).toBe('2026-07-01T09:00:00.000Z')
+    expect(updated?.updatedAtUtc).not.toBe(before.updatedAtUtc)
+
+    const found = await repo.findClientById({ tenantId: TENANT_A }, before.id)
+    expect(found?.nextSessionAtUtc).toBe('2026-07-01T09:00:00.000Z')
+  })
+
+  it('clears nextSessionAtUtc to null', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setClientNextSessionAtUtc({ tenantId: TENANT_A }, created.clientIndex.id, '2026-07-01T09:00:00.000Z')
+
+    const cleared = await repo.setClientNextSessionAtUtc({ tenantId: TENANT_A }, created.clientIndex.id, null)
+
+    expect(cleared?.nextSessionAtUtc).toBeNull()
+    const found = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(found?.nextSessionAtUtc).toBeNull()
+  })
+
+  it('is tenant-scoped — returns null and writes nothing for a client belonging to another tenant', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.setClientNextSessionAtUtc(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      '2026-07-01T09:00:00.000Z',
+    )
+
+    expect(result).toBeNull()
+    const found = await repo.findClientById({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(found?.nextSessionAtUtc).toBeNull()
+  })
+
+  it('is client-scoped — returns null for an unknown clientIndexId', async () => {
+    const result = await repo.setClientNextSessionAtUtc(
+      { tenantId: TENANT_A },
+      'nonexistent-client-index-id',
+      '2026-07-01T09:00:00.000Z',
+    )
+    expect(result).toBeNull()
+  })
+
+  it('does not overwrite local enrichment fields', async () => {
+    const draft: ClientCreateDraft = {
+      ...baseDraft,
+      billingMode: 'package',
+    }
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, draft)
+
+    // Simulate trainer-set enrichment that must survive the projection write.
+    await repo.setBillingModeIfUnset({ tenantId: TENANT_A }, ERP_ID_1, 'pay_per_session')
+    const beforeUpdate = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    await repo.setClientNextSessionAtUtc(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      '2026-07-01T09:00:00.000Z',
+    )
+
+    const after = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(after?.billingMode).toBe(beforeUpdate?.billingMode)
+    expect(after?.whatsappEnabled).toBe(beforeUpdate?.whatsappEnabled)
+    expect(after?.paymentSummary).toBe(beforeUpdate?.paymentSummary)
+    expect(after?.safetyState).toBe(beforeUpdate?.safetyState)
+    expect(after?.onboardingState).toBe(beforeUpdate?.onboardingState)
+    expect(after?.fullName).toBe(beforeUpdate?.fullName)
+    expect(after?.phoneE164).toBe(beforeUpdate?.phoneE164)
+    expect(after?.possibleDuplicateClientId).toBe(beforeUpdate?.possibleDuplicateClientId)
+    expect(after?.duplicateOverrideReason).toBe(beforeUpdate?.duplicateOverrideReason)
+
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals.length).toBe(1)
+    const actions = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(actions.length).toBe(created.actions.length)
+  })
+})

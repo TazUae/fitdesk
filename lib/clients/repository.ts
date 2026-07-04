@@ -705,6 +705,45 @@ export class ClientRepository {
 
     return updated
   }
+
+  /**
+   * Project the client's next-session timestamp (Phase 5B).
+   *
+   * Tenant- and client-scoped: the guard read and the UPDATE both filter on
+   * (tenantId, clientIndexId). Updates ONLY nextSessionAtUtc + updatedAtUtc —
+   * no other client_index column, and no sibling table, is touched. Unlike
+   * setBillingModeIfUnset this has no "only if unset" guard: the projection
+   * is a refreshable cache, not a one-way transition, so writing the same or
+   * a new value is always allowed. Pass null to clear (no qualifying future
+   * session). No ERP calls — the caller supplies the derived value.
+   */
+  async setClientNextSessionAtUtc(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    nextSessionAtUtc: string | null,
+  ): Promise<ClientIndex | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    const existing = await this.findClientById(ctx, clientIndexId)
+    if (!existing) return null
+
+    await this.db
+      .update(schema.clientIndex)
+      .set({
+        nextSessionAtUtc,
+        updatedAtUtc: now,
+      })
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+
+    return { ...existing, nextSessionAtUtc, updatedAtUtc: now }
+  }
+
   /**
    * Idempotent upsert used by the backfill script.
    * INSERT OR IGNORE on the (tenantId, erpCustomerId) unique index.
