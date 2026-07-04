@@ -26,7 +26,7 @@ import { ActionCenter }  from '@/components/modules/dashboard/ActionCenter'
 import { NeedsAttentionEmpty } from '@/components/modules/dashboard/NeedsAttentionEmpty'
 import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
 import { UpcomingList }  from '@/components/modules/dashboard/UpcomingList'
-import { QuickActions }  from '@/components/modules/dashboard/QuickActions'
+import { QuickActions }  from '@/features/dashboard/components/QuickActions'
 import { AiCopilotRail } from '@/components/modules/dashboard/AiCopilotRail'
 import type {
   NextUpData,

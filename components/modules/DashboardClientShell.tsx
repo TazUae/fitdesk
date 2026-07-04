@@ -16,7 +16,7 @@ import { useSession } from '@/lib/auth-client'
 import { Avatar } from '@/components/modules/Avatar'
 import { UserMenuSheet } from '@/components/modules/UserMenuSheet'
 import { DashboardSidebar } from '@/components/modules/dashboard/DashboardSidebar'
-import { QuickActionsFab } from '@/components/modules/dashboard/QuickActionsFab'
+import { QuickActionsFab } from '@/features/dashboard/components/QuickActionsFab'
 
 type NavItem = {
   href:   string
