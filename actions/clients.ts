@@ -12,6 +12,9 @@ import { normalizePhoneToE164 } from '@/lib/clients/phone'
 import { parseClientText, failedParseResult } from '@/lib/clients/ai-parse'
 import { db } from '@/lib/db'
 import { sanitizeSelectedGoalDrafts } from '@/lib/clients/create-draft'
+import { detectConflicts } from '@/lib/goals/conflicts'
+import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
+import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
 import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, SelectedGoalDraft } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
@@ -177,6 +180,7 @@ export async function addClient(
 
   // Invariant: when goals are provided, exactly one must be primary.
   // Checked before the ERP call so no Customer is created for an invalid payload.
+  let goalIds: IntakeGoalId[] = []
   if (resolvedGoals && resolvedGoals.length > 0) {
     const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
     if (primaryCount !== 1) {
@@ -187,6 +191,16 @@ export async function addClient(
     }
     // Sanitize: drop unknown goalIds; strip cross-layer sub-goal IDs.
     resolvedGoals = sanitizeSelectedGoalDrafts(resolvedGoals)
+
+    // Phase 3 — server-side hard-conflict rejection. Reuses the same
+    // GOAL_CONFLICT_RULES / detectConflicts the UI uses (lib/goals/conflicts.ts),
+    // so a crafted payload that bypasses the UI's own hard-conflict intercept
+    // still cannot reach ERP Customer creation with an unsafe goal combination.
+    goalIds = resolvedGoals.map(g => g.goalId).filter(isIntakeGoalId)
+    const hardConflicts = detectConflicts(goalIds).filter(c => c.type === 'hard')
+    if (hardConflicts.length > 0) {
+      return { success: false, error: hardConflicts[0].message }
+    }
   }
 
   // Map app BillingMode to ERP Select option string (custom_default_session_rate flows via payload).
@@ -229,6 +243,14 @@ export async function addClient(
       possibleDuplicateClientId: options?.overrideDuplicate ? (options.possibleDuplicateClientId ?? null) : null,
       duplicateOverrideReason:   options?.overrideDuplicate ? overrideReason : null,
     })
+
+    // Phase 3 — when a multi-goal / bridged-primary payload was provided, the
+    // client_index-level safetyState must reflect the FULL selected-goal set
+    // (buildClientCreateDraft only sees the single custom_fitness_goals-parsed
+    // goalId). Reuses the same computeSafetyFlags/deriveSafetyState the UI uses.
+    if (goalIds.length > 0) {
+      draft.safetyState = deriveSafetyState(computeSafetyFlags(goalIds))
+    }
 
     const repo = new ClientRepository(db)
     await repo.createClientRow(

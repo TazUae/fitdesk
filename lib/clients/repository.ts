@@ -17,6 +17,8 @@ import { and, desc, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
+import { computeSafetyFlags } from '@/lib/goals/safety'
+import { isIntakeGoalId } from '@/lib/goals/taxonomy'
 import type {
   ActionIntentPriority,
   ActionIntentSource,
@@ -356,7 +358,7 @@ export class ClientRepository {
         status:                   'active',
         primaryGoalLabel:         draft.primaryGoalLabel,
         primaryGoalId:            draft.primaryGoalId,
-        safetyState:              'clear',
+        safetyState:              draft.safetyState ?? 'clear',
         onboardingState:          'not_started',
         billingMode:              draft.billingMode ?? 'unset',
         paymentSummary:           'unset',
@@ -373,6 +375,12 @@ export class ClientRepository {
       if (useMultiGoalPath) {
         for (const g of selectedGoals!) {
           const goalRowId = crypto.randomUUID()
+          // Phase 3 — per-goal safety flags derived from the taxonomy (lib/goals/safety.ts),
+          // not a hardcoded []. sanitizeSelectedGoalDrafts (actions/clients.ts) already
+          // filters to known IntakeGoalIds; the guard here is defensive.
+          const goalSafetyFlags = isIntakeGoalId(g.goalId)
+            ? computeSafetyFlags([g.goalId]).map(f => f.id)
+            : []
           await tx.insert(schema.clientGoal).values({
             id:                    goalRowId,
             tenantId,
@@ -385,7 +393,7 @@ export class ClientRepository {
             urgency:               g.urgency,
             confidence:            'high',
             source:                'trainer_manual',
-            safetyFlagsJson:       '[]',
+            safetyFlagsJson:       JSON.stringify(goalSafetyFlags),
             notes:                 g.trainerNotes,
             status:                'active',
             createdAtUtc:          now,
@@ -404,7 +412,7 @@ export class ClientRepository {
               urgency:           g.urgency as GoalUrgency,
               confidence:        'high',
               source:            'trainer_manual',
-              safetyFlags:       [],
+              safetyFlags:       goalSafetyFlags,
               notes:             g.trainerNotes,
               status:            'active',
               createdAtUtc:      now,
@@ -560,7 +568,7 @@ export class ClientRepository {
       status:                    'active',
       primaryGoalLabel:          draft.primaryGoalLabel,
       primaryGoalId:             draft.primaryGoalId,
-      safetyState:               'clear',
+      safetyState:               draft.safetyState ?? 'clear',
       onboardingState:           'not_started',
       billingMode:               draft.billingMode ?? 'unset',
       paymentSummary:            'unset',

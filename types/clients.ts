@@ -247,6 +247,12 @@ export type ClientCreateDraft = {
   goalConfidence: GoalConfidence
   goalSource: GoalSource
   safetyFlags: string[]
+  /**
+   * Phase 3 — client_index-level safety state derived from the full selected-goal
+   * set via computeSafetyFlags/deriveSafetyState (lib/goals/safety.ts). Optional so
+   * existing draft literals (tests, backfill) default to 'clear' in the repository.
+   */
+  safetyState?: SafetyState
   goalNotes: string | null
   createdByUserId: string | null
   /**

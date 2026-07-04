@@ -617,6 +617,165 @@ describe('addClient — selectedGoals (multi-goal)', () => {
   })
 })
 
+// ─── addClient — goal safety (Phase 3: server-side hard-conflict + safetyState) ──
+//
+// Reuses the existing GOAL_CONFLICT_RULES (lib/goals/conflicts.ts) and
+// computeSafetyFlags/deriveSafetyState (lib/goals/safety.ts) — no new taxonomy
+// or rules are invented here. The only hard conflict currently defined in the
+// repo is underweight + fat-loss; the only two goals carrying mandatory safety
+// interactions are rehab (injury_risk) and postnatal (prenatal_postnatal), both
+// of which currently map to needs_review via deriveSafetyState.
+
+describe('addClient — goal safety (Phase 3)', () => {
+  it('a valid, non-conflicting goal payload still passes (baseline sanity check)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    const result = await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [
+          { goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(erp.createClient).toHaveBeenCalledTimes(1)
+    expect(await count('client_index')).toBe(1)
+  })
+
+  it('hard conflict (underweight + fat-loss): rejected before ERP Customer creation, no local rows', async () => {
+    const result = await addClient(
+      {
+        ...PAYLOAD,
+        custom_fitness_goals: '[{"label":"Safe Weight Gain","value":"underweight"},{"label":"Fat Loss","value":"fat-loss"}]',
+      },
+      {
+        selectedGoals: [
+          { goalId: 'underweight', isPrimary: true,  urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+          { goalId: 'fat-loss',    isPrimary: false, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toContain('contraindicated')
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(await count('client_index')).toBe(0)
+    expect(await count('client_goal')).toBe(0)
+  })
+
+  it('hard conflict cannot be bypassed by a crafted payload that skips the UI entirely', async () => {
+    // Simulates calling the server action directly with a hard-conflicting
+    // selectedGoals array — the exact bypass the UI's own hard-conflict
+    // intercept exists to prevent, reaching addClient with no UI in the loop.
+    // custom_fitness_goals deliberately does NOT mention the conflicting pair,
+    // proving the guard checks selectedGoals itself, not just the free-text field.
+    const result = await addClient(
+      { ...PAYLOAD, custom_fitness_goals: 'looks clean, unrelated to selectedGoals below' },
+      {
+        selectedGoals: [
+          { goalId: 'underweight', isPrimary: true,  urgency: 'urgent', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+          { goalId: 'fat-loss',    isPrimary: false, urgency: 'urgent', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    expect(result.success).toBe(false)
+    expect(erp.createClient).not.toHaveBeenCalled()
+    expect(await count('client_index')).toBe(0)
+    expect(await count('client_event')).toBe(0)
+  })
+
+  // Closest existing rule to "rehab/pain-sensitive goal requires safety context":
+  // GOAL_SAFETY_FLAGS maps 'rehab' -> 'injury_risk' unconditionally (no separate
+  // pain-note-conditional rule exists in the repo today), and deriveSafetyState
+  // transitions client_index.safetyState to 'needs_review' whenever any safety
+  // flag is present. This is the rule this test exercises.
+  it('rehab goal: transitions client_index.safety_state to needs_review (injury_risk flag)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Rehabilitation & Recovery","value":"rehab"}]' },
+      {
+        selectedGoals: [
+          { goalId: 'rehab', isPrimary: true, urgency: 'urgent', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT safety_state FROM client_index LIMIT 1`)
+    expect(rows[0].safety_state).toBe('needs_review')
+    const goalRows = await dbClient.execute(`SELECT safety_flags_json FROM client_goal LIMIT 1`)
+    expect(JSON.parse(String(goalRows.rows[0].safety_flags_json))).toEqual(['injury_risk'])
+  })
+
+  // Closest existing rule to "postnatal/medical safety-sensitive goal handling":
+  // GOAL_SAFETY_FLAGS maps 'postnatal' -> 'prenatal_postnatal', which likewise
+  // drives deriveSafetyState to 'needs_review' at goal-save time (not deferred
+  // to program generation).
+  it('postnatal goal: transitions client_index.safety_state to needs_review (prenatal_postnatal flag)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Pre & Postnatal Fitness","value":"postnatal"}]' },
+      {
+        selectedGoals: [
+          { goalId: 'postnatal', isPrimary: true, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT safety_state FROM client_index LIMIT 1`)
+    expect(rows[0].safety_state).toBe('needs_review')
+  })
+
+  it('plain fat-loss goal: client_index.safety_state stays clear (no false-positive safety flag)', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [
+          { goalId: 'fat-loss', isPrimary: true, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    const { rows } = await dbClient.execute(`SELECT safety_state FROM client_index LIMIT 1`)
+    expect(rows[0].safety_state).toBe('clear')
+  })
+
+  it('legacy primaryGoal bridge (single goal): a lone goal can never trigger a hard conflict', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+
+    const result = await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Safe Weight Gain","value":"underweight"}]' },
+      { primaryGoal: { goalId: 'underweight', subGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' } },
+    )
+
+    expect(result.success).toBe(true)
+    expect(erp.createClient).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT trigger invoice/payment/session side effects when a hard conflict is rejected', async () => {
+    await addClient(
+      { ...PAYLOAD, custom_fitness_goals: '[{"label":"Safe Weight Gain","value":"underweight"},{"label":"Fat Loss","value":"fat-loss"}]' },
+      {
+        selectedGoals: [
+          { goalId: 'underweight', isPrimary: true,  urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+          { goalId: 'fat-loss',    isPrimary: false, urgency: 'active_focus', clientSubGoalIds: [], trainerSubGoalIds: [], trainerNotes: null },
+        ],
+      },
+    )
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+})
+
 // ─── findClientDuplicates (Phase 6) ──────────────────────────────────────────────
 
 async function seedClient(tenantId: string, phoneE164: string, erpCustomerId: string) {

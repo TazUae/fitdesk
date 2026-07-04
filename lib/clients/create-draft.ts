@@ -23,6 +23,7 @@ import {
   type IntakeGoalId,
   type SubGoalLayer,
 } from '@/lib/goals/taxonomy'
+import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
 import { formatGoal } from '@/lib/format/goal'
 import type { Client } from '@/types'
 import type {
@@ -179,6 +180,12 @@ export function buildClientCreateDraft(
     }
   }
 
+  // Phase 3 — safety flags/state derived from the single parsed goalId (legacy
+  // single-goal path). addClient overrides draft.safetyState with the full
+  // multi-goal derivation when selectedGoals/primaryGoal produce more than one goal.
+  const canonicalGoalId = goalId && isIntakeGoalId(goalId) ? goalId : null
+  const safetyFlags = canonicalGoalId ? computeSafetyFlags([canonicalGoalId]) : []
+
   const draft: ClientCreateDraft = {
     tenantId,
     erpCustomerId:    createdClient.id, // canonical ERP Customer docname — invariant
@@ -194,7 +201,8 @@ export function buildClientCreateDraft(
     goalUrgency,
     goalConfidence:   goalId ? 'high' : 'unknown',
     goalSource:       goalId ? 'trainer_manual' : 'system_inferred',
-    safetyFlags:      [],
+    safetyFlags:      safetyFlags.map(f => f.id),
+    safetyState:      deriveSafetyState(safetyFlags),
     goalNotes:        null,
     createdByUserId:  userId,
     possibleDuplicateClientId,
