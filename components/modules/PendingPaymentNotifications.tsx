@@ -1,6 +1,6 @@
 import { ReceiptText } from 'lucide-react'
 import { listPendingPaymentNotifications } from '@/actions/pending-notifications'
-import { Badge } from '@/components/modules/Badge'
+import { Badge } from '@/components/ui/Badge'
 
 // Server Component: shows invoices whose payment link is awaiting the trainer.
 // The send action is intentionally DISABLED until the real Whish integration exists —

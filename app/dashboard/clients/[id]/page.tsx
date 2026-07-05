@@ -11,10 +11,10 @@ import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
 import { getClientHubOverview } from '@/lib/clients/hub'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/modules/Badge'
+import { Badge } from '@/components/ui/Badge'
 import { ClientHubPanel } from '@/components/modules/ClientHubPanel'
 import { DeactivateClientButton } from '@/features/clients/components/DeactivateClientButton'
-import type { BadgeVariant } from '@/components/modules/Badge'
+import type { BadgeVariant } from '@/components/ui/Badge'
 import type { ClientStatus, Invoice, InvoiceStatus, Session, SessionStatus } from '@/types'
 
 // ─── Status → badge variant maps ──────────────────────────────────────────────

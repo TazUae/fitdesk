@@ -6,11 +6,11 @@ import Link from 'next/link'
 import { AlertTriangle, Plus, Search, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/modules/Badge'
+import { Badge } from '@/components/ui/Badge'
 import { AddClientSheet } from '@/components/clients/AddClientSheet'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import type { ClientRosterCard, NeedsActionType } from '@/lib/clients/list-derive'
-import type { BadgeVariant } from '@/components/modules/Badge'
+import type { BadgeVariant } from '@/components/ui/Badge'
 import type { ClientStatus } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

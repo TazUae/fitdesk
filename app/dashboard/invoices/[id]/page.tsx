@@ -5,9 +5,9 @@ import { getInvoiceById } from '@/lib/business-data'
 import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { fmtMoney } from '@/lib/format/money'
 import { FinalizeInvoiceButton } from './FinalizeInvoiceButton'
-import { Badge } from '@/components/modules/Badge'
+import { Badge } from '@/components/ui/Badge'
 import { Avatar } from '@/components/ui/Avatar'
-import type { BadgeVariant } from '@/components/modules/Badge'
+import type { BadgeVariant } from '@/components/ui/Badge'
 import type { InvoiceStatus } from '@/types'
 
 function statusVariant(s: InvoiceStatus): BadgeVariant {

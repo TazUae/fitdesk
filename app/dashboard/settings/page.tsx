@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Banknote, ChevronRight, CreditCard, Landmark, Package, SlidersHorizontal } from 'lucide-react'
-import { Badge } from '@/components/modules/Badge'
+import { Badge } from '@/components/ui/Badge'
 
 const PAYMENT_METHODS = [
   {
