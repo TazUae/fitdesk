@@ -20,11 +20,11 @@
 
 import { Sparkles } from 'lucide-react'
 import { TodayHero }     from '@/features/dashboard/components/TodayHero'
-import { NextUpCard }    from '@/components/modules/dashboard/NextUpCard'
+import { NextUpCard }    from '@/features/dashboard/components/NextUpCard'
 import { BusinessHealth } from '@/features/dashboard/components/BusinessHealth'
 import { ActionCenter }  from '@/features/dashboard/components/ActionCenter'
 import { NeedsAttentionEmpty } from '@/features/dashboard/components/NeedsAttentionEmpty'
-import { TodayTimeline } from '@/components/modules/dashboard/TodayTimeline'
+import { TodayTimeline } from '@/features/dashboard/components/TodayTimeline'
 import { UpcomingList }  from '@/features/dashboard/components/UpcomingList'
 import { QuickActions }  from '@/features/dashboard/components/QuickActions'
 import { AiCopilotRail } from '@/components/modules/dashboard/AiCopilotRail'
