@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { PlannerToolbar } from '@/components/scheduling/PlannerToolbar'
+import { PlannerToolbar } from '@/features/scheduling/components/PlannerToolbar'
 import { PlannerSidebar } from '@/components/scheduling/PlannerSidebar'
 import { cn } from '@/lib/utils'
 
