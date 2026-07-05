@@ -796,7 +796,11 @@ Some `intake_goal` pairs are physiologically contradictory at high intensity and
 | Conflicting pair | Conflict type | Reason |
 |---|---|---|
 | `fat-loss` + `muscle` | `soft` (advisory) | Aggressive fat loss and maximum muscle gain conflict at high intensity |
+| `fat-loss` + `aesthetics` | `soft` (advisory) | Fat Loss and Aesthetics overlap; one should drive the program direction |
+| `weight-mgmt` + `muscle` | `soft` (advisory) | Muscle gain needs a caloric surplus; confirm which goal drives the phase |
 | `underweight` + `fat-loss` | `hard` (blocking) | Directly contradictory body mass directions |
+
+> **Source of truth.** [`lib/goals/conflicts.ts`](../../lib/goals/conflicts.ts) (`GOAL_CONFLICT_RULES`) is authoritative for current conflict behavior. This section mirrors the live rule set as of 2026-07-05; if the two ever differ, the **code wins** and this document must be re-synced. The `fat-loss` + `aesthetics` and `weight-mgmt` + `muscle` soft rules were present in the code before this spec was reconciled (Phase 9B). The illustrative block below is kept in step with the code but is documentation, not the runtime rule set.
 
 ### Conflict resolution contract shape
 
@@ -826,7 +830,7 @@ const GOAL_CONFLICT_RULES: GoalConflictRule[] = [
   {
     pair:    ["fat-loss", "muscle"],
     type:    "soft",
-    message: "Fat loss and muscle gain conflict at high intensity. Body recomposition is possible with the right nutrition.",
+    message: "Body recomposition requires a precise nutrition balance. Confirm both goals are intentional or use the primary goal to set the training direction.",
     resolution: {
       actionType:          "suggest_goal_bundle",
       message:             "Consider a body recomposition approach: moderate caloric deficit, ≥2.0 g/kg/day protein, progressive overload.",
@@ -835,9 +839,28 @@ const GOAL_CONFLICT_RULES: GoalConflictRule[] = [
     },
   },
   {
+    pair:    ["fat-loss", "aesthetics"],
+    type:    "soft",
+    message: "Fat Loss and Aesthetics overlap. Consider whether one drives the program or both are intentional.",
+    resolution: {
+      actionType: "show_warning",
+      message:    "Fat Loss and Aesthetics overlap significantly. Consider using one as the primary goal to set a clear training direction.",
+    },
+  },
+  {
+    pair:    ["weight-mgmt", "muscle"],
+    type:    "soft",
+    message: "Weight management paired with muscle gain may require a caloric surplus strategy. Confirm direction with client.",
+    resolution: {
+      actionType:             "suggest_primary_goal_change",
+      message:                "Muscle gain requires a caloric surplus. Confirm which goal drives the program phase.",
+      suggestedPrimaryGoalId: "muscle",
+    },
+  },
+  {
     pair:    ["underweight", "fat-loss"],
     type:    "hard",
-    message: "Weight gain and fat loss are contradictory goals. Choose one direction before saving.",
+    message: "Underweight and Fat Loss are contraindicated. Choose one direction: remove Fat Loss (client is underweight) or remove Safe Weight Gain (client is not in the underweight population).",
     resolution: {
       actionType:             "block_combination",
       message:                "Remove either \"fat-loss\" or \"underweight\" before continuing.",
@@ -852,6 +875,8 @@ const GOAL_CONFLICT_RULES: GoalConflictRule[] = [
 - `hard` — blocking intercept. Trainer must resolve before the form submits. Server also rejects on submit if hard conflicts reach the server unresolved.
 
 Conflict detection runs at goal-save time, not just in the UI. The repository write path for `addClientGoal` must check `GOAL_CONFLICT_RULES` against the client's current active goal set before writing.
+
+> **Server-side safety unchanged (Phase 9B).** This reconciliation is documentation-only. Server-side enforcement is untouched: `addClient` (`actions/clients.ts`) still rejects hard conflicts before ERP Customer creation, and postnatal/rehab safety gating still fires at goal-save time, exactly as shipped. No runtime behavior changed.
 
 ## 8. Urgency Classification
 
