@@ -27,7 +27,7 @@ import { NeedsAttentionEmpty } from '@/features/dashboard/components/NeedsAttent
 import { TodayTimeline } from '@/features/dashboard/components/TodayTimeline'
 import { UpcomingList }  from '@/features/dashboard/components/UpcomingList'
 import { QuickActions }  from '@/features/dashboard/components/QuickActions'
-import { AiCopilotRail } from '@/components/modules/dashboard/AiCopilotRail'
+import { AiCopilotRail } from '@/features/dashboard/components/AiCopilotRail'
 import type {
   NextUpData,
   TodaySection,
