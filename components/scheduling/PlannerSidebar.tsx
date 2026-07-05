@@ -1,7 +1,7 @@
 'use client'
 
-import { MiniCalendar } from '@/components/scheduling/MiniCalendar'
-import { CalendarFilters } from '@/components/scheduling/CalendarFilters'
+import { MiniCalendar } from '@/features/scheduling/components/MiniCalendar'
+import { CalendarFilters } from '@/features/scheduling/components/CalendarFilters'
 
 interface PlannerSidebarProps {
   currentDate?:  Date
