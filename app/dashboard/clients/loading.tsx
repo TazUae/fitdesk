@@ -1,4 +1,4 @@
-import { CardSkeleton, Skeleton } from '@/components/modules/LoadingSkeleton'
+import { CardSkeleton, Skeleton } from '@/components/ui/LoadingSkeleton'
 
 export default function ClientsLoading() {
   return (

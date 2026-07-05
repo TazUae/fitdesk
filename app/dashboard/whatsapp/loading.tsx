@@ -1,4 +1,4 @@
-import { Skeleton } from '@/components/modules/LoadingSkeleton'
+import { Skeleton } from '@/components/ui/LoadingSkeleton'
 
 export default function WhatsAppLoading() {
   return (

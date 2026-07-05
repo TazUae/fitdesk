@@ -1,4 +1,4 @@
-import { CardSkeleton, Skeleton } from '@/components/modules/LoadingSkeleton'
+import { CardSkeleton, Skeleton } from '@/components/ui/LoadingSkeleton'
 
 /**
  * Loading UI for the dashboard home page.
