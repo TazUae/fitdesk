@@ -13,7 +13,7 @@ import { getClientHubOverview } from '@/lib/clients/hub'
 import { Avatar } from '@/components/modules/Avatar'
 import { Badge } from '@/components/modules/Badge'
 import { ClientHubPanel } from '@/components/modules/ClientHubPanel'
-import { DeactivateClientButton } from '@/components/modules/DeactivateClientButton'
+import { DeactivateClientButton } from '@/features/clients/components/DeactivateClientButton'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import type { ClientStatus, Invoice, InvoiceStatus, Session, SessionStatus } from '@/types'
 
