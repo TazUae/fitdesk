@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Camera, Check, Loader2, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient, signOut, useSession } from '@/lib/auth-client'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import { SignOutConfirmSheet } from '@/components/account/SignOutConfirmSheet'
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────

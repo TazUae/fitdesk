@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { Menu, HelpCircle, Settings, Plus } from 'lucide-react'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 
 interface PlannerToolbarProps {
   sidebarOpen:      boolean

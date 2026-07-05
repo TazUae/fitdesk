@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { MessageCircle, User, SlidersHorizontal, LifeBuoy, LogOut, X } from 'lucide-react'
 import { signOut } from '@/lib/auth-client'
-import { Avatar } from './Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 
 interface UserMenuSheetProps {
   open:      boolean

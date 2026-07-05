@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/auth-client'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import { UserMenuSheet } from '@/components/modules/UserMenuSheet'
 import { DashboardSidebar } from '@/features/dashboard/components/DashboardSidebar'
 import { QuickActionsFab } from '@/features/dashboard/components/QuickActionsFab'

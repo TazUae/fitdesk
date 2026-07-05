@@ -6,7 +6,7 @@
 
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import { fmtShortDate, fmtTime } from '@/lib/date'
 import type { Session } from '@/types'
 

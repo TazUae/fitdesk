@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { generateDraftMessage, sendMessage } from '@/actions/messages'
 import { DRAFT_TYPES } from '@/lib/claude'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import type { Client, MessageLog, DraftType } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

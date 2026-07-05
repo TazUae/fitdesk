@@ -8,7 +8,7 @@
 
 import Link from 'next/link'
 import { CheckCircle2, CalendarPlus } from 'lucide-react'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import { fmtTime } from '@/lib/date'
 import type { TodaySection } from '@/lib/dashboard/derive'
 import type { Session } from '@/types'

@@ -1,4 +1,4 @@
-export { Avatar }        from './Avatar'
+export { Avatar }        from '@/components/ui/Avatar'
 export { DashboardView } from './DashboardView'
 export { Badge } from './Badge'
 export type { BadgeVariant } from './Badge'

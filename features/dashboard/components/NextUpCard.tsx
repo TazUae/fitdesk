@@ -7,7 +7,7 @@
 
 import Link from 'next/link'
 import { CalendarPlus } from 'lucide-react'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import type { NextUpData } from '@/lib/dashboard/derive'
 
 interface NextUpCardProps {

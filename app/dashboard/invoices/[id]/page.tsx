@@ -6,7 +6,7 @@ import { invoiceStatusLabel, isOutstandingInvoiceStatus } from '@/lib/invoices/s
 import { fmtMoney } from '@/lib/format/money'
 import { FinalizeInvoiceButton } from './FinalizeInvoiceButton'
 import { Badge } from '@/components/modules/Badge'
-import { Avatar } from '@/components/modules/Avatar'
+import { Avatar } from '@/components/ui/Avatar'
 import type { BadgeVariant } from '@/components/modules/Badge'
 import type { InvoiceStatus } from '@/types'
 
