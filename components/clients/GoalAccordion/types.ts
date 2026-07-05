@@ -1,4 +1,4 @@
-import type { IntakeGoalId } from '@/lib/goals/taxonomy'
+import type { GoalSection, IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { GoalUrgency } from '@/types/clients'
 
 export interface SelectedGoalConfig {
@@ -98,4 +98,24 @@ export function setGoalUrgency(
       return { ...s, urgency }
     }),
   }
+}
+
+// ─── Section-level progressive disclosure (Phase 9C) ──────────────────────────
+//
+// Core goals render eagerly; Specialist and Emerging are collapsed behind an
+// explicit toggle to reduce mobile cognitive load (FITDESK_GOAL_SYSTEM.md
+// Smart Accordion UX contract). Pure helpers exported for testing, same
+// pattern as the goal-selection state above — no DOM rendering required.
+
+export type SectionExpansionState = Record<GoalSection, boolean>
+
+export function defaultSectionExpansion(): SectionExpansionState {
+  return { core: true, specialist: false, emerging: false }
+}
+
+export function toggleSectionExpansion(
+  state:   SectionExpansionState,
+  section: GoalSection,
+): SectionExpansionState {
+  return { ...state, [section]: !state[section] }
 }

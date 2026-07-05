@@ -19,6 +19,8 @@ import {
   togglePrimarySubGoal,
   toggleTrainerSubGoal,
   setGoalUrgency,
+  defaultSectionExpansion,
+  toggleSectionExpansion,
   type GoalSelectionState,
 } from '../types'
 
@@ -381,6 +383,74 @@ describe('Safety advisories — display-only, non-blocking', () => {
     const flags = computeSafetyFlags(['rehab', 'rehab'])
     const injuryFlags = flags.filter(f => f.id === 'injury_risk')
     expect(injuryFlags).toHaveLength(1)
+  })
+})
+
+// ─── Section-level progressive disclosure (Phase 9C) ─────────────────────────
+//
+// Specialist and Emerging goal sections render behind a collapse toggle to
+// reduce mobile cognitive load; Core renders eagerly. The component wires
+// these pure state transitions to aria-expanded/aria-controls toggle buttons
+// (verified by reading GoalAccordion.tsx — no RTL/jsdom is installed, so DOM
+// interaction is tested via the underlying state contract, same as the
+// existing Trainer assessment collapse above).
+
+describe('Section-level progressive disclosure', () => {
+  it('Core is expanded by default', () => {
+    expect(defaultSectionExpansion().core).toBe(true)
+  })
+
+  it('Specialist is collapsed by default', () => {
+    expect(defaultSectionExpansion().specialist).toBe(false)
+  })
+
+  it('Emerging is collapsed by default', () => {
+    expect(defaultSectionExpansion().emerging).toBe(false)
+  })
+
+  it('clicking the Specialist toggle reveals Specialist goals', () => {
+    const next = toggleSectionExpansion(defaultSectionExpansion(), 'specialist')
+    expect(next.specialist).toBe(true)
+  })
+
+  it('clicking the Emerging toggle reveals Emerging goals', () => {
+    const next = toggleSectionExpansion(defaultSectionExpansion(), 'emerging')
+    expect(next.emerging).toBe(true)
+  })
+
+  it('toggling Specialist does not affect Core or Emerging', () => {
+    const next = toggleSectionExpansion(defaultSectionExpansion(), 'specialist')
+    expect(next.core).toBe(true)
+    expect(next.emerging).toBe(false)
+  })
+
+  it('toggling a section twice returns it to collapsed', () => {
+    let state = defaultSectionExpansion()
+    state = toggleSectionExpansion(state, 'emerging')
+    state = toggleSectionExpansion(state, 'emerging')
+    expect(state.emerging).toBe(false)
+  })
+
+  it('toggling section expansion does not mutate the previous state', () => {
+    const initial = defaultSectionExpansion()
+    const after    = toggleSectionExpansion(initial, 'specialist')
+    expect(after).not.toBe(initial)
+    expect(initial.specialist).toBe(false)
+  })
+
+  it('selecting a goal from a revealed section still adds it to selected[] (independent of expansion state)', () => {
+    // 'cardio' is a Specialist goal — collapsed by default, but goal selection
+    // (addGoal) is decoupled from section-expansion UI state entirely.
+    const state = addGoal(emptyGoalState(), 'cardio')
+    expect(state.selected).toHaveLength(1)
+    expect(state.selected[0].goalId).toBe('cardio')
+  })
+
+  it('selecting a goal from the Emerging section still adds it to selected[]', () => {
+    // 'longevity' is an Emerging goal — collapsed by default.
+    const state = addGoal(emptyGoalState(), 'longevity')
+    expect(state.selected).toHaveLength(1)
+    expect(state.selected[0].goalId).toBe('longevity')
   })
 })
 

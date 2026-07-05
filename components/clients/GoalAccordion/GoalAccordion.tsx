@@ -12,7 +12,10 @@ import {
   togglePrimarySubGoal,
   toggleTrainerSubGoal,
   setGoalUrgency,
+  defaultSectionExpansion,
+  toggleSectionExpansion,
   type GoalAccordionProps,
+  type SectionExpansionState,
 } from './types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -47,6 +50,7 @@ const inactiveChip = {
 
 export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
   const [expandedTrainer, setExpandedTrainer] = useState<Set<IntakeGoalId>>(new Set())
+  const [sectionExpanded, setSectionExpanded] = useState<SectionExpansionState>(defaultSectionExpansion)
 
   const selectedIds    = new Set(value.selected.map(s => s.goalId))
   const allSelectedIds = [...selectedIds]
@@ -63,6 +67,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
     })
   }
 
+  function toggleSection(section: GoalSection) {
+    setSectionExpanded(prev => toggleSectionExpansion(prev, section))
+  }
+
   return (
     <div className="space-y-5">
       <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
@@ -76,32 +84,57 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
       <div className="space-y-4">
         {GOAL_SECTIONS.map(section => {
           const sectionGoals = GOALS.filter(g => g.section === section)
+          const collapsible  = section !== 'core'
+          const expanded     = collapsible ? sectionExpanded[section] : true
+          const sectionLabel = SECTION_LABELS[section]
           return (
-            <section key={section} aria-label={`${SECTION_LABELS[section]} goals`}>
-              <p
-                className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                style={{ color: 'var(--fd-muted)' }}
-              >
-                {SECTION_LABELS[section]}
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {sectionGoals.map(goal => {
-                  const selected = selectedIds.has(goal.id)
-                  return (
-                    <button
-                      key={goal.id}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() =>
-                        onChange(selected ? removeGoal(value, goal.id) : addGoal(value, goal.id))
-                      }
-                      className="flex min-h-[44px] items-start rounded-xl border px-3 py-3 text-left text-xs font-medium transition-all active:scale-[0.97]"
-                      style={selected ? activeChip : inactiveChip}
-                    >
-                      <span className="leading-snug">{goal.label}</span>
-                    </button>
-                  )
-                })}
+            <section key={section} aria-label={`${sectionLabel} goals`}>
+              <div className="mb-2 flex items-center justify-between">
+                <p
+                  className="text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: 'var(--fd-muted)' }}
+                >
+                  {sectionLabel}
+                </p>
+                {collapsible && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section)}
+                    aria-expanded={expanded}
+                    aria-controls={`section-goals-${section}`}
+                    className="flex items-center gap-1 text-xs font-semibold"
+                    style={{ color: 'var(--fd-accent)' }}
+                  >
+                    {expanded ? `Hide ${sectionLabel.toLowerCase()} goals` : `Show ${sectionLabel.toLowerCase()} goals`}
+                    {expanded
+                      ? <ChevronUp className="h-3.5 w-3.5" />
+                      : <ChevronDown className="h-3.5 w-3.5" />
+                    }
+                  </button>
+                )}
+              </div>
+              <div id={`section-goals-${section}`}>
+                {expanded && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {sectionGoals.map(goal => {
+                      const selected = selectedIds.has(goal.id)
+                      return (
+                        <button
+                          key={goal.id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            onChange(selected ? removeGoal(value, goal.id) : addGoal(value, goal.id))
+                          }
+                          className="flex min-h-[44px] items-start rounded-xl border px-3 py-3 text-left text-xs font-medium transition-all active:scale-[0.97]"
+                          style={selected ? activeChip : inactiveChip}
+                        >
+                          <span className="leading-snug">{goal.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </section>
           )
