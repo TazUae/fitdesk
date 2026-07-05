@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { DashboardClientShell } from '@/components/modules/DashboardClientShell'
-import { PilotBanner } from '@/components/modules/PilotBanner'
+import { PilotBanner } from '@/components/ui/PilotBanner'
 import { isPilotMode } from '@/lib/pilot'
 
 export default function DashboardLayout({
