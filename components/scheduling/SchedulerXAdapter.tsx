@@ -15,8 +15,8 @@ import { createEventsServicePlugin } from '@schedule-x/events-service'
 import { createCalendarControlsPlugin } from '@schedule-x/calendar-controls'
 import '@schedule-x/theme-default/dist/index.css'
 import './scheduler-x-overrides.css'
-import { SessionCard } from '@/components/scheduling/SessionCard'
-import { NowLine } from '@/components/scheduling/NowLine'
+import { SessionCard } from '@/features/scheduling/components/SessionCard'
+import { NowLine } from '@/features/scheduling/components/NowLine'
 import type { CalendarSession } from '@/types/scheduling'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
