@@ -8,11 +8,9 @@
 
 ---
 
-## Result: **BLOCKED (no mutation performed)**
+## Result: **PASS**
 
-The run was **halted at the pre-flight tenant-confirmation gate, before any ERP mutation.** No session was completed, **no Sales Invoice was created or submitted**, no Payment Entry was created, no Whish/external payment provider was called, and no payment link was generated. The working tree change from this run is **this report only**.
-
-**Root cause:** the local runtime stack required to (a) positively confirm a non-production test tenant and (b) drive exactly one PPS completion is **not running**, and tenant identity therefore **cannot be positively confirmed**. The plan's Stop Condition #1 ("Target tenant cannot be positively confirmed non-production → STOP") and the task's Stop Conditions ("tenant is production or ambiguous"; "any unexpected error occurs before invoice submission") apply.
+Exactly one pay-per-session FD Session was completed once through the authenticated app UI. The completion created and submitted **exactly one real ERP Sales Invoice** (`ACC-SINV-2026-00003`), **submitted (docstatus 1) and Unpaid**, with **no Payment Entry**, **no Whish/external payment link**, and **no duplicate invoice**. All prior artifacts were left untouched. This is the first live-ERP validation of the PPS invoice-on-completion path (previously mock-verified only).
 
 ---
 
@@ -20,83 +18,99 @@ The run was **halted at the pre-flight tenant-confirmation gate, before any ERP 
 
 > "I approve Phase 7B PPS live ERP QA on a non-production test tenant only. I understand it may create and submit a real ERP Sales Invoice, no Payment Entry, no Whish/external payment link, disposable test client only."
 
-Approval was valid for the run. Execution was blocked by environment readiness, **not** by lack of approval.
-
 ---
 
-## Pre-flight results
+## Run history (for traceability)
 
-| # | Check | Result |
-|---|---|---|
-| 1 | Repo path `C:\Users\Lenovo\Dev\axis-erp\FitDesk` | ✅ PASS |
-| 2 | Branch is `main` | ✅ PASS |
-| 3 | Local `main` synced with `origin/main` | ✅ PASS (`## main...origin/main`, not ahead/behind) |
-| 4 | Working tree clean (before this report) | ✅ PASS |
-| 5 | Latest commit `9901879` or newer | ✅ PASS (`9901879`) |
-| 6 | GitHub Actions latest run green | ⚠️ UNKNOWN — `gh` CLI unavailable locally; CI not verifiable from this environment (monitor: `https://github.com/TazUae/fitdesk/actions`) |
-| 7 | Required source/docs files read | ✅ PASS (plan, `PAYMENT_SAFETY_GATES.md`, `sessionCompletionService.ts`, `schedulingActions.ts`, `erpnext/client.ts`, `invoices.ts`, `whish.ts`, `pilot.ts`) |
-| 8 | Approved path uses the existing ERP client/proxy path only | ✅ PASS — `erpFetch` ([`lib/erpnext/client.ts:120`](../../lib/erpnext/client.ts)) is Control-Plane-proxy-only; path translation `/api/resource/*`→`/api/erp/doctype/*`, `/api/method/*`→`/api/erp/method/*` |
-| 9 | No direct ERP credential reads in FitDesk | ✅ PASS — signs a short-lived HS256 tenant JWT (`signTenantJwt`), no static ERP secret stored or sent |
-| 10 | PPS completion path does not call payment/link functions | ✅ PASS — `completeSessionAction` ([`actions/schedulingActions.ts:283`](../../actions/schedulingActions.ts)) injects only `findInvoiceBySession`, `createInvoice`, `submitSalesInvoice`, `buildSessionInvoicePayload` + package/billing deps. It does **not** import or call `createAndSubmitPaymentEntry`, `recordPayment`, `collectPayment`, `getPaymentLink`, `generatePaymentLink`, `markInvoicePaid`, or the Whish adapter |
-| 11 | `CONTROL_PLANE_URL` host (no secrets) | ⚠️ Config = `http://localhost:4000` (local), but see Blockers — the Control Plane is **not running**, so the host cannot be confirmed to resolve to a known non-production ERPNext |
-| 12 | Non-production test tenant confirmed | ❌ **CANNOT CONFIRM** — stack down; tenant identity unverifiable → **STOP** |
-| 13 | `WHISH_*` not needed / must not be used | ✅ Confirmed not needed — PPS path never touches Whish. Left untouched |
-| 14 | No external payment provider action will be called | ✅ Confirmed by code path (item 10) — none invoked |
+1. **First attempt — BLOCKED (no mutation):** the local stack (Docker/Control Plane/ERPNext/FitDesk) was down, so the non-production tenant could not be positively confirmed. Halted before any ERP write.
+2. **Unblock (read-only):** operator started Docker; the local stack was brought up from existing images/volumes and confirmed healthy and local/non-production (`npm run local:check` all green).
+3. **Eligibility (read-only):** the active tenant, disposable PPS client, ERP item, custom fields, and invoice anchor were confirmed. The only scheduled session initially had `rate = 0` (blocked); the operator then booked a new positive-rate session.
+4. **Execution (this run):** all 13 pre-flight gates re-passed; the operator clicked "Complete" exactly once for the eligible session; post-mutation verification confirmed the expected single submitted, unpaid invoice.
 
 ---
 
 ## Tenant / environment confirmation (no secrets)
 
-- **`CONTROL_PLANE_URL` host:** `localhost` (scheme `http`, port `4000`) — read from `.env`; no override in `.env.local` (which sets only two feature flags).
-- **App identity (`.env`, non-secret):** `NEXT_PUBLIC_APP_URL=http://localhost:3000`, `BETTER_AUTH_URL=http://localhost:3000`, `APP_VERSION=1.0.0`, `NODE_ENV` unset.
-- **Live runtime state:**
-  - Docker daemon: **DOWN** (Docker Desktop not reachable) → local Control Plane and local ERPNext containers cannot be running.
-  - Port `4000` (Control Plane): **no listener**.
-  - Port `3000` (FitDesk app): **no listener**.
-- **Conclusion:** the environment is *configured* for local, which is a strong non-production signal, but the tenant **cannot be positively confirmed** because there is no running Control Plane/ERPNext to (a) confirm the ERP target is a non-production test instance and (b) confirm a disposable test tenant is provisioned. "Configured local" is **not** the same as "confirmed non-production test tenant against a live system," which the plan requires before any mutation.
+- **Tenant slug:** `qa-optional-modules-july-02-studio` (non-production QA workspace)
+- **tenantId:** `51f0d016-9675-43e8-9e95-e04cb1add196`
+- **Trainer (logged in):** `qa.optional.modules.july02@example.com`
+- **Origins:** FitDesk `http://localhost:3000` (health 200), Control Plane `http://localhost:4000` (health 200), local ERPNext `http://localhost:8080` — **all localhost; no production host involved.**
+- **ERP path:** all ERP I/O via the approved Control Plane proxy (`erpFetch` → tenant JWT); FitDesk holds no ERP credentials. Whish/Evolution disabled (not needed, not called).
 
 ---
 
-## Blockers (all must clear before a future Phase 7B attempt)
+## Target client / session
 
-1. **Local stack is down.** Docker Desktop is stopped; nothing is listening on `3000`/`4000`. The Control Plane, the local ERPNext, and the FitDesk app must all be brought up (`npm run local:up` per the local-stack workflow) before anything can be confirmed or driven.
-2. **Tenant identity unconfirmable.** With the Control Plane down, there is no way to positively verify that `localhost:4000` proxies to a non-production test ERPNext, nor that the provisioned tenant is a disposable test tenant. This must be confirmed against the live system (plan step 1).
-3. **No authenticated session / no drivable completion path.** PPS completion is a Next.js **server action** (`completeSessionAction`) that requires a live, authenticated trainer session. There is no running app and no session. An interactive trainer login is required, which the operator must perform (the agent must not enter credentials).
-4. **Test-data eligibility unverified.** Cannot confirm the existence of: a disposable PPS client (`billingMode = pay_per_session`, ERP `custom_billing_mode = 'Pay Per Session'`), an eligible FD Session (`rate > 0`, start in the past, status `scheduled`/`confirmed`, not trial, not package, not completed), the `TRAINING-SESSION` ERP Item, and the `custom_fd_session` + `custom_invoice_kind` custom fields on Sales Invoice.
-
----
-
-## Mutation-safety confirmations for this run
-
-- **No ERP Sales Invoice created or submitted.** The create+submit path was never reached (no completion attempted). Invoice identifier / docstatus / outstanding amount: **N/A**.
-- **No Payment Entry created.** By design the PPS path never creates one (item 10), and no completion ran regardless.
-- **No Whish / external payment provider called.** Confirmed by code path and by the run halting pre-mutation.
-- **No payment link generated.** `getPaymentLink` / `generatePaymentLink` never invoked.
-- **No package Paid Now / Pay Later executed.** Not invoked.
-- **No session completed.** Zero completions attempted.
-- **No local DB / Docker volume mutation.** None.
+- **Disposable PPS client:** `Smoke PPS July 03` (billing mode `pay_per_session`)
+- **FD Session:** `0462ddhvvc`
+- **Booked:** 2026-07-06, UI 9:00–10:00 AM (Asia/Beirut) = `start_at 2026-07-06 06:00 UTC`
+- **Pre-completion state:** status `scheduled`, `rate = 20`, `invoice_id` null, not trial, not package-backed, version 1
 
 ---
 
-## Submitted-document irreversibility note (carried into any future run)
+## Execution method
 
-When Phase 7B does execute, PPS completion creates and submits a **docstatus 1** ERP Sales Invoice. Submitted Sales Invoices **cannot be deleted** — only **Cancelled** (docstatus 2), which is itself a separate, approval-gated mutating ERP action. FD Session completion is likewise terminal (no "un-complete"). This is why the future run must use a **disposable test client in a positively-confirmed non-production tenant**, and why cleanup/cancellation must not be attempted as part of the QA run.
+**Operator clicked "Complete session" exactly once in the authenticated browser** at `http://localhost:3000/dashboard/schedule` (the 2026-07-06 9:00 AM session for "Smoke PPS July 03"). No double-click, no parallel requests. The agent performed only read-only pre-flight and post-mutation verification — it did not drive the completion, did not enter credentials, and made no direct DB writes.
 
 ---
 
-## Follow-up recommendations (to unblock a future Phase 7B run)
+## ERP Sales Invoice created (verified read-only)
 
-Perform these **in order**, halting at the first anomaly (this is an operator-driven sequence; the agent can assist with read-only verification but must not enter credentials or force mutations):
+| Field | Value |
+|---|---|
+| **Invoice identifier** | `ACC-SINV-2026-00003` |
+| **docstatus** | `1` (submitted) |
+| **status** | `Unpaid` |
+| **grand_total** | `20` |
+| **outstanding_amount** | `20` (= grand_total → **unpaid**, no payment collected) |
+| **customer** | `Smoke PPS July 03` |
+| **custom_fd_session** | `0462ddhvvc` |
+| **custom_invoice_kind** | `Session` |
+| **Line items** | exactly one: `TRAINING-SESSION`, qty 1, rate 20, amount 20 |
 
-1. **Start Docker Desktop** and bring up the local stack (`npm run local:up`; verify with `npm run local:check`).
-2. **Confirm the ERP target is non-production.** Verify the local Control Plane proxies to the **local test ERPNext** (not a VPS/production Frappe), and record the confirmed tenant id/name (non-secret) — this satisfies plan Stop Condition #1.
-3. **Operator logs in** to `http://localhost:3000` as the test trainer mapped to the confirmed test tenant.
-4. **Read-only data prep verification** (no writes): confirm a disposable PPS client exists with `rate > 0` on an eligible session; confirm `TRAINING-SESSION` Item and the two custom fields exist; confirm `findInvoiceBySession(<target session>)` returns `null`. If any are missing, create/prepare them through the approved app flow first (or report exactly what is missing).
-5. **Re-run Phase 7B** with the stack up and tenant confirmed: complete **exactly one** eligible PPS session via the app UI; do not double-click; verify the single submitted, unpaid Sales Invoice and the FD Session write-back; confirm zero Payment Entries; then record a PASS report.
-6. Consider whether the agent should drive step 5 via the `verify` skill against the operator's already-authenticated session, or whether the operator drives it while the agent verifies — decide before the run.
+Exactly **one** Sales Invoice carries `custom_fd_session = 0462ddhvvc` — no duplicate (the concurrent double-create residual was not triggered; single UI completion).
+
+---
+
+## FD Session post-completion state (verified read-only)
+
+- `0462ddhvvc`: **status = completed**, **invoice_id = ACC-SINV-2026-00003**, **version = 2** (incremented from 1). Matches the invoice-first ordering guarantee (invoice submitted, then FD Session write-back).
+
+---
+
+## Zero Payment Entry confirmation
+
+- **Payment Entry references to `ACC-SINV-2026-00003`: 0.** The completion created **no** Payment Entry.
+- The tenant contains **1 total** Payment Entry, which belongs to the **prior** paid invoice `ACC-SINV-2026-00002` (from a separate earlier smoke test) — not this run. The new invoice is Unpaid with zero references, confirming this completion added no Payment Entry.
+
+## No Whish / external payment confirmation
+
+- The PPS completion path (`completeSessionAction` → `completeSession` PPS branch) calls only `findInvoiceBySession` / `createInvoice` / `submitSalesInvoice`. It does not call `createAndSubmitPaymentEntry`, `recordPayment`, `collectPayment`, `getPaymentLink`, `generatePaymentLink`, `markInvoicePaid`, or the Whish adapter.
+- No payment link was generated; no external payment provider was contacted. The invoice's Unpaid/outstanding state corroborates that no collection occurred.
+
+## Untouched prior artifacts (verified read-only)
+
+- `4jt2aqha8f`: unchanged — still `scheduled`, `rate 0`, `invoice_id` null, version 1.
+- `g2lkc6f4bu`: unchanged — still `completed`, `invoice_id = ACC-SINV-2026-00002`, version 2.
+- `ACC-SINV-2026-00002`: unchanged — docstatus 1, status `Paid`, outstanding 0.
+
+---
+
+## Submitted-document irreversibility note
+
+`ACC-SINV-2026-00003` is **docstatus 1 (submitted)** and therefore **cannot be deleted** — only **Cancelled** (docstatus 2), which is a separate, explicitly-approved mutating ERP action. FD Session completion is likewise terminal (no "un-complete"). This QA invoice is expected to **persist** in the disposable QA tenant; no cleanup/cancellation was attempted (and none should be without explicit instruction).
+
+---
+
+## Follow-up recommendations
+
+1. **PPS live path is validated.** The invoice-on-completion flow works end-to-end against a live ERPNext tenant, matching the mock-test expectations. No code change indicated.
+2. **C8 (payment collection) remains out of scope.** Collecting payment on `ACC-SINV-2026-00003` (Payment Entry / manual mark-paid) is a separate, approval-gated task — do not perform as part of Phase 7B.
+3. **Concurrency residual still open.** The accepted double-create-under-true-parallel-completion residual (FW-1) was not exercised and remains a future hardening item (durable uniqueness on `custom_fd_session`).
+4. **QA data hygiene.** The QA tenant now holds two persistent submitted Session invoices (`...00002` paid, `...00003` unpaid). Acceptable in a disposable tenant; if a clean slate is later wanted, that is a separate explicitly-approved cleanup.
 
 ---
 
 ## Non-goals honored this run
 
-No runtime code changed; no live ERP writes; no Payment Entry; no Whish/external call; no payment link; no package Paid Now/Pay Later; no schema/migration/DocType change; no env/Dokploy/volume edits; no proxy bypass; no push. This report is the only file changed.
+No runtime code changed; no Payment Entry; no Whish/external call; no payment link; no package Paid Now/Pay Later; no schema/migration/DocType change; no env/Dokploy/volume edits; no proxy bypass; no rollback/cancellation; no push. Only this report changed.
