@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { signIn, useSession } from '@/lib/auth-client'
+import { getSafeRedirectUrl } from '@/lib/auth/redirect'
 
 export default function LoginContent() {
   const router = useRouter()
@@ -12,8 +13,7 @@ export default function LoginContent() {
   const { data: session, isPending: sessionLoading } = useSession()
   const [loading, setLoading] = useState(false)
 
-  const raw = searchParams.get('callbackUrl') ?? '/dashboard'
-  const callbackUrl = raw.startsWith('/') ? raw : '/dashboard'
+  const callbackUrl = getSafeRedirectUrl(searchParams.get('callbackUrl'))
 
   // Redirect if already authenticated
   useEffect(() => {
