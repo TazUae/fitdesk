@@ -28,3 +28,6 @@ jobs:
 
       - name: Build verify
         run: npm run build:verify
+
+      - name: Docker build (verify only — no push, no run)
+        run: docker build -t fitdesk:ci .
