@@ -162,7 +162,9 @@ export function ProvisioningStatus({ initialRecord }: ProvisioningStatusProps) {
         Current step: {step.replace(/_/g, " ")}
       </p>
       {showSlowNotice ? (
-        <p className="mt-3 text-sm text-muted-foreground">Still working...</p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Provisioning is taking longer than usual. Retrying safely.
+        </p>
       ) : null}
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
     </div>
