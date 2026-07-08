@@ -62,7 +62,20 @@ export async function createTenant(input: CreateTenantInput): Promise<CreateTena
 }
 
 export async function getJob(jobId: string): Promise<JobStatusResponse> {
-  return cpFetch(`/jobs/${encodeURIComponent(jobId)}`);
+  const raw = (await cpFetch(`/jobs/${encodeURIComponent(jobId)}`)) as Record<string, unknown>;
+  // The Control Plane returns `id` (not `jobId`) and carries the failure text on
+  // both `failureReason` and the legacy `lastError`. Normalize here so the UI
+  // reliably receives the real reason instead of falling back to a generic error.
+  const failureReason =
+    (typeof raw.failureReason === "string" ? raw.failureReason : null) ??
+    (typeof raw.lastError === "string" ? raw.lastError : null);
+  return {
+    jobId: typeof raw.id === "string" ? raw.id : jobId,
+    tenantId: typeof raw.tenantId === "string" ? raw.tenantId : "",
+    status: raw.status as JobStatusResponse["status"],
+    currentStep: raw.currentStep as JobStatusResponse["currentStep"],
+    failureReason,
+  };
 }
 
 export async function retryJob(jobId: string): Promise<JobStatusResponse> {
