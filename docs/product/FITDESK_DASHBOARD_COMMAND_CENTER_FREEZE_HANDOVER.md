@@ -1,5 +1,11 @@
 # FitDesk Dashboard Command Center Freeze / Handover
 
+> **Historical freeze/handover evidence — not current execution authority.**
+> The branch/merge status recorded below is **stale** where it states "not
+> pushed"/"not merged": those commits were subsequently merged to `main`. Treat the
+> "what was built" notes as historical evidence of what shipped, not as current
+> deployment state. See [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md).
+
 **Date:** 2026-06-14
 **Author:** Claude Code (Sonnet 4.6)
 **Phase 3 Final QA Verdict:** PASS

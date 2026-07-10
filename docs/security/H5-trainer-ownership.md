@@ -1,5 +1,12 @@
 # H5 — Trainer ownership / IDOR on session & invoice by-id mutations (PLAN ONLY)
 
+> **Historical evidence / plan-only — not current execution authority.**
+> This document's claim that FitDesk has no test harness is **stale**: the repo now
+> has `npm test` / Vitest. US-025 (Tenant-Isolation Test Coverage) requires a
+> current-`main` recheck of the findings below before any acceptance criteria are
+> written. See [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md)
+> and [`docs/execution/SPRINT_1_STORY_TRACEABILITY_MAP.md`](../execution/SPRINT_1_STORY_TRACEABILITY_MAP.md).
+
 **Status:** Plan only — **not implemented this run.** Reasons: (1) FitDesk has **no test harness** (`package.json` has no `test` script; no `*.test.ts` files), so the required "add tests for forged ids" cannot be met without first standing up a test runner + ERP mocking; (2) the clean fix changes the **ERP adapter** and the **financial completion flow** and is **auth/isolation-sensitive** (workspace `CLAUDE.md` §4 approval gate). This supersedes the earlier H5 note, which was written against the `wip/main-2026-04-25` line, not `origin/main`.
 
 ## Corrected finding (against current `origin/main`)
