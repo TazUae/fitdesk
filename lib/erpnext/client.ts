@@ -296,7 +296,7 @@ function normalizePayment(raw: ERPPaymentEntry, invoiceId: string = ''): Payment
     provider:  mapPaymentProvider(raw.mode_of_payment),
     reference: raw.reference_no,
     note:      raw.remarks,
-    paidAt:    raw.payment_date,
+    paidAt:    raw.posting_date ?? raw.payment_date ?? '',
   }
 }
 
@@ -326,16 +326,18 @@ function invoiceFields(): string {
 }
 
 /**
- * Field list for getPaymentsForCustomer. Uses `payment_date`, this doctype's
- * own date field (not `posting_date`). Matches normalizePayment exactly:
+ * Field list for getPaymentsForCustomer. Matches normalizePayment exactly:
  * dropped `received_amount`/`docstatus`/`status` — unread, and not part of
- * ERPPaymentEntry; the leading suspects for an intermittent ERPNext 417 here.
- * Added `currency`/`remarks`, which normalizePayment reads but this list
- * omitted (payments were silently defaulting to 'USD' and losing remarks).
+ * ERPPaymentEntry. Added `currency`/`remarks`, which normalizePayment reads
+ * but this list previously omitted (payments were silently defaulting to
+ * 'USD' and losing remarks). Uses `posting_date`, not `payment_date` — the
+ * latter isn't a real Payment Entry field and is rejected by ERPNext's
+ * list-query validator ("Field not permitted in query: payment_date"),
+ * which was the actual cause of the intermittent 417 on this query.
  */
 function paymentFields(): string {
   return JSON.stringify([
-    'name', 'payment_date', 'paid_amount', 'currency', 'party',
+    'name', 'posting_date', 'paid_amount', 'currency', 'party',
     'mode_of_payment', 'reference_no', 'remarks',
   ])
 }
@@ -804,7 +806,7 @@ export async function getPaymentsForCustomer(erpCustomerId: string): Promise<Pay
   const params: Record<string, string> = {
     fields:  paymentFields(),
     filters: JSON.stringify(filters),
-    orderby: 'payment_date asc',
+    orderby: 'posting_date asc',
   }
 
   const res = await erpFetch<ERPListResponse<ERPPaymentEntry>>(
