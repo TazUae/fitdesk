@@ -49,6 +49,20 @@ Build a simple, fast, reliable PT business operating system focused on:
 - Normalize and validate external responses before returning to the UI
 - Never duplicate financial source-of-truth data in any frontend-owned store
 
+### Tenant / Workspace Isolation (fail closed)
+
+- Every query and every mutation must be scoped to the caller's resolved tenant/workspace/trainer context
+- Missing or unresolved tenant/workspace context fails closed (deny / not-found) — never fall back to unscoped access
+- Client-supplied IDs (`sessionId`, `clientId`, `invoiceId`, docname, etc.) must be ownership-verified against the resolved context before any read or mutation
+- See `docs/security/H5-trainer-ownership.md` for a known-latent pattern of this class and `US-025` (Tenant-Isolation Test Coverage) in the Sprint 1 traceability map below
+
+## Documentation Authority & Execution Kit
+
+- `docs/DOCUMENTATION_AUTHORITY_MAP.md` — defines which docs are authoritative and in what order when they disagree; this `CLAUDE.md` is tier 1 and always wins
+- `docs/execution/SPRINT_1_STORY_TRACEABILITY_MAP.md` — Sprint 1 US-ID ↔ existing-evidence mapping; acceptance criteria are not yet authored there
+- `docs/execution/EXECUTION_KIT_SUBMODULE_POLICY.md` — this repo (`FitDesk/`) is the canonical Execution Kit source; never hand-edit `fitdesk-platform/services/fitdesk` to fix instruction drift — bump its submodule pin instead
+- Invoke the `fitdesk-spec` skill to locate canonical spec/acceptance docs on demand — do not bulk-read `docs/`
+
 ## Data Flow
 
 ```
@@ -90,6 +104,7 @@ Client → Server Action / Route Handler → Typed Adapter → External Service
 - Never store duplicate financial records outside ERPNext
 - All ERP calls must be server-side
 - Normalize ERP responses into clean app-level types before the UI sees them
+- FitDesk must never hold or print raw ERP credentials (`ERP_API_KEY`/`ERP_API_SECRET`); all ERP I/O flows through the approved server-side ERP client path (`lib/erpnext/`) — no direct Frappe calls, no direct production mutation
 - DocType mappings:
   - Client → Contact or custom Client DocType
   - Session → custom Session DocType
