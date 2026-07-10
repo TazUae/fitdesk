@@ -31,10 +31,28 @@ export interface ClientStatementRow {
   credit: number
   runningBalance: number
   status: string
+  /**
+   * Invoice-level breakdown — set only on invoice rows (Package/Pay-per-session),
+   * never on Payment rows. Always derived straight from the invoice's own
+   * amount/outstandingAmount fields, so it is available regardless of Payment
+   * Entry history availability. Cancelled invoices report all-zero here,
+   * matching their existing $0 debit/credit audit-row treatment.
+   */
+  invoiceTotal?: number
+  applied?: number
+  outstanding?: number
 }
 
 export interface ClientStatementSummary {
   totalInvoiced: number
+  /**
+   * Amount credited toward invoices.
+   * - When paymentHistoryAvailable is true: sum of real Payment Entry amounts
+   *   ("Paid" in the UI).
+   * - When paymentHistoryAvailable is false: derived from invoice balances —
+   *   sum of (grand total - outstanding), clamped per invoice — since actual
+   *   payment records could not be read ("Applied" in the UI).
+   */
   totalPaid: number
   outstandingBalance: number
   overdueBalance: number
@@ -59,6 +77,17 @@ function invoiceRowType(invoice: Invoice): ClientStatementRowType {
   return invoice.fdSessionId ? 'Pay-per-session Invoice' : 'Package Invoice'
 }
 
+/**
+ * Invoice-balance-derived "applied" amount for one invoice — grand total
+ * minus outstanding, clamped to [0, invoice.amount] so stale/inconsistent
+ * ERP data (e.g. outstanding > total, or a negative outstanding) can never
+ * produce a nonsensical applied figure.
+ */
+function appliedAmountForInvoice(invoice: Invoice): number {
+  const raw = invoice.amount - invoice.outstandingAmount
+  return Math.min(Math.max(raw, 0), invoice.amount)
+}
+
 function buildInvoiceRow(invoice: Invoice): ClientStatementRow {
   const cancelled = invoice.status === 'cancelled'
   const type = invoiceRowType(invoice)
@@ -73,6 +102,9 @@ function buildInvoiceRow(invoice: Invoice): ClientStatementRow {
     credit:         0,
     runningBalance: 0, // filled in after sorting
     status:         cancelled ? 'Cancelled' : invoiceStatusLabel(invoice.status),
+    invoiceTotal:   cancelled ? 0 : invoice.amount,
+    applied:        cancelled ? 0 : appliedAmountForInvoice(invoice),
+    outstanding:    cancelled ? 0 : invoice.outstandingAmount,
   }
 }
 
@@ -106,11 +138,21 @@ function compareRows(a: ClientStatementRow, b: ClientStatementRow): number {
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
-function buildSummary(invoices: Invoice[], payments: Payment[]): ClientStatementSummary {
+function buildSummary(
+  invoices: Invoice[],
+  payments: Payment[],
+  paymentHistoryAvailable: boolean,
+): ClientStatementSummary {
   const realInvoices = invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled')
 
   const totalInvoiced = realInvoices.reduce((sum, i) => sum + i.amount, 0)
-  const totalPaid      = payments.reduce((sum, p) => sum + p.amount, 0)
+
+  // Real payment records when available; otherwise fall back to invoice
+  // balance math so the summary never implies "nothing has been applied"
+  // when the invoice's own outstanding amount proves otherwise.
+  const totalPaid = paymentHistoryAvailable
+    ? payments.reduce((sum, p) => sum + p.amount, 0)
+    : realInvoices.reduce((sum, i) => sum + appliedAmountForInvoice(i), 0)
 
   const outstandingBalance = realInvoices
     .filter(i => isOutstandingInvoiceStatus(i.status))
@@ -131,6 +173,7 @@ export function assembleStatement(
   opts: { paymentHistoryAvailable?: boolean } = {},
 ): ClientStatement {
   const nonDraftInvoices = invoices.filter(i => i.status !== 'draft')
+  const paymentHistoryAvailable = opts.paymentHistoryAvailable ?? true
 
   const rows = [
     ...nonDraftInvoices.map(buildInvoiceRow),
@@ -143,12 +186,13 @@ export function assembleStatement(
     row.runningBalance = balance
   }
 
-  const paymentHistoryAvailable = opts.paymentHistoryAvailable ?? true
-
   return {
     rows,
-    summary: buildSummary(nonDraftInvoices, payments),
+    summary: buildSummary(nonDraftInvoices, payments, paymentHistoryAvailable),
     paymentHistoryAvailable,
-    warning: paymentHistoryAvailable ? undefined : 'Payment history is temporarily unavailable.',
+    warning: paymentHistoryAvailable
+      ? undefined
+      : 'Payment history is temporarily unavailable. Totals below use invoice balances. '
+        + 'Individual payment rows cannot be shown right now.',
   }
 }

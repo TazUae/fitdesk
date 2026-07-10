@@ -147,6 +147,9 @@ describe('assembleStatement — draft and cancelled invoices', () => {
     expect(rows[0].debit).toBe(0)
     expect(rows[0].credit).toBe(0)
     expect(rows[0].runningBalance).toBe(0)
+    expect(rows[0].invoiceTotal).toBe(0)
+    expect(rows[0].applied).toBe(0)
+    expect(rows[0].outstanding).toBe(0)
     expect(summary.totalInvoiced).toBe(0)
     expect(summary.outstandingBalance).toBe(0)
     expect(summary.overdueBalance).toBe(0)
@@ -166,6 +169,10 @@ describe('assembleStatement — draft and cancelled invoices', () => {
 
 // ─── Payment history availability ─────────────────────────────────────────────
 
+const APPLIED_WARNING =
+  'Payment history is temporarily unavailable. Totals below use invoice balances. '
+  + 'Individual payment rows cannot be shown right now.'
+
 describe('assembleStatement — payment history availability', () => {
   it('defaults to paymentHistoryAvailable: true with no warning', () => {
     const statement = assembleStatement([invoice()], [payment()])
@@ -173,21 +180,75 @@ describe('assembleStatement — payment history availability', () => {
     expect(statement.warning).toBeUndefined()
   })
 
-  it('sets paymentHistoryAvailable: false and a safe warning when flagged, still returning invoice rows/summary', () => {
+  it('derives applied summary from invoice balances when payment history is unavailable (total 200 / outstanding 100 => applied 100)', () => {
     const statement = assembleStatement(
-      [invoice({ id: 'SINV-1', amount: 100, outstandingAmount: 100 })],
+      [invoice({ id: 'SINV-1', amount: 200, outstandingAmount: 100 })],
       [], // payments unavailable — caller passes an empty array
       { paymentHistoryAvailable: false },
     )
     expect(statement.paymentHistoryAvailable).toBe(false)
-    expect(statement.warning).toBe('Payment history is temporarily unavailable.')
-    // Invoice-only data still comes through untouched.
-    expect(statement.rows).toHaveLength(1)
-    expect(statement.rows[0].type).toBe('Package Invoice')
-    expect(statement.summary.totalInvoiced).toBe(100)
+    expect(statement.summary.totalInvoiced).toBe(200)
     expect(statement.summary.outstandingBalance).toBe(100)
-    // No payment rows and no credit toward totalPaid.
+    expect(statement.summary.totalPaid).toBe(100)
+  })
+
+  it('does not create a synthetic Payment row from the invoice-applied amount', () => {
+    const statement = assembleStatement(
+      [invoice({ id: 'SINV-1', amount: 200, outstandingAmount: 100 })],
+      [],
+      { paymentHistoryAvailable: false },
+    )
+    expect(statement.rows).toHaveLength(1)
+    expect(statement.rows.every(r => r.type !== 'Payment')).toBe(true)
+    expect(statement.rows[0].type).toBe('Package Invoice')
+    // The invoice row itself is untouched — still a debit row for the full amount.
+    expect(statement.rows[0].debit).toBe(200)
+    expect(statement.rows[0].credit).toBe(0)
+    // But it carries the invoice-level breakdown used for the per-row display.
+    expect(statement.rows[0].invoiceTotal).toBe(200)
+    expect(statement.rows[0].applied).toBe(100)
+    expect(statement.rows[0].outstanding).toBe(100)
+  })
+
+  it('uses the full non-blocking warning sentence', () => {
+    const statement = assembleStatement(
+      [invoice({ amount: 200, outstandingAmount: 100 })],
+      [],
+      { paymentHistoryAvailable: false },
+    )
+    expect(statement.warning).toBe(APPLIED_WARNING)
+  })
+
+  it('clamps applied to 0 when outstanding exceeds total (stale/inconsistent ERP data)', () => {
+    const statement = assembleStatement(
+      [invoice({ id: 'SINV-1', amount: 100, outstandingAmount: 150 })],
+      [],
+      { paymentHistoryAvailable: false },
+    )
+    expect(statement.rows[0].applied).toBe(0)
     expect(statement.summary.totalPaid).toBe(0)
+  })
+
+  it('clamps applied to the invoice total when outstanding is negative/weird', () => {
+    const statement = assembleStatement(
+      [invoice({ id: 'SINV-1', amount: 100, outstandingAmount: -20 })],
+      [],
+      { paymentHistoryAvailable: false },
+    )
+    expect(statement.rows[0].applied).toBe(100)
+    expect(statement.summary.totalPaid).toBe(100)
+  })
+
+  it('preserves existing payment-row behavior when paymentHistoryAvailable is true — "Paid" still means real Payment Entries', () => {
+    const statement = assembleStatement(
+      [invoice({ id: 'SINV-1', amount: 200, outstandingAmount: 100 })],
+      [payment({ id: 'PE-1', amount: 60 })],
+    )
+    expect(statement.paymentHistoryAvailable).toBe(true)
+    expect(statement.rows).toHaveLength(2)
+    expect(statement.rows.some(r => r.type === 'Payment')).toBe(true)
+    // totalPaid comes from the real payment, not the invoice-balance derivation (which would be 100).
+    expect(statement.summary.totalPaid).toBe(60)
   })
 })
 

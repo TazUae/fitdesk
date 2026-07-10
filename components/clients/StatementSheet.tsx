@@ -43,10 +43,21 @@ function statusVariant(status: string): BadgeVariant {
 
 // ─── Summary cards ────────────────────────────────────────────────────────────
 
-function SummaryGrid({ summary }: { summary: ClientStatement['summary'] }) {
+function SummaryGrid({
+  summary,
+  paymentHistoryAvailable,
+}: {
+  summary: ClientStatement['summary']
+  /** When false, the credited-amount card is labeled "Applied" (invoice-balance-derived), not "Paid". */
+  paymentHistoryAvailable: boolean
+}) {
   const cards: { label: string; value: number; color: string }[] = [
-    { label: 'Invoiced',    value: summary.totalInvoiced,      color: 'var(--fd-text)' },
-    { label: 'Paid',        value: summary.totalPaid,          color: 'var(--fd-green)' },
+    { label: 'Invoiced', value: summary.totalInvoiced, color: 'var(--fd-text)' },
+    {
+      label: paymentHistoryAvailable ? 'Paid' : 'Applied',
+      value: summary.totalPaid,
+      color: 'var(--fd-green)',
+    },
     { label: 'Outstanding', value: summary.outstandingBalance, color: 'var(--fd-red)' },
     { label: 'Overdue',     value: summary.overdueBalance,     color: 'var(--fd-red)' },
   ]
@@ -113,6 +124,29 @@ function StatementRowCard({ row }: { row: ClientStatementRow }) {
       <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
         {row.description}
       </p>
+
+      {row.invoiceTotal !== undefined && (
+        <div className="grid grid-cols-3 gap-2 rounded-lg px-2 py-1.5" style={{ backgroundColor: 'var(--fd-card)' }}>
+          <div>
+            <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Total</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
+              {fmtMoney(row.invoiceTotal)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Applied</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--fd-green)' }}>
+              {fmtMoney(row.applied ?? 0)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Outstanding</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--fd-red)' }}>
+              {fmtMoney(row.outstanding ?? 0)}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--fd-border)' }}>
         <div className="flex items-center gap-3 text-xs">
@@ -212,11 +246,15 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
           <>
             {!statement.paymentHistoryAvailable && (
               <PaymentHistoryWarning
-                message={statement.warning ?? 'Payment history is temporarily unavailable.'}
+                message={
+                  statement.warning
+                  ?? 'Payment history is temporarily unavailable. Totals below use invoice balances. '
+                    + 'Individual payment rows cannot be shown right now.'
+                }
               />
             )}
 
-            <SummaryGrid summary={statement.summary} />
+            <SummaryGrid summary={statement.summary} paymentHistoryAvailable={statement.paymentHistoryAvailable} />
 
             {statement.rows.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-10 text-center">

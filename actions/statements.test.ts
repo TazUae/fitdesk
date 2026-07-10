@@ -171,7 +171,10 @@ describe('getClientStatement', () => {
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.data.paymentHistoryAvailable).toBe(false)
-        expect(result.data.warning).toBe('Payment history is temporarily unavailable.')
+        expect(result.data.warning).toBe(
+          'Payment history is temporarily unavailable. Totals below use invoice balances. '
+          + 'Individual payment rows cannot be shown right now.',
+        )
         // Raw ERP error detail is never surfaced, even in the warning.
         expect(result.data.warning).not.toMatch(/417/)
         // Invoice data still comes through.
@@ -179,8 +182,10 @@ describe('getClientStatement', () => {
         expect(result.data.rows[0].type).toBe('Package Invoice')
         expect(result.data.summary.totalInvoiced).toBe(100)
         expect(result.data.summary.outstandingBalance).toBe(100)
-        // No payment rows, no credit toward totalPaid.
+        // Nothing outstanding was actually applied on this invoice (fully outstanding),
+        // so the invoice-balance-derived totalPaid is correctly 0, not a synthetic payment.
         expect(result.data.summary.totalPaid).toBe(0)
+        expect(result.data.rows.every(r => r.type !== 'Payment')).toBe(true)
       }
     })
 
