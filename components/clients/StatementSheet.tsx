@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Receipt, X } from 'lucide-react'
+import { AlertTriangle, Loader2, Receipt, X } from 'lucide-react'
 import { getClientStatement } from '@/actions/statements'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Badge } from '@/components/ui/Badge'
@@ -67,6 +67,25 @@ function SummaryGrid({ summary }: { summary: ClientStatement['summary'] }) {
           </p>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─── Payment history warning ──────────────────────────────────────────────────
+
+/** Non-blocking notice — shown when invoice data loaded but payment history didn't. */
+function PaymentHistoryWarning({ message }: { message: string }) {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-medium"
+      style={{
+        backgroundColor: 'rgba(232,197,71,0.10)',
+        border:          '1px solid rgba(232,197,71,0.3)',
+        color:           '#d4a017',
+      }}
+    >
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+      {message}
     </div>
   )
 }
@@ -191,6 +210,12 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
 
         {loadState === 'ready' && statement && (
           <>
+            {!statement.paymentHistoryAvailable && (
+              <PaymentHistoryWarning
+                message={statement.warning ?? 'Payment history is temporarily unavailable.'}
+              />
+            )}
+
             <SummaryGrid summary={statement.summary} />
 
             {statement.rows.length === 0 ? (

@@ -43,6 +43,14 @@ export interface ClientStatementSummary {
 export interface ClientStatement {
   rows: ClientStatementRow[]
   summary: ClientStatementSummary
+  /**
+   * False when Payment Entry history could not be loaded — rows/summary are
+   * invoice-only in that case (payments = [] was passed in). Never blocks the
+   * statement from loading; the caller decides how to surface this.
+   */
+  paymentHistoryAvailable: boolean
+  /** Safe, user-facing text — set only when paymentHistoryAvailable is false. */
+  warning?: string
 }
 
 // ─── Row builders ─────────────────────────────────────────────────────────────
@@ -117,7 +125,11 @@ function buildSummary(invoices: Invoice[], payments: Payment[]): ClientStatement
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export function assembleStatement(invoices: Invoice[], payments: Payment[]): ClientStatement {
+export function assembleStatement(
+  invoices: Invoice[],
+  payments: Payment[],
+  opts: { paymentHistoryAvailable?: boolean } = {},
+): ClientStatement {
   const nonDraftInvoices = invoices.filter(i => i.status !== 'draft')
 
   const rows = [
@@ -131,8 +143,12 @@ export function assembleStatement(invoices: Invoice[], payments: Payment[]): Cli
     row.runningBalance = balance
   }
 
+  const paymentHistoryAvailable = opts.paymentHistoryAvailable ?? true
+
   return {
     rows,
     summary: buildSummary(nonDraftInvoices, payments),
+    paymentHistoryAvailable,
+    warning: paymentHistoryAvailable ? undefined : 'Payment history is temporarily unavailable.',
   }
 }
