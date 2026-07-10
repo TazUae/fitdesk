@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Loader2, Receipt, X } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, Loader2, Receipt, RefreshCw, X } from 'lucide-react'
 import { getClientStatement } from '@/actions/statements'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Badge } from '@/components/ui/Badge'
@@ -71,6 +71,58 @@ function SummaryGrid({ summary }: { summary: ClientStatement['summary'] }) {
   )
 }
 
+// ─── Payment history warning ──────────────────────────────────────────────────
+
+/**
+ * Non-blocking notice — shown when invoice data loaded but payment history
+ * didn't. Makes clear that payment rows are unknown (not confirmed empty)
+ * and that the summary totals reflect invoice balances only, and offers a
+ * retry so the trainer can attempt to reload payment rows without closing
+ * the sheet.
+ */
+function PaymentHistoryWarning({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message:  string
+  onRetry:  () => void
+  retrying: boolean
+}) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2.5 space-y-2"
+      style={{
+        backgroundColor: 'rgba(232,197,71,0.10)',
+        border:          '1px solid rgba(232,197,71,0.3)',
+        color:           '#d4a017',
+      }}
+    >
+      <div className="flex items-center gap-2 text-xs font-medium">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        {message}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="pending" label="Payment rows unavailable" />
+          <Badge variant="draft" label="Totals from invoice balances" />
+        </div>
+
+        <button
+          onClick={onRetry}
+          disabled={retrying}
+          className="flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 disabled:opacity-50"
+          style={{ color: '#d4a017' }}
+        >
+          <RefreshCw className={`h-3 w-3 ${retrying ? 'animate-spin' : ''}`} />
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
 function StatementRowCard({ row }: { row: ClientStatementRow }) {
@@ -120,6 +172,7 @@ function StatementRowCard({ row }: { row: ClientStatementRow }) {
 export function StatementSheet({ open, onClose, clientId }: StatementSheetProps) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [statement, setStatement] = useState<ClientStatement | null>(null)
+  const [retryingPayments, setRetryingPayments] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -139,6 +192,21 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
 
     return () => { cancelled = true }
   }, [open, clientId])
+
+  /**
+   * Re-runs the whole read-only fetch so payment rows can be retried without
+   * closing the sheet. Reuses the same server action as the initial load —
+   * no separate "payments only" endpoint exists, and none is needed here.
+   */
+  const handleRetryPayments = useCallback(async () => {
+    setRetryingPayments(true)
+    const result = await getClientStatement(clientId)
+    if (result.success) {
+      setStatement(result.data)
+      setLoadState('ready')
+    }
+    setRetryingPayments(false)
+  }, [clientId])
 
   return (
     <WorkspaceShell
@@ -191,14 +259,29 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
 
         {loadState === 'ready' && statement && (
           <>
+            {!statement.paymentHistoryAvailable && (
+              <PaymentHistoryWarning
+                message={statement.warning ?? 'Payment history is temporarily unavailable.'}
+                onRetry={handleRetryPayments}
+                retrying={retryingPayments}
+              />
+            )}
+
             <SummaryGrid summary={statement.summary} />
 
             {statement.rows.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-10 text-center">
                 <Receipt className="h-8 w-8" style={{ color: 'var(--fd-muted)' }} />
-                <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-                  No invoices or payments yet.
-                </p>
+                {statement.paymentHistoryAvailable ? (
+                  <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    No invoices or payments yet.
+                  </p>
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    No invoices found, and payment rows are unavailable right now.
+                    Totals above are shown from invoice balances.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-2">

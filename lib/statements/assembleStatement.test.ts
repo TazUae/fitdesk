@@ -164,6 +164,33 @@ describe('assembleStatement — draft and cancelled invoices', () => {
   )
 })
 
+// ─── Payment history availability ─────────────────────────────────────────────
+
+describe('assembleStatement — payment history availability', () => {
+  it('defaults to paymentHistoryAvailable: true with no warning', () => {
+    const statement = assembleStatement([invoice()], [payment()])
+    expect(statement.paymentHistoryAvailable).toBe(true)
+    expect(statement.warning).toBeUndefined()
+  })
+
+  it('sets paymentHistoryAvailable: false and a safe warning when flagged, still returning invoice rows/summary', () => {
+    const statement = assembleStatement(
+      [invoice({ id: 'SINV-1', amount: 100, outstandingAmount: 100 })],
+      [], // payments unavailable — caller passes an empty array
+      { paymentHistoryAvailable: false },
+    )
+    expect(statement.paymentHistoryAvailable).toBe(false)
+    expect(statement.warning).toBe('Payment history is temporarily unavailable.')
+    // Invoice-only data still comes through untouched.
+    expect(statement.rows).toHaveLength(1)
+    expect(statement.rows[0].type).toBe('Package Invoice')
+    expect(statement.summary.totalInvoiced).toBe(100)
+    expect(statement.summary.outstandingBalance).toBe(100)
+    // No payment rows and no credit toward totalPaid.
+    expect(statement.summary.totalPaid).toBe(0)
+  })
+})
+
 // ─── Ordering ──────────────────────────────────────────────────────────────────
 
 describe('assembleStatement — ordering', () => {
