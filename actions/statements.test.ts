@@ -114,6 +114,8 @@ describe('getClientStatement', () => {
       expect(result.data.summary.totalInvoiced).toBe(100)
       expect(result.data.summary.totalPaid).toBe(40)
       expect(result.data.summary.outstandingBalance).toBe(100)
+      expect(result.data.paymentHistoryAvailable).toBe(true)
+      expect(result.data.warning).toBeUndefined()
     }
     expect(getInvoices).toHaveBeenCalledWith({ clientId: 'CUST-1' })
     expect(getPaymentsForCustomer).toHaveBeenCalledWith('CUST-1')
@@ -136,7 +138,7 @@ describe('getClientStatement', () => {
     }
   })
 
-  it('does not leak raw ERP error detail when invoices/payments fail to load', async () => {
+  it('does not leak raw ERP error detail when invoices fail to load', async () => {
     mockAuthOk()
     vi.mocked(getClientById).mockResolvedValue(client())
     vi.mocked(getInvoices).mockRejectedValue(new Error('ERPNext 500 Internal Server Error: secret detail'))
@@ -148,5 +150,49 @@ describe('getClientStatement', () => {
       expect(result.error).toBe('Could not load the statement. Please try again.')
       expect(result.error).not.toMatch(/secret detail/)
     }
+    // A required-data failure must still fail the whole action — never
+    // falls back to an empty/partial statement.
+    expect(getPaymentsForCustomer).not.toHaveBeenCalled()
+  })
+
+  // ── Payment history fallback (production hotfix) ──────────────────────────
+
+  describe('payment history fallback', () => {
+    it('still succeeds with an invoice-only statement when getPaymentsForCustomer fails (e.g. ERPNext 417)', async () => {
+      mockAuthOk()
+      vi.mocked(getClientById).mockResolvedValue(client())
+      vi.mocked(getInvoices).mockResolvedValue([invoice({ amount: 100, outstandingAmount: 100 })])
+      vi.mocked(getPaymentsForCustomer).mockRejectedValue(
+        new Error('ERPNext 417 Expectation Failed: doctype detail'),
+      )
+
+      const result = await getClientStatement('CUST-1')
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.paymentHistoryAvailable).toBe(false)
+        expect(result.data.warning).toBe('Payment history is temporarily unavailable.')
+        // Raw ERP error detail is never surfaced, even in the warning.
+        expect(result.data.warning).not.toMatch(/417/)
+        // Invoice data still comes through.
+        expect(result.data.rows).toHaveLength(1)
+        expect(result.data.rows[0].type).toBe('Package Invoice')
+        expect(result.data.summary.totalInvoiced).toBe(100)
+        expect(result.data.summary.outstandingBalance).toBe(100)
+        // No payment rows, no credit toward totalPaid.
+        expect(result.data.summary.totalPaid).toBe(0)
+      }
+    })
+
+    it('still fails the whole action when invoice fetching fails, even though payments are best-effort', async () => {
+      mockAuthOk()
+      vi.mocked(getClientById).mockResolvedValue(client())
+      vi.mocked(getInvoices).mockRejectedValue(new Error('ERPNext 500 Internal Server Error'))
+
+      const result = await getClientStatement('CUST-1')
+
+      expect(result.success).toBe(false)
+      expect(getPaymentsForCustomer).not.toHaveBeenCalled()
+    })
   })
 })
