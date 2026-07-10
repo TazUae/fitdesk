@@ -7,6 +7,7 @@ import { getDashboardSessions } from '@/lib/dashboard/dashboardDataService'
 import {
   todayInTimezone,
   localHourInTimezone,
+  localTimeString,
 } from '@/lib/dashboard/fdSessionAdapter'
 import { DashboardView } from '@/components/modules/DashboardView'
 import {
@@ -45,6 +46,7 @@ export default async function DashboardPage() {
   // ── Dates in trainer's local timezone ─────────────────────────────────────
   const now        = new Date()
   const today      = todayInTimezone(timezone)
+  const nowTime    = localTimeString(now, timezone)
   const greeting   = timeGreeting(localHourInTimezone(now, timezone))
   const monthStart = today.slice(0, 8) + '01'
 
@@ -77,7 +79,7 @@ export default async function DashboardPage() {
     clients !== null ? clients.filter(c => c.status === 'active').length : null
 
   // ── Derived values ────────────────────────────────────────────────────────
-  const nextUp         = getNextUp(sessions, today)
+  const nextUp         = getNextUp(sessions, today, nowTime)
   const todaySection   = getTodaySections(sessions, today)
   const moneySnapshot  = getMoneySnapshot(invoices, monthStart)
   const upcoming       = getUpcoming(sessions, today)

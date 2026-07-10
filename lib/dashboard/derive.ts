@@ -68,10 +68,23 @@ export interface AttentionItem {
 /**
  * Returns the next scheduled session (today-first, then chronologically nearest).
  * Returns null when there are no upcoming scheduled sessions.
+ *
+ * `nowTime` (HH:mm, trainer-local, same timezone basis as `today`/`session.time`)
+ * is optional. When omitted, behavior is unchanged (date-only comparison) for
+ * backward compatibility. When provided, a session dated today whose `time` is
+ * before `nowTime` is treated as past and excluded — a session with no `time`
+ * is never excluded this way, since its start cannot be determined.
  */
-export function getNextUp(sessions: Session[], today: string): NextUpData | null {
+export function getNextUp(sessions: Session[], today: string, nowTime?: string): NextUpData | null {
   const scheduled = sessions
-    .filter(s => s.status === 'scheduled' && s.date >= today)
+    .filter(s => {
+      if (s.status !== 'scheduled') return false
+      if (s.date > today) return true
+      if (s.date < today) return false
+      // s.date === today
+      if (!nowTime || !s.time) return true
+      return s.time >= nowTime
+    })
     .sort((a, b) =>
       a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''),
     )

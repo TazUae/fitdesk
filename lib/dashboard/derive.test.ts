@@ -102,6 +102,50 @@ describe('getNextUp', () => {
     const result = getNextUp(sessions, TODAY)
     expect(result!.label).toContain('60 min')
   })
+
+  // ── nowTime (time-of-day awareness) ─────────────────────────────────────────
+
+  it('excludes a past scheduled session today when nowTime is passed', () => {
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: '09:00' })]
+    expect(getNextUp(sessions, TODAY, '11:00')).toBeNull()
+  })
+
+  it('keeps a future-time session today eligible when nowTime is passed', () => {
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: '14:00' })]
+    const result = getNextUp(sessions, TODAY, '11:00')
+    expect(result).not.toBeNull()
+    expect(result!.session.id).toBe('S1')
+  })
+
+  it('picks the next future-time session today when an earlier one is past, given nowTime', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, time: '09:00' }),
+      makeSession({ id: 'S2', date: TODAY, time: '14:00' }),
+    ]
+    const result = getNextUp(sessions, TODAY, '11:00')
+    expect(result!.session.id).toBe('S2')
+  })
+
+  it('still returns a past-time session today when nowTime is omitted (2-arg backward compatibility)', () => {
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: '09:00' })]
+    const result = getNextUp(sessions, TODAY)
+    expect(result).not.toBeNull()
+    expect(result!.session.id).toBe('S1')
+  })
+
+  it('does not exclude a today session with no time when nowTime is passed', () => {
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: undefined })]
+    const result = getNextUp(sessions, TODAY, '11:00')
+    expect(result).not.toBeNull()
+    expect(result!.session.id).toBe('S1')
+  })
+
+  it('keeps a future-dated session eligible when nowTime is passed', () => {
+    const sessions = [makeSession({ id: 'S1', date: FUTURE, time: '08:00' })]
+    const result = getNextUp(sessions, TODAY, '23:00')
+    expect(result).not.toBeNull()
+    expect(result!.session.id).toBe('S1')
+  })
 })
 
 // ─── getTodaySections ─────────────────────────────────────────────────────────

@@ -177,7 +177,19 @@ function ActionCard({
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
-export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
+export function ClientHubPanel({
+  overview,
+  nextSessionLabel,
+}: {
+  overview: ClientHubOverview
+  /**
+   * Display-only override for the "Next session" chip, computed live from the
+   * client's session list (same getNextUp logic as the dashboard). Preferred
+   * over `client.nextSessionAtUtc` because that projection field is never
+   * written in production (reconcile is dry-run only — see lib/clients/reconcile.ts).
+   */
+  nextSessionLabel?: string | null
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { client, goals, pendingActions, recentNotes, placeholders } = overview
@@ -283,7 +295,13 @@ export function ClientHubPanel({ overview }: { overview: ClientHubOverview }) {
           />
           <Chip
             label="Next session"
-            value={client.nextSessionAtUtc ? formatDate(client.nextSessionAtUtc) : 'Not booked'}
+            value={
+              nextSessionLabel
+                ? nextSessionLabel
+                : client.nextSessionAtUtc
+                  ? formatDate(client.nextSessionAtUtc)
+                  : 'Not booked'
+            }
           />
           {client.primaryGoalLabel && (
             <Chip label="Goal" value={client.primaryGoalLabel} accent />
