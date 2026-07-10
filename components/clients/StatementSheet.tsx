@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Receipt, X } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Receipt, RefreshCw, X } from 'lucide-react'
 import { getClientStatement } from '@/actions/statements'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Badge } from '@/components/ui/Badge'
@@ -161,19 +161,52 @@ function SummaryGrid({
 
 // ─── Payment history warning ──────────────────────────────────────────────────
 
-/** Non-blocking notice — shown when invoice data loaded but payment history didn't. */
-function PaymentHistoryWarning({ message }: { message: string }) {
+/**
+ * Non-blocking notice — shown when invoice data loaded but payment history
+ * didn't. Carries explicit source/status labels so the summary and activity
+ * list don't read as "confirmed empty", plus a retry that re-runs the same
+ * read-only fetch without closing the sheet.
+ */
+function PaymentHistoryWarning({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message:  string
+  onRetry:  () => void
+  retrying: boolean
+}) {
   return (
     <div
-      className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-medium"
+      className="rounded-xl px-3 py-2.5 space-y-2 text-xs font-medium"
       style={{
         backgroundColor: 'rgba(232,197,71,0.10)',
         border:          '1px solid rgba(232,197,71,0.3)',
         color:           '#d4a017',
       }}
     >
-      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-      {message}
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        {message}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="pending" label="Payment rows unavailable" />
+          <Badge variant="draft" label="Totals from invoice balances" />
+        </div>
+
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          className="flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ color: '#d4a017' }}
+        >
+          <RefreshCw className={`h-3 w-3 ${retrying ? 'animate-spin' : ''}`} />
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -311,6 +344,7 @@ function MonthSection({
 export function StatementSheet({ open, onClose, clientId }: StatementSheetProps) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [statement, setStatement] = useState<ClientStatement | null>(null)
+  const [retryingPayments, setRetryingPayments] = useState(false)
 
   const [rangeFilter, setRangeFilter]       = useState<DateRangeFilter>('90_days')
   const [typeFilter, setTypeFilter]         = useState<TypeFilter>('all')
@@ -351,6 +385,22 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
     if (!statement) return
     setTypeFilter(prev => normalizeTypeFilterForAvailability(prev, statement.paymentHistoryAvailable))
   }, [statement])
+
+  /**
+   * Re-runs the same read-only fetch so payment rows can be retried without
+   * closing the sheet. Reuses getClientStatement — no separate endpoint —
+   * and leaves the trainer's current filters/pagination/collapsed sections
+   * untouched, unlike the full open-sheet load above.
+   */
+  const handleRetryPayments = useCallback(async () => {
+    setRetryingPayments(true)
+    const result = await getClientStatement(clientId)
+    if (result.success) {
+      setStatement(result.data)
+      setLoadState('ready')
+    }
+    setRetryingPayments(false)
+  }, [clientId])
 
   function toggleMonth(monthKey: string) {
     setCollapsedMonths(prev => {
@@ -424,6 +474,8 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
                   ?? 'Payment history is temporarily unavailable. Totals below use invoice balances. '
                     + 'Individual payment rows cannot be shown right now.'
                 }
+                onRetry={handleRetryPayments}
+                retrying={retryingPayments}
               />
             )}
 
@@ -432,9 +484,16 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
             {statement.rows.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-10 text-center">
                 <Receipt className="h-8 w-8" style={{ color: 'var(--fd-muted)' }} />
-                <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-                  No invoices or payments yet.
-                </p>
+                {statement.paymentHistoryAvailable ? (
+                  <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    No invoices or payments yet.
+                  </p>
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                    No invoice activity to show, and payment rows are currently unavailable.
+                    Totals above are shown from invoice balances.
+                  </p>
+                )}
               </div>
             ) : (
               <>
