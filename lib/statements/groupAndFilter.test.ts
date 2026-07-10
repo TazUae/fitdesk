@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { filterStatementRows, groupRowsByMonth, sliceForLoadMore } from './groupAndFilter'
+import {
+  buildActivityEmptyState,
+  filterStatementRows,
+  groupRowsByMonth,
+  isTypeFilterDisabled,
+  normalizeTypeFilterForAvailability,
+  sliceForLoadMore,
+} from './groupAndFilter'
 import type { ClientStatementRow, ClientStatementRowType } from './assembleStatement'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -150,5 +157,65 @@ describe('sliceForLoadMore', () => {
     expect(sliceForLoadMore(items, 20)).toHaveLength(20)
     expect(sliceForLoadMore(items, 40)).toHaveLength(40)
     expect(sliceForLoadMore(items, 60)).toHaveLength(45)
+  })
+})
+
+// ─── isTypeFilterDisabled ──────────────────────────────────────────────────────
+
+describe('isTypeFilterDisabled', () => {
+  it('disables "payments" when payment history is unavailable', () => {
+    expect(isTypeFilterDisabled('payments', false)).toBe(true)
+  })
+
+  it('does not disable "payments" when payment history is available', () => {
+    expect(isTypeFilterDisabled('payments', true)).toBe(false)
+  })
+
+  it('never disables other filter types, regardless of availability', () => {
+    expect(isTypeFilterDisabled('all', false)).toBe(false)
+    expect(isTypeFilterDisabled('invoices', false)).toBe(false)
+    expect(isTypeFilterDisabled('packages', false)).toBe(false)
+  })
+})
+
+// ─── normalizeTypeFilterForAvailability ───────────────────────────────────────
+
+describe('normalizeTypeFilterForAvailability', () => {
+  it('resets "payments" to "all" when payment history is unavailable', () => {
+    expect(normalizeTypeFilterForAvailability('payments', false)).toBe('all')
+  })
+
+  it('leaves "payments" unchanged when payment history is available', () => {
+    expect(normalizeTypeFilterForAvailability('payments', true)).toBe('payments')
+  })
+
+  it('leaves other filter types unchanged regardless of availability', () => {
+    expect(normalizeTypeFilterForAvailability('all', false)).toBe('all')
+    expect(normalizeTypeFilterForAvailability('invoices', false)).toBe('invoices')
+    expect(normalizeTypeFilterForAvailability('packages', false)).toBe('packages')
+  })
+})
+
+// ─── buildActivityEmptyState ───────────────────────────────────────────────────
+
+describe('buildActivityEmptyState', () => {
+  it('returns the degraded-payments copy for "payments" when history is unavailable', () => {
+    expect(buildActivityEmptyState('payments', false)).toBe(
+      'Payment records are temporarily unavailable. Check the invoice summary above for applied balances.',
+    )
+  })
+
+  it('returns the true-empty payments copy for "payments" when history is available', () => {
+    expect(buildActivityEmptyState('payments', true)).toBe('No payments recorded for this period.')
+  })
+
+  it('returns the generic copy for non-payments filters, even when history is unavailable', () => {
+    expect(buildActivityEmptyState('all', false)).toBe('No activity matches this filter.')
+    expect(buildActivityEmptyState('invoices', false)).toBe('No activity matches this filter.')
+    expect(buildActivityEmptyState('packages', false)).toBe('No activity matches this filter.')
+  })
+
+  it('returns the generic copy for non-payments filters when history is available', () => {
+    expect(buildActivityEmptyState('all', true)).toBe('No activity matches this filter.')
   })
 })
