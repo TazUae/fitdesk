@@ -8,14 +8,13 @@ import {
   Copy,
   ExternalLink,
   MessageCircle,
-  Plus,
   ReceiptText,
   Trash2,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { addInvoice, getPaymentLink, recordPayment } from '@/actions/invoices'
+import { getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
 import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
@@ -518,247 +517,6 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   )
 }
 
-// ─── Create invoice sheet ─────────────────────────────────────────────────────
-
-interface LineItem {
-  description: string
-  qty:         number
-  rate:        number
-}
-
-interface CreateInvoiceSheetProps {
-  isOpen:    boolean
-  clients:   Client[]
-  onClose:   () => void
-  onCreated: () => void
-}
-
-function CreateInvoiceSheet({
-  isOpen,
-  clients,
-  onClose,
-  onCreated,
-}: CreateInvoiceSheetProps) {
-  const [isPending, startTransition] = useTransition()
-  const [error, setError]            = useState<string | null>(null)
-  const [items, setItems]            = useState<LineItem[]>([
-    { description: 'PT Sessions', qty: 1, rate: 0 },
-  ])
-
-  const today      = new Date().toISOString().slice(0, 10)
-  const defaultDue = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
-  const total      = items.reduce((s, i) => s + i.qty * i.rate, 0)
-
-  function addItem() {
-    setItems(prev => [...prev, { description: '', qty: 1, rate: 0 }])
-  }
-
-  function removeItem(i: number) {
-    setItems(prev => prev.filter((_, idx) => idx !== i))
-  }
-
-  function updateItem(i: number, field: keyof LineItem, value: string | number) {
-    setItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item))
-  }
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setError(null)
-    const fd       = new FormData(e.currentTarget)
-    const clientId = fd.get('client_id') as string
-
-    if (!clientId)                                       { setError('Select a client'); return }
-    if (items.some(i => !i.description || i.rate <= 0)) { setError('Fill in all item descriptions and rates'); return }
-
-    startTransition(async () => {
-      const result = await addInvoice({
-        customer:     clientId,
-        posting_date: today,
-        due_date:     fd.get('due_date') as string,
-        items: items.map(i => ({
-          item_code:   'PT-SESSION',
-          description: i.description,
-          qty:         i.qty,
-          rate:        i.rate,
-        })),
-        remarks: (fd.get('remarks') as string) || undefined,
-      })
-
-      if (result.success) {
-        toast.success('Invoice created')
-        ;(e.target as HTMLFormElement).reset()
-        setItems([{ description: 'PT Sessions', qty: 1, rate: 0 }])
-        onCreated()
-      } else {
-        setError(result.error)
-      }
-    })
-  }
-
-  return (
-    <>
-      <div
-        aria-hidden="true"
-        className={cn(
-          'fixed inset-0 z-40 bg-black/60 transition-opacity duration-300',
-          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-        onClick={onClose}
-      />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create invoice"
-        className={cn(
-          'fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-300',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        )}
-        style={{
-          backgroundColor: 'var(--fd-surface)',
-          borderColor:     'var(--fd-border)',
-          paddingBottom:   'calc(env(safe-area-inset-bottom) + 1.5rem)',
-        }}
-      >
-        <div className="flex justify-center pb-2 pt-3">
-          <div className="h-1 w-10 rounded-full" style={{ backgroundColor: 'var(--fd-border)' }} />
-        </div>
-
-        <div className="flex items-center justify-between px-5 pb-4">
-          <h2 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-            New Invoice
-          </h2>
-          <button type="button" onClick={onClose} style={{ color: 'var(--fd-muted)' }}>
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[76vh] overflow-y-auto px-5">
-          <form onSubmit={handleSubmit} className="space-y-4 pb-2">
-            {/* Client */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Client *
-              </label>
-              <select name="client_id" required className="input-base">
-                <option value="">Select client…</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Due date */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                Due date *
-              </label>
-              <input name="due_date" type="date" defaultValue={defaultDue} required className="input-base" />
-            </div>
-
-            {/* Line items */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
-                  Line items
-                </label>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="flex items-center gap-1 text-xs font-semibold"
-                  style={{ color: 'var(--fd-accent)' }}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add
-                </button>
-              </div>
-
-              {items.map((item, i) => (
-                <div
-                  key={i}
-                  className="space-y-2 rounded-xl border p-3"
-                  style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="input-base flex-1"
-                      placeholder="Description"
-                      value={item.description}
-                      onChange={e => updateItem(i, 'description', e.target.value)}
-                    />
-                    {items.length > 1 && (
-                      <button type="button" onClick={() => removeItem(i)} style={{ color: 'var(--fd-muted)' }}>
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>Qty</span>
-                      <input
-                        type="number"
-                        min="1"
-                        className="input-base"
-                        value={item.qty}
-                        onChange={e => updateItem(i, 'qty', Number(e.target.value))}
-                      />
-                    </div>
-                    <div>
-                      <span className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>Rate</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="input-base"
-                        value={item.rate || ''}
-                        onChange={e => updateItem(i, 'rate', Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Total preview */}
-            {total > 0 && (
-              <div
-                className="flex items-center justify-between rounded-xl border px-4 py-3"
-                style={{ borderColor: 'var(--fd-border)' }}
-              >
-                <span className="text-sm font-medium" style={{ color: 'var(--fd-muted)' }}>Total</span>
-                <span className="text-lg font-bold" style={{ color: 'var(--fd-text)' }}>
-                  ${total.toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {/* Notes */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>Notes</label>
-              <textarea name="remarks" rows={2} className="input-base resize-none" placeholder="Optional remarks" />
-            </div>
-
-            {error && (
-              <p className="text-sm" style={{ color: 'var(--fd-red)' }}>{error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isPending}
-              className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
-              style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-            >
-              {isPending ? 'Creating…' : 'Create Invoice'}
-            </button>
-          </form>
-        </div>
-      </div>
-    </>
-  )
-}
-
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
 const TABS: { id: FilterTab; label: string }[] = [
@@ -775,21 +533,15 @@ interface InvoicesViewProps {
   error?:   string
 }
 
-export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
+export function InvoicesView({ invoices, error }: InvoicesViewProps) {
   const router = useRouter()
   const [activeTab, setActiveTab]           = useState<FilterTab>('outstanding')
-  const [isCreating, setIsCreating]         = useState(false)
   const [payingInvoice, setPayingInvoice]   = useState<Invoice | null>(null)
 
   const displayed = filterInvoices(invoices, activeTab)
 
   function handlePaid() {
     setPayingInvoice(null)
-    router.refresh()
-  }
-
-  function handleCreated() {
-    setIsCreating(false)
     router.refresh()
   }
 
@@ -800,14 +552,6 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
         <p className="text-base font-semibold" style={{ color: 'var(--fd-muted)' }}>
           {invoices.length} invoice{invoices.length !== 1 ? 's' : ''}
         </p>
-        <button
-          onClick={() => setIsCreating(true)}
-          className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold"
-          style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-        >
-          <Plus className="h-4 w-4" />
-          Create
-        </button>
       </div>
 
       {/* ERP unavailable — calm connecting message replaces list entirely */}
@@ -879,15 +623,6 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
                  activeTab === 'paid'        ? 'No paid invoices yet.'    :
                  'No invoices yet.'}
               </p>
-              {activeTab !== 'paid' && (
-                <button
-                  onClick={() => setIsCreating(true)}
-                  className="mt-3 text-sm font-semibold"
-                  style={{ color: 'var(--fd-accent)' }}
-                >
-                  Create an invoice →
-                </button>
-              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -908,12 +643,6 @@ export function InvoicesView({ invoices, clients, error }: InvoicesViewProps) {
         invoice={payingInvoice}
         onClose={() => setPayingInvoice(null)}
         onPaid={handlePaid}
-      />
-      <CreateInvoiceSheet
-        isOpen={isCreating}
-        clients={clients}
-        onClose={() => setIsCreating(false)}
-        onCreated={handleCreated}
       />
     </div>
   )

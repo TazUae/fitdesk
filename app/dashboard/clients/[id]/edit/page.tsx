@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { getClientById, updateClient } from '@/lib/business-data'
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { parsePhoneNumber } from 'libphonenumber-js'
+import { formatGoal } from '@/lib/format/goal'
 import type { Client } from '@/types'
 
 function parsePhoneValue(phone: string): PhoneValue | undefined {
@@ -45,7 +46,7 @@ export default function EditClientPage({ params }: Props) {
     getClientById(clientId).then(result => {
       if (result.success) {
         setClient(result.data)
-        setGoal(result.data.goal ?? '')
+        setGoal(formatGoal(result.data.goal))
         setNotes(result.data.notes ?? '')
         if (result.data.phone) setPhoneValue(parsePhoneValue(result.data.phone))
       } else {
@@ -61,11 +62,14 @@ export default function EditClientPage({ params }: Props) {
     const fd = new FormData(e.currentTarget)
 
     startTransition(async () => {
+      // custom_fitness_goals is intentionally omitted: the Goals field below is
+      // read-only (formatted display only) since the stored value is often
+      // structured JSON — submitting the formatted label would overwrite it
+      // with lossy data. See lib/format/goal.ts.
       const result = await updateClient(clientId, {
         customer_name:        fd.get('customer_name') as string,
         mobile_no:            phoneValue?.phone_full || undefined,
         status:               fd.get('status') as 'Active' | 'Inactive' | 'Paused',
-        custom_fitness_goals: (fd.get('custom_fitness_goals') as string) || undefined,
         custom_trainer_notes: (fd.get('custom_trainer_notes') as string) || undefined,
       })
 
@@ -173,12 +177,14 @@ export default function EditClientPage({ params }: Props) {
             Goals
           </label>
           <input
-            name="custom_fitness_goals"
-            value={goal}
-            onChange={e => setGoal(e.target.value)}
-            className="input-base"
-            placeholder="e.g. Lose weight, build muscle…"
+            value={goal || '—'}
+            readOnly
+            tabIndex={-1}
+            className="input-base cursor-not-allowed opacity-60"
           />
+          <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+            Goals can only be updated from Add Client or the goal workspace.
+          </p>
         </div>
 
         <div className="space-y-1.5">

@@ -10,6 +10,8 @@ import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
 import { getClientHubOverview } from '@/lib/clients/hub'
+import { getNextUp } from '@/lib/dashboard/derive'
+import { todayInTimezone, localTimeString } from '@/lib/dashboard/fdSessionAdapter'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { ClientHubPanel } from '@/components/modules/ClientHubPanel'
@@ -112,6 +114,20 @@ export default async function ClientDetailPage({ params }: Props) {
   const client = clientResult.data
   const invoices = invoicesResult.success ? invoicesResult.data : []
   const balance = outstandingBalance(invoices)
+
+  // Live next-session label — same getNextUp logic as the Home Dashboard,
+  // computed from the already-fetched session list rather than the
+  // client_index.nextSessionAtUtc projection (never written in production;
+  // reconcile is dry-run only — see lib/clients/reconcile.ts).
+  const today   = todayInTimezone(timezone)
+  const nowTime = localTimeString(new Date(), timezone)
+  const nextUp  = getNextUp(sessions, today, nowTime)
+
+  // Chronological order (earliest first) for display — findSessionsForClient
+  // returns start_at desc, which is reverse-chronological.
+  const sortedSessions = [...sessions].sort((a, b) =>
+    a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''),
+  )
 
   return (
     <div className="p-4 space-y-5">
@@ -233,7 +249,7 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
 
           {/* Client Hub (Phase 7 — flag-gated, additive) */}
-          {hub && <ClientHubPanel overview={hub} />}
+          {hub && <ClientHubPanel overview={hub} nextSessionLabel={nextUp?.label ?? null} />}
 
           {/* Sessions */}
           <section className="space-y-3">
@@ -257,12 +273,12 @@ export default async function ClientDetailPage({ params }: Props) {
               </div>
             ) : (
               <div className="space-y-2">
-                {sessions.slice(0, 10).map(session => (
+                {sortedSessions.slice(0, 10).map(session => (
                   <SessionRow key={session.id} session={session} />
                 ))}
-                {sessions.length > 10 && (
+                {sortedSessions.length > 10 && (
                   <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    Showing 10 of {sessions.length}
+                    Showing 10 of {sortedSessions.length}
                   </p>
                 )}
               </div>
