@@ -103,7 +103,19 @@ function PaymentHistoryWarning({ message }: { message: string }) {
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
-function StatementRowCard({ row }: { row: ClientStatementRow }) {
+function StatementRowCard({
+  row,
+  showLedgerFooter,
+}: {
+  row: ClientStatementRow
+  /**
+   * False in degraded mode (paymentHistoryAvailable === false) — the running
+   * Debit/Credit/Bal ledger footer is misleading once payment rows can't be
+   * fetched, so it's hidden in favor of the invoice-level Total/Applied/
+   * Outstanding breakdown above it. Statement math itself is unchanged.
+   */
+  showLedgerFooter: boolean
+}) {
   return (
     <div
       className="rounded-xl border p-3 space-y-1.5"
@@ -148,22 +160,24 @@ function StatementRowCard({ row }: { row: ClientStatementRow }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--fd-border)' }}>
-        <div className="flex items-center gap-3 text-xs">
-          {row.debit > 0 && (
-            <span style={{ color: 'var(--fd-red)' }}>Debit {fmtMoney(row.debit)}</span>
-          )}
-          {row.credit > 0 && (
-            <span style={{ color: 'var(--fd-green)' }}>Credit {fmtMoney(row.credit)}</span>
-          )}
-          {row.debit === 0 && row.credit === 0 && (
-            <span style={{ color: 'var(--fd-muted)' }}>No effect</span>
-          )}
+      {showLedgerFooter && (
+        <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--fd-border)' }}>
+          <div className="flex items-center gap-3 text-xs">
+            {row.debit > 0 && (
+              <span style={{ color: 'var(--fd-red)' }}>Debit {fmtMoney(row.debit)}</span>
+            )}
+            {row.credit > 0 && (
+              <span style={{ color: 'var(--fd-green)' }}>Credit {fmtMoney(row.credit)}</span>
+            )}
+            {row.debit === 0 && row.credit === 0 && (
+              <span style={{ color: 'var(--fd-muted)' }}>No effect</span>
+            )}
+          </div>
+          <span className="text-[11px] font-semibold" style={{ color: 'var(--fd-text)' }}>
+            Bal {fmtMoney(row.runningBalance)}
+          </span>
         </div>
-        <span className="text-[11px] font-semibold" style={{ color: 'var(--fd-text)' }}>
-          Bal {fmtMoney(row.runningBalance)}
-        </span>
-      </div>
+      )}
     </div>
   )
 }
@@ -266,7 +280,11 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
             ) : (
               <div className="space-y-2">
                 {statement.rows.map(row => (
-                  <StatementRowCard key={row.id} row={row} />
+                  <StatementRowCard
+                    key={row.id}
+                    row={row}
+                    showLedgerFooter={statement.paymentHistoryAvailable}
+                  />
                 ))}
               </div>
             )}
