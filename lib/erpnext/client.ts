@@ -326,15 +326,17 @@ function invoiceFields(): string {
 }
 
 /**
- * Field list for the customer-level Payment Entry read (getPaymentsForCustomer).
- * Uses `payment_date` — not `posting_date` — since that is this doctype's own
- * date field, matching what createAndSubmitPaymentEntry / normalizePayment
- * already use elsewhere in this file.
+ * Field list for getPaymentsForCustomer. Uses `payment_date`, this doctype's
+ * own date field (not `posting_date`). Matches normalizePayment exactly:
+ * dropped `received_amount`/`docstatus`/`status` — unread, and not part of
+ * ERPPaymentEntry; the leading suspects for an intermittent ERPNext 417 here.
+ * Added `currency`/`remarks`, which normalizePayment reads but this list
+ * omitted (payments were silently defaulting to 'USD' and losing remarks).
  */
 function paymentFields(): string {
   return JSON.stringify([
-    'name', 'payment_date', 'paid_amount', 'received_amount', 'party', 'party_type',
-    'payment_type', 'mode_of_payment', 'reference_no', 'docstatus', 'status',
+    'name', 'payment_date', 'paid_amount', 'currency', 'party',
+    'mode_of_payment', 'reference_no', 'remarks',
   ])
 }
 

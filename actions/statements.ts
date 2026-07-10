@@ -1,6 +1,6 @@
 'use server'
 
-import { getClientById, getInvoices, getPaymentsForCustomer } from '@/lib/business-data/erp-adapter'
+import { ERPNextError, getClientById, getInvoices, getPaymentsForCustomer } from '@/lib/business-data/erp-adapter'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { assembleStatement } from '@/lib/statements/assembleStatement'
@@ -52,11 +52,18 @@ export async function getClientStatement(clientId: string): Promise<ActionResult
   let paymentHistoryAvailable = true
   try {
     payments = await getPaymentsForCustomer(erpCustomerId)
-  } catch {
+  } catch (err) {
     // Best-effort only — payment history unavailability must not take down
-    // an otherwise-successful invoice-only statement. Detail is intentionally
-    // discarded here; the UI only ever sees paymentHistoryAvailable/warning.
+    // an otherwise-successful invoice-only statement. Never surfaced to the
+    // UI (only paymentHistoryAvailable/warning are) — logged server-side only,
+    // scrubbed to doctype/status/truncated detail, so recurrences of this can
+    // be diagnosed without leaking raw ERP responses anywhere.
     paymentHistoryAvailable = false
+    const status = err instanceof ERPNextError ? err.status : 'n/a'
+    const detail = err instanceof ERPNextError
+      ? err.detail.slice(0, 300)
+      : err instanceof Error ? err.message : String(err)
+    console.error(`[getClientStatement] Payment Entry read failed (doctype=Payment Entry, status=${status}):`, detail)
   }
 
   return {
