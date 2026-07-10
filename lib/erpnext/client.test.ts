@@ -128,7 +128,7 @@ function rawPaymentEntry(name = PAYMENT_ENTRY_ID) {
     party:           CLIENT_ID,
     paid_amount:     100,
     currency:        'USD',
-    payment_date:    '2026-01-15',
+    posting_date:    '2026-01-15',
     mode_of_payment: 'Cash',
     creation:        '2026-01-15',
   }
@@ -213,10 +213,12 @@ describe('getPaymentEntry', () => {
 })
 
 // ─── getPaymentsForCustomer ───────────────────────────────────────────────────
-// Regression coverage for the ERPNext 417 fix: paymentFields() previously
+// Regression coverage for two ERPNext 417 fixes: paymentFields() previously
 // requested received_amount/docstatus/status (unread by normalizePayment and
 // not part of ERPPaymentEntry) while omitting currency/remarks (which
-// normalizePayment does read).
+// normalizePayment does read); it also requested/sorted by `payment_date`,
+// which ERPNext's list-query validator rejects outright ("Field not
+// permitted in query: payment_date") since the real field is `posting_date`.
 
 describe('getPaymentsForCustomer', () => {
   let fetchMock: ReturnType<typeof vi.fn>
@@ -243,7 +245,7 @@ describe('getPaymentsForCustomer', () => {
 
     const fields = requestedParam('fields') as string[]
     expect([...fields].sort()).toEqual(
-      ['currency', 'mode_of_payment', 'name', 'paid_amount', 'party', 'payment_date', 'reference_no', 'remarks'].sort(),
+      ['currency', 'mode_of_payment', 'name', 'paid_amount', 'party', 'posting_date', 'reference_no', 'remarks'].sort(),
     )
   })
 
@@ -256,6 +258,21 @@ describe('getPaymentsForCustomer', () => {
     expect(fields).not.toContain('received_amount')
     expect(fields).not.toContain('docstatus')
     expect(fields).not.toContain('status')
+  })
+
+  it('requests posting_date and orders by it — payment_date is rejected by ERPNext ("Field not permitted in query")', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
+
+    await getPaymentsForCustomer(CLIENT_ID)
+
+    const fields = requestedParam('fields') as string[]
+    expect(fields).toContain('posting_date')
+    expect(fields).not.toContain('payment_date')
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string)
+    const orderby = url.searchParams.get('orderby')
+    expect(orderby).toBe('posting_date asc')
+    expect(orderby).not.toMatch(/payment_date/)
   })
 
   it('still filters to submitted, incoming payments for the customer (unaffected by the field trim)', async () => {
@@ -291,6 +308,27 @@ describe('getPaymentsForCustomer', () => {
     const payments = await getPaymentsForCustomer(CLIENT_ID)
 
     expect(payments[0].currency).toBe('USD')
+  })
+
+  it('maps paidAt from posting_date, preferring it over the legacy payment_date fallback', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...rawPaymentEntry(), posting_date: '2026-02-01', payment_date: '2026-01-01' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].paidAt).toBe('2026-02-01')
+  })
+
+  it('falls back to the legacy payment_date field only when posting_date is absent', async () => {
+    const { posting_date: _postingDate, ...withoutPostingDate } = rawPaymentEntry()
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...withoutPostingDate, payment_date: '2026-01-01' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].paidAt).toBe('2026-01-01')
   })
 
   it('propagates ERPNextError when the read fails (e.g. an ERPNext 417)', async () => {

@@ -118,7 +118,13 @@ export interface ERPPaymentEntry {
   party_name?: string       // fetched link label
   paid_amount: number
   currency?: string
-  payment_date: string      // YYYY-MM-DD
+  posting_date: string      // YYYY-MM-DD — this doctype's real date field
+  /**
+   * @deprecated Not a real Payment Entry field — ERPNext's list-query
+   * validator rejects it ("Field not permitted in query: payment_date").
+   * Kept optional only as a defensive normalizePayment fallback.
+   */
+  payment_date?: string
   mode_of_payment: string   // 'Cash' | 'Bank Transfer' | custom
   reference_no?: string     // external transaction ID (e.g. Whish ref)
   remarks?: string
