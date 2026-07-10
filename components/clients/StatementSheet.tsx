@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Loader2, Receipt, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Receipt, X } from 'lucide-react'
 import { getClientStatement } from '@/actions/statements'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import { Badge } from '@/components/ui/Badge'
@@ -9,6 +9,8 @@ import type { BadgeVariant } from '@/components/ui/Badge'
 import { fmtMoney } from '@/lib/format/money'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import type { ClientStatement, ClientStatementRow } from '@/lib/statements/assembleStatement'
+import { filterStatementRows, groupRowsByMonth, sliceForLoadMore } from '@/lib/statements/groupAndFilter'
+import type { DateRangeFilter, TypeFilter } from '@/lib/statements/groupAndFilter'
 
 export interface StatementSheetProps {
   open:     boolean
@@ -39,6 +41,61 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
 
 function statusVariant(status: string): BadgeVariant {
   return STATUS_VARIANT[status] ?? 'draft'
+}
+
+// ─── Activity filters ─────────────────────────────────────────────────────────
+
+const RANGE_TABS: { id: DateRangeFilter; label: string }[] = [
+  { id: 'all',      label: 'All' },
+  { id: '30_days',  label: 'Last 30 days' },
+  { id: '90_days',  label: 'Last 90 days' },
+]
+
+const TYPE_TABS: { id: TypeFilter; label: string }[] = [
+  { id: 'all',      label: 'All' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'packages', label: 'Packages' },
+]
+
+const RANGE_ACTIVITY_LABEL: Record<DateRangeFilter, string> = {
+  all:       'All time',
+  '30_days': 'Last 30 days',
+  '90_days': 'Last 90 days',
+}
+
+const LOAD_MORE_STEP = 20
+
+function FilterPillRow<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: T; label: string }[]
+  active: T
+  onChange: (id: T) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {tabs.map(tab => {
+        const isActive = active === tab.id
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            className="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: isActive ? 'var(--fd-accent)' : 'var(--fd-card)',
+              color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
+            }}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 // ─── Summary cards ────────────────────────────────────────────────────────────
@@ -182,17 +239,73 @@ function StatementRowCard({
   )
 }
 
+// ─── Month section ────────────────────────────────────────────────────────────
+
+function MonthSection({
+  monthKey,
+  monthLabel,
+  rows,
+  collapsed,
+  onToggle,
+  showLedgerFooter,
+}: {
+  monthKey: string
+  monthLabel: string
+  rows: ClientStatementRow[]
+  collapsed: boolean
+  onToggle: () => void
+  showLedgerFooter: boolean
+}) {
+  const sectionId = `statement-month-${monthKey}`
+
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-controls={sectionId}
+        className="flex w-full items-center justify-between py-1.5"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--fd-muted)' }}>
+          {monthLabel} · {rows.length}
+        </span>
+        {collapsed
+          ? <ChevronDown className="h-3.5 w-3.5" style={{ color: 'var(--fd-muted)' }} />
+          : <ChevronUp className="h-3.5 w-3.5" style={{ color: 'var(--fd-muted)' }} />
+        }
+      </button>
+      {!collapsed && (
+        <div id={sectionId} className="space-y-2 pt-1">
+          {rows.map(row => (
+            <StatementRowCard key={row.id} row={row} showLedgerFooter={showLedgerFooter} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function StatementSheet({ open, onClose, clientId }: StatementSheetProps) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [statement, setStatement] = useState<ClientStatement | null>(null)
 
+  const [rangeFilter, setRangeFilter]       = useState<DateRangeFilter>('90_days')
+  const [typeFilter, setTypeFilter]         = useState<TypeFilter>('all')
+  const [displayCount, setDisplayCount]     = useState(LOAD_MORE_STEP)
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoadState('loading')
     setStatement(null)
+    setRangeFilter('90_days')
+    setTypeFilter('all')
+    setDisplayCount(LOAD_MORE_STEP)
+    setCollapsedMonths(new Set())
 
     getClientStatement(clientId).then(result => {
       if (cancelled) return
@@ -206,6 +319,25 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
 
     return () => { cancelled = true }
   }, [open, clientId])
+
+  // Switching filters restarts pagination so the trainer isn't stranded mid-list.
+  useEffect(() => {
+    setDisplayCount(LOAD_MORE_STEP)
+  }, [rangeFilter, typeFilter])
+
+  function toggleMonth(monthKey: string) {
+    setCollapsedMonths(prev => {
+      const next = new Set(prev)
+      if (next.has(monthKey)) next.delete(monthKey)
+      else next.add(monthKey)
+      return next
+    })
+  }
+
+  const filteredRows  = statement ? filterStatementRows(statement.rows, rangeFilter, typeFilter) : []
+  const visibleRows   = sliceForLoadMore(filteredRows, displayCount)
+  const monthGroups   = groupRowsByMonth(visibleRows)
+  const hasMoreRows   = filteredRows.length > displayCount
 
   return (
     <WorkspaceShell
@@ -278,15 +410,49 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
                 </p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {statement.rows.map(row => (
-                  <StatementRowCard
-                    key={row.id}
-                    row={row}
-                    showLedgerFooter={statement.paymentHistoryAvailable}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="space-y-2">
+                  <FilterPillRow tabs={RANGE_TABS} active={rangeFilter} onChange={setRangeFilter} />
+                  <FilterPillRow tabs={TYPE_TABS} active={typeFilter} onChange={setTypeFilter} />
+                  <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+                    Activity shown: {RANGE_ACTIVITY_LABEL[rangeFilter]}
+                  </p>
+                </div>
+
+                {filteredRows.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 py-10 text-center">
+                    <Receipt className="h-8 w-8" style={{ color: 'var(--fd-muted)' }} />
+                    <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                      No activity matches this filter.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {monthGroups.map(group => (
+                      <MonthSection
+                        key={group.monthKey}
+                        monthKey={group.monthKey}
+                        monthLabel={group.monthLabel}
+                        rows={group.rows}
+                        collapsed={collapsedMonths.has(group.monthKey)}
+                        onToggle={() => toggleMonth(group.monthKey)}
+                        showLedgerFooter={statement.paymentHistoryAvailable}
+                      />
+                    ))}
+
+                    {hasMoreRows && (
+                      <button
+                        type="button"
+                        onClick={() => setDisplayCount(c => c + LOAD_MORE_STEP)}
+                        className="w-full rounded-xl border py-2 text-xs font-semibold"
+                        style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-accent)' }}
+                      >
+                        Load more
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
