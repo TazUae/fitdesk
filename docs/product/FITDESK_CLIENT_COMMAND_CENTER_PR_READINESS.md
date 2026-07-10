@@ -1,5 +1,11 @@
 # FitDesk Client Command Center — PR Readiness
 
+> **Historical PR readiness evidence — not current execution authority.**
+> The branch/merge state below is **stale**: this branch was subsequently merged to
+> `main`. Any feature-flag state recorded here (e.g. "all OFF") must be re-verified
+> against current config before being relied on. See
+> [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md).
+
 ## Status
 
 | Field | Value |

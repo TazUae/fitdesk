@@ -1,5 +1,10 @@
 # Client Management Claude Code Prompts
 
+> **Historical prompt pack — not current execution authority.**
+> Do not directly reuse these prompts as the active Claude Code workflow. The current
+> workflow is bounded `/plan` + `/goal`, governed by
+> [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md).
+
 ```text
 Project: FitDesk SaaS Platform
 Plan: Client Management v1.2.1 - ERP-Authoritative Hybrid MVP

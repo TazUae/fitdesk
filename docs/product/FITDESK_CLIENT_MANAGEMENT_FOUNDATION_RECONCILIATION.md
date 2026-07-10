@@ -1,5 +1,11 @@
 # FitDesk Client Management Foundation Reconciliation
 
+> **Historical reconciliation evidence — not current execution authority.**
+> The "no push / no merge / no Dokploy" framing below is now **stale** where present:
+> the referenced branch was subsequently merged to `main`. Keep this document as
+> traceability evidence only. Current execution authority is resolved through
+> [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md).
+
 **Date:** 2026-06-14  
 **Branch:** `feat/client-command-center`  
 **Audited by:** grounded repo audit against source files

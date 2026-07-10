@@ -1,5 +1,10 @@
 # FitDesk Remaining Roadmap v2.1
 
+> **This remains Phase-N roadmap authority.** Sprint 1 US-ID traceability now lives
+> in [`docs/execution/SPRINT_1_STORY_TRACEABILITY_MAP.md`](../execution/SPRINT_1_STORY_TRACEABILITY_MAP.md).
+> Use [`docs/DOCUMENTATION_AUTHORITY_MAP.md`](../DOCUMENTATION_AUTHORITY_MAP.md) to
+> resolve authority conflicts between this roadmap and other docs.
+
 > **Version:** v2.1
 > **Status:** Active planning — supersedes the "0/9 phases" framing in
 > [`../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md`](../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md)
