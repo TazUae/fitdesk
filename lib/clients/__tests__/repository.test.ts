@@ -620,3 +620,171 @@ describe('setClientNextSessionAtUtc', () => {
     expect(actions.length).toBe(created.actions.length)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// US-025 — Plane-B tenant-isolation coverage (behavior-neutral).
+//
+// These document the local read-model isolation model: every read/list and every
+// mutation is scoped by ctx.tenantId, a missing tenantId fails closed, and a
+// client-supplied id (or payload) from one tenant can never reach another tenant's
+// rows. They assert existing behavior only — no production code is changed.
+// Invariant for this increment: single trainer per tenant (intra-tenant
+// multi-trainer ownership is future hardening, out of scope — see US-025 plan).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('US-025 findClientsByStatus — tenant isolation', () => {
+  it('returns only current-tenant rows for a status both tenants share', async () => {
+    await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+
+    const activeA = await repo.findClientsByStatus({ tenantId: TENANT_A }, 'active')
+
+    expect(activeA.length).toBe(1)
+    expect(activeA[0].tenantId).toBe(TENANT_A)
+    expect(activeA[0].erpCustomerId).toBe(ERP_ID_1)
+  })
+
+  it('does not surface another tenant rows when the current tenant has none', async () => {
+    await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+
+    const activeA = await repo.findClientsByStatus({ tenantId: TENANT_A }, 'active')
+    expect(activeA).toEqual([])
+  })
+
+  it('throws when tenantId is blank (fails closed)', async () => {
+    await expect(
+      repo.findClientsByStatus({ tenantId: '' }, 'active'),
+    ).rejects.toThrow('[ClientRepository] tenantId is required')
+  })
+})
+
+describe('US-025 related-row reads — cross-tenant isolation', () => {
+  it('listGoals / listEvents / listPendingActions never return another tenant related rows', async () => {
+    // Tenant B owns a full client record: index + goal + default intents + events.
+    const b = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+
+    // Tenant B sees its own related rows (they exist).
+    expect((await repo.listGoals({ tenantId: TENANT_B }, b.clientIndex.id)).length).toBe(1)
+    expect(
+      (await repo.listEvents({ tenantId: TENANT_B }, b.clientIndex.id)).some((e) => e.type === 'client.created'),
+    ).toBe(true)
+    expect(
+      (await repo.listPendingActions({ tenantId: TENANT_B }, b.clientIndex.id)).length,
+    ).toBe(b.actions.length)
+
+    // Tenant A, using tenant B's real clientIndexId, sees nothing.
+    expect(await repo.listGoals({ tenantId: TENANT_A }, b.clientIndex.id)).toEqual([])
+    expect(await repo.listEvents({ tenantId: TENANT_A }, b.clientIndex.id)).toEqual([])
+    expect(await repo.listPendingActions({ tenantId: TENANT_A }, b.clientIndex.id)).toEqual([])
+  })
+
+  it('related-row reads fail closed when tenantId is blank', async () => {
+    await expect(repo.listGoals({ tenantId: '' }, 'any-id')).rejects.toThrow('[ClientRepository] tenantId is required')
+    await expect(repo.listEvents({ tenantId: '' }, 'any-id')).rejects.toThrow('[ClientRepository] tenantId is required')
+    await expect(
+      repo.listPendingActions({ tenantId: '' }, 'any-id'),
+    ).rejects.toThrow('[ClientRepository] tenantId is required')
+  })
+})
+
+describe('US-025 completeActionIntent — tenant scoping', () => {
+  it('completes an intent owned by the same tenant', async () => {
+    const a = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const intentId = a.actions[0].id
+
+    const completed = await repo.completeActionIntent({ tenantId: TENANT_A }, intentId)
+
+    expect(completed).not.toBeNull()
+    expect(completed?.status).toBe('completed')
+
+    const stillPending = await repo.listPendingActions({ tenantId: TENANT_A }, a.clientIndex.id)
+    expect(stillPending.map((i) => i.id)).not.toContain(intentId)
+  })
+
+  it('is a no-op for an intent id that belongs to another tenant', async () => {
+    const b = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+    const bIntentId = b.actions[0].id
+
+    const result = await repo.completeActionIntent({ tenantId: TENANT_A }, bIntentId)
+
+    expect(result).toBeNull()
+    // Tenant B's intent is untouched — still pending.
+    const bPending = await repo.listPendingActions({ tenantId: TENANT_B }, b.clientIndex.id)
+    expect(bPending.map((i) => i.id)).toContain(bIntentId)
+    expect(bPending.length).toBe(b.actions.length)
+  })
+
+  it('throws when tenantId is blank (fails closed)', async () => {
+    await expect(
+      repo.completeActionIntent({ tenantId: '' }, 'any-intent-id'),
+    ).rejects.toThrow('[ClientRepository] tenantId is required')
+  })
+})
+
+describe('US-025 dismissActionIntent — tenant scoping', () => {
+  it('dismisses an intent owned by the same tenant', async () => {
+    const a = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const intentId = a.actions[0].id
+
+    const dismissed = await repo.dismissActionIntent({ tenantId: TENANT_A }, intentId)
+
+    expect(dismissed).not.toBeNull()
+    expect(dismissed?.status).toBe('dismissed')
+
+    const stillPending = await repo.listPendingActions({ tenantId: TENANT_A }, a.clientIndex.id)
+    expect(stillPending.map((i) => i.id)).not.toContain(intentId)
+  })
+
+  it('is a no-op for an intent id that belongs to another tenant', async () => {
+    const b = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B, erpCustomerId: ERP_ID_2 },
+    )
+    const bIntentId = b.actions[0].id
+
+    const result = await repo.dismissActionIntent({ tenantId: TENANT_A }, bIntentId)
+
+    expect(result).toBeNull()
+    const bPending = await repo.listPendingActions({ tenantId: TENANT_B }, b.clientIndex.id)
+    expect(bPending.map((i) => i.id)).toContain(bIntentId)
+    expect(bPending.length).toBe(b.actions.length)
+  })
+
+  it('throws when tenantId is blank (fails closed)', async () => {
+    await expect(
+      repo.dismissActionIntent({ tenantId: '' }, 'any-intent-id'),
+    ).rejects.toThrow('[ClientRepository] tenantId is required')
+  })
+})
+
+describe('US-025 createClientRow — server ctx governs tenant (payload cannot cross tenants)', () => {
+  it('stamps every created row with ctx.tenantId, ignoring a mismatched draft.tenantId', async () => {
+    // Server context is TENANT_A; the (client-supplied) draft claims TENANT_B.
+    const result = await repo.createClientRow(
+      { tenantId: TENANT_A },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    // Every row is stamped with the server ctx tenant, never the draft's claim.
+    expect(result.clientIndex.tenantId).toBe(TENANT_A)
+    expect(result.goal?.tenantId).toBe(TENANT_A)
+    expect(result.actions.every((a) => a.tenantId === TENANT_A)).toBe(true)
+    expect(result.event.tenantId).toBe(TENANT_A)
+
+    // The row is visible to TENANT_A and invisible to TENANT_B.
+    expect(await repo.findClientById({ tenantId: TENANT_A }, result.clientIndex.id)).not.toBeNull()
+    expect(await repo.findClientById({ tenantId: TENANT_B }, result.clientIndex.id)).toBeNull()
+  })
+})
