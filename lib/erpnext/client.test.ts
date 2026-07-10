@@ -27,6 +27,7 @@ import {
   getInvoiceById,
   getInvoiceByIdForTrainer,
   getPaymentEntry,
+  getPaymentsForCustomer,
   submitPaymentEntry,
   submitSalesInvoice,
 } from './client'
@@ -208,6 +209,94 @@ describe('getPaymentEntry', () => {
     fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
 
     await expect(getPaymentEntry(PAYMENT_ENTRY_ID)).rejects.toBeInstanceOf(ERPNextError)
+  })
+})
+
+// ─── getPaymentsForCustomer ───────────────────────────────────────────────────
+// Regression coverage for the ERPNext 417 fix: paymentFields() previously
+// requested received_amount/docstatus/status (unread by normalizePayment and
+// not part of ERPPaymentEntry) while omitting currency/remarks (which
+// normalizePayment does read).
+
+describe('getPaymentsForCustomer', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function requestedParam(name: string, callIndex = 0): unknown {
+    const url = new URL(fetchMock.mock.calls[callIndex][0] as string)
+    const raw = url.searchParams.get(name)
+    return raw === null ? null : JSON.parse(raw)
+  }
+
+  it('requests exactly the fields normalizePayment consumes', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
+
+    await getPaymentsForCustomer(CLIENT_ID)
+
+    const fields = requestedParam('fields') as string[]
+    expect([...fields].sort()).toEqual(
+      ['currency', 'mode_of_payment', 'name', 'paid_amount', 'party', 'payment_date', 'reference_no', 'remarks'].sort(),
+    )
+  })
+
+  it('excludes received_amount, docstatus, and status — unread and not part of ERPPaymentEntry', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
+
+    await getPaymentsForCustomer(CLIENT_ID)
+
+    const fields = requestedParam('fields') as string[]
+    expect(fields).not.toContain('received_amount')
+    expect(fields).not.toContain('docstatus')
+    expect(fields).not.toContain('status')
+  })
+
+  it('still filters to submitted, incoming payments for the customer (unaffected by the field trim)', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
+
+    await getPaymentsForCustomer(CLIENT_ID)
+
+    const filters = requestedParam('filters')
+    expect(filters).toEqual([
+      ['party_type', '=', 'Customer'],
+      ['party', '=', CLIENT_ID],
+      ['docstatus', '=', 1],
+      ['payment_type', '=', 'Receive'],
+    ])
+  })
+
+  it('maps currency and remarks from the raw Payment Entry (previously silently dropped)', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...rawPaymentEntry(), currency: 'LBP', remarks: 'Cash at front desk' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments).toHaveLength(1)
+    expect(payments[0].currency).toBe('LBP')
+    expect(payments[0].note).toBe('Cash at front desk')
+  })
+
+  it('defaults currency to USD when the raw Payment Entry omits it', async () => {
+    const { currency: _currency, ...withoutCurrency } = rawPaymentEntry()
+    fetchMock.mockResolvedValueOnce(erpOk([withoutCurrency]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].currency).toBe('USD')
+  })
+
+  it('propagates ERPNextError when the read fails (e.g. an ERPNext 417)', async () => {
+    fetchMock.mockResolvedValueOnce(erpError(417, 'Expectation Failed'))
+
+    await expect(getPaymentsForCustomer(CLIENT_ID)).rejects.toBeInstanceOf(ERPNextError)
   })
 })
 

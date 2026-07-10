@@ -3,11 +3,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/auth/resolve-trainer', () => ({
   resolveTrainerId: vi.fn(),
 }))
-vi.mock('@/lib/business-data/erp-adapter', () => ({
-  getClientById:          vi.fn(),
-  getInvoices:             vi.fn(),
-  getPaymentsForCustomer:  vi.fn(),
-}))
+vi.mock('@/lib/business-data/erp-adapter', () => {
+  // Minimal stand-in matching lib/erpnext/client.ts's real ERPNextError shape —
+  // actions/statements.ts does `instanceof ERPNextError` to decide how to log a
+  // degraded payment read. Importing the real module here would pull in the
+  // full ERP/tenant/auth graph (BETTER_AUTH_SECRET etc.), which this test file
+  // never sets up.
+  class ERPNextError extends Error {
+    constructor(
+      public readonly status: number,
+      public readonly statusText: string,
+      public readonly path: string,
+      public readonly detail: string = '',
+    ) {
+      super(`ERPNext ${status} ${statusText} → ${path}${detail ? ': ' + detail : ''}`)
+      this.name = 'ERPNextError'
+    }
+  }
+  return {
+    ERPNextError,
+    getClientById:          vi.fn(),
+    getInvoices:             vi.fn(),
+    getPaymentsForCustomer:  vi.fn(),
+  }
+})
 
 import { getClientStatement } from '@/actions/statements'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
