@@ -276,10 +276,16 @@ function normalizeInvoice(raw: ERPInvoice): Invoice {
     status:            mapInvoiceStatus(raw.status),
     dueDate:           raw.due_date,
     issuedAt:          raw.posting_date,
+    fdSessionId:       raw.custom_fd_session ?? null,
   }
 }
 
-function normalizePayment(raw: ERPPaymentEntry, invoiceId: string): Payment {
+/**
+ * invoiceId defaults to '' when the payment is read outside the context of a
+ * single invoice (e.g. a customer-level payment history list) — mirrors the
+ * trainerId: '' sentinel already used throughout this single-tenant adapter.
+ */
+function normalizePayment(raw: ERPPaymentEntry, invoiceId: string = ''): Payment {
   return {
     id:        raw.name,
     invoiceId,
@@ -316,6 +322,19 @@ function invoiceFields(): string {
     'name', 'customer', 'customer_name', 'posting_date', 'due_date',
     'grand_total', 'outstanding_amount', 'paid_amount', 'currency',
     'status', 'remarks', 'custom_fd_session', 'creation',
+  ])
+}
+
+/**
+ * Field list for the customer-level Payment Entry read (getPaymentsForCustomer).
+ * Uses `payment_date` — not `posting_date` — since that is this doctype's own
+ * date field, matching what createAndSubmitPaymentEntry / normalizePayment
+ * already use elsewhere in this file.
+ */
+function paymentFields(): string {
+  return JSON.stringify([
+    'name', 'payment_date', 'paid_amount', 'received_amount', 'party', 'party_type',
+    'payment_type', 'mode_of_payment', 'reference_no', 'docstatus', 'status',
   ])
 }
 
@@ -762,6 +781,35 @@ export async function createAndSubmitPaymentEntry(opts: {
   const invoice = await getInvoiceById(opts.invoiceId)
 
   return { payment: normalizePayment(submitted, opts.invoiceId), invoice }
+}
+
+/**
+ * Read-only: list submitted incoming Payment Entries for a customer.
+ *
+ * Used by the client Statement of Account (read-only). Not tied to a single
+ * invoice — `Payment.invoiceId` is left as '' (see normalizePayment) since a
+ * customer-level list is not read per-invoice. Never used by any write path;
+ * createAndSubmitPaymentEntry is unaffected.
+ */
+export async function getPaymentsForCustomer(erpCustomerId: string): Promise<Payment[]> {
+  const filters: [string, string, unknown][] = [
+    ['party_type', '=', 'Customer'],
+    ['party', '=', erpCustomerId],
+    ['docstatus', '=', 1],
+    ['payment_type', '=', 'Receive'],
+  ]
+
+  const params: Record<string, string> = {
+    fields:  paymentFields(),
+    filters: JSON.stringify(filters),
+    orderby: 'payment_date asc',
+  }
+
+  const res = await erpFetch<ERPListResponse<ERPPaymentEntry>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.PAYMENT)}`,
+    { params },
+  )
+  return res.data.map(raw => normalizePayment(raw))
 }
 
 // ── Trainer Settings (singleton) ──────────────────────────────────────────────

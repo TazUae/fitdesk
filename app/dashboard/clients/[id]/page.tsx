@@ -16,6 +16,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { ClientHubPanel } from '@/components/modules/ClientHubPanel'
 import { DeactivateClientButton } from '@/features/clients/components/DeactivateClientButton'
+import { StatementButton } from '@/components/clients/StatementButton'
 import type { BadgeVariant } from '@/components/ui/Badge'
 import type { ClientStatus, Invoice, InvoiceStatus, Session, SessionStatus } from '@/types'
 
@@ -301,6 +302,7 @@ export default async function ClientDetailPage({ params }: Props) {
                   </span>
                 )}
               </h3>
+              <StatementButton clientId={client.id} />
             </div>
 
             {invoices.length === 0 ? (
