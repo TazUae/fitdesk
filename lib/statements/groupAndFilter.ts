@@ -85,3 +85,37 @@ export function groupRowsByMonth(rows: ClientStatementRow[]): StatementMonthGrou
 export function sliceForLoadMore<T>(items: T[], displayCount: number): T[] {
   return items.slice(0, displayCount)
 }
+
+// ─── Degraded payment-history handling ────────────────────────────────────────
+
+/**
+ * The "Payments" filter is disabled whenever payment history couldn't be
+ * loaded — there are no individual Payment Entry rows to show, only the
+ * invoice-balance-derived "Applied" total in the summary. Other filters are
+ * unaffected, since invoice rows remain available regardless.
+ */
+export function isTypeFilterDisabled(type: TypeFilter, paymentHistoryAvailable: boolean): boolean {
+  return type === 'payments' && !paymentHistoryAvailable
+}
+
+/** Falls back to 'all' if the current selection is no longer selectable. */
+export function normalizeTypeFilterForAvailability(
+  type: TypeFilter,
+  paymentHistoryAvailable: boolean,
+): TypeFilter {
+  return isTypeFilterDisabled(type, paymentHistoryAvailable) ? 'all' : type
+}
+
+/**
+ * Copy for the empty-activity state. The "Payments" filter gets its own
+ * messaging so a degraded payment history doesn't read as "there's no
+ * activity at all" when Applied balances are already shown in the summary.
+ */
+export function buildActivityEmptyState(type: TypeFilter, paymentHistoryAvailable: boolean): string {
+  if (type === 'payments') {
+    return paymentHistoryAvailable
+      ? 'No payments recorded for this period.'
+      : 'Payment records are temporarily unavailable. Check the invoice summary above for applied balances.'
+  }
+  return 'No activity matches this filter.'
+}

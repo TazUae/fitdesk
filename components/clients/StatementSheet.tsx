@@ -9,7 +9,14 @@ import type { BadgeVariant } from '@/components/ui/Badge'
 import { fmtMoney } from '@/lib/format/money'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import type { ClientStatement, ClientStatementRow } from '@/lib/statements/assembleStatement'
-import { filterStatementRows, groupRowsByMonth, sliceForLoadMore } from '@/lib/statements/groupAndFilter'
+import {
+  buildActivityEmptyState,
+  filterStatementRows,
+  groupRowsByMonth,
+  isTypeFilterDisabled,
+  normalizeTypeFilterForAvailability,
+  sliceForLoadMore,
+} from '@/lib/statements/groupAndFilter'
 import type { DateRangeFilter, TypeFilter } from '@/lib/statements/groupAndFilter'
 
 export interface StatementSheetProps {
@@ -66,28 +73,41 @@ const RANGE_ACTIVITY_LABEL: Record<DateRangeFilter, string> = {
 
 const LOAD_MORE_STEP = 20
 
+const PAYMENTS_DISABLED_TITLE = 'Payment history temporarily unavailable'
+
 function FilterPillRow<T extends string>({
   tabs,
   active,
   onChange,
+  isDisabled,
+  disabledTitle,
 }: {
   tabs: { id: T; label: string }[]
   active: T
   onChange: (id: T) => void
+  /** Optional per-tab disabled check — e.g. the Payments chip in degraded mode. */
+  isDisabled?: (id: T) => boolean
+  /** Tooltip shown on a disabled tab. */
+  disabledTitle?: string
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {tabs.map(tab => {
         const isActive = active === tab.id
+        const disabled = isDisabled?.(tab.id) ?? false
         return (
           <button
             key={tab.id}
             type="button"
-            onClick={() => onChange(tab.id)}
-            className="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
+            onClick={() => { if (!disabled) onChange(tab.id) }}
+            disabled={disabled}
+            aria-disabled={disabled}
+            title={disabled ? disabledTitle : undefined}
+            className="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
             style={{
-              backgroundColor: isActive ? 'var(--fd-accent)' : 'var(--fd-card)',
-              color:           isActive ? 'var(--fd-bg)'     : 'var(--fd-muted)',
+              backgroundColor: isActive && !disabled ? 'var(--fd-accent)' : 'var(--fd-card)',
+              color:           isActive && !disabled ? 'var(--fd-bg)'     : 'var(--fd-muted)',
+              opacity:         disabled ? 0.5 : 1,
             }}
           >
             {tab.label}
@@ -325,6 +345,13 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
     setDisplayCount(LOAD_MORE_STEP)
   }, [rangeFilter, typeFilter])
 
+  // If payment history is unavailable, "Payments" isn't a selectable filter —
+  // fall back to "All" rather than leaving the UI on a disabled selection.
+  useEffect(() => {
+    if (!statement) return
+    setTypeFilter(prev => normalizeTypeFilterForAvailability(prev, statement.paymentHistoryAvailable))
+  }, [statement])
+
   function toggleMonth(monthKey: string) {
     setCollapsedMonths(prev => {
       const next = new Set(prev)
@@ -413,7 +440,13 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
               <>
                 <div className="space-y-2">
                   <FilterPillRow tabs={RANGE_TABS} active={rangeFilter} onChange={setRangeFilter} />
-                  <FilterPillRow tabs={TYPE_TABS} active={typeFilter} onChange={setTypeFilter} />
+                  <FilterPillRow
+                    tabs={TYPE_TABS}
+                    active={typeFilter}
+                    onChange={setTypeFilter}
+                    isDisabled={id => isTypeFilterDisabled(id, statement.paymentHistoryAvailable)}
+                    disabledTitle={PAYMENTS_DISABLED_TITLE}
+                  />
                   <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
                     Activity shown: {RANGE_ACTIVITY_LABEL[rangeFilter]}
                   </p>
@@ -423,7 +456,7 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
                   <div className="flex flex-col items-center gap-3 py-10 text-center">
                     <Receipt className="h-8 w-8" style={{ color: 'var(--fd-muted)' }} />
                     <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
-                      No activity matches this filter.
+                      {buildActivityEmptyState(typeFilter, statement.paymentHistoryAvailable)}
                     </p>
                   </div>
                 ) : (
