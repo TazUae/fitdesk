@@ -15,9 +15,16 @@ import type { ClientHubOverview } from '@/types/clients'
 interface ClientWorkspaceOverlayProps {
   client: Client
   hub:    ClientHubOverview | null
+  /**
+   * Display-only override for ClientHubPanel's "Next session" chip, computed
+   * live by the overlay page from fetched sessions (same getNextUp logic as
+   * the canonical client detail page). See ClientHubPanel for why this takes
+   * priority over hub.client.nextSessionAtUtc.
+   */
+  nextSessionLabel?: string | null
 }
 
-export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayProps) {
+export function ClientWorkspaceOverlay({ client, hub, nextSessionLabel }: ClientWorkspaceOverlayProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
 
@@ -178,7 +185,7 @@ export function ClientWorkspaceOverlay({ client, hub }: ClientWorkspaceOverlayPr
             )}
 
             {/* Client Hub panel — internals unchanged */}
-            <ClientHubPanel overview={hub} />
+            <ClientHubPanel overview={hub} nextSessionLabel={nextSessionLabel} />
 
             {/* Trainer notes — only in the hub-present path; fallback path shows notes inline */}
             {client.notes && (
