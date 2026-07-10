@@ -117,6 +117,14 @@ export interface Invoice {
   dueDate: string
   issuedAt: string
   paidAt?: string
+  /**
+   * FD Session docname this invoice was generated for — present only for
+   * pay-per-session invoices (see lib/scheduling/sessionInvoiceBuilder.ts).
+   * Package invoices and any other invoice never set this. Used to derive
+   * the Statement of Account row type without relying on custom_invoice_kind,
+   * which package invoices do not populate.
+   */
+  fdSessionId?: string | null
 }
 
 /**
