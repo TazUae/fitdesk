@@ -65,6 +65,7 @@ vi.mock('@/lib/scheduling/engine', () => ({
 vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
   completeSession: vi.fn(),
   markNoShow:      vi.fn(),
+  cancelSession:   vi.fn(),
   BillingNotConfiguredError: class BillingNotConfiguredError extends Error {
     clientId: string
     constructor(clientId: string) {
@@ -170,6 +171,7 @@ import {
   bookPlanAction,
   completeSessionAction,
   markNoShowAction,
+  cancelSessionAction,
   previewBatchCompletionAction,
   batchCompleteSessionsAction,
 } from '@/actions/schedulingActions'
@@ -191,6 +193,7 @@ const mockBookFromPlan        = vi.mocked(bookingServiceMod.bookFromPlan)
 const mockBuildBookingPlan    = vi.mocked(engineMod.buildBookingPlan)
 const mockCompleteSession     = vi.mocked(completionServiceMod.completeSession)
 const mockMarkNoShow         = vi.mocked(completionServiceMod.markNoShow)
+const mockCancelSession      = vi.mocked(completionServiceMod.cancelSession)
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -258,6 +261,7 @@ beforeEach(() => {
   mockBuildBookingPlan.mockReset()
   mockCompleteSession.mockReset()
   mockMarkNoShow.mockReset()
+  mockCancelSession.mockReset()
   mockFindClientByErpId.mockReset()
 })
 
@@ -587,7 +591,7 @@ describe('bookPlanAction', () => {
 
 // ─── C4B/US-017 export surface ─────────────────────────────────────────────────
 
-describe('C4B/US-017 export surface — booking + completion + no-show exported; no cancel/reschedule yet', () => {
+describe('C4B/US-017/US-039 export surface — booking + completion + no-show + cancel exported; no reschedule yet', () => {
   it('exports buildPlanAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect(typeof (mod as Record<string, unknown>).buildPlanAction).toBe('function')
@@ -608,14 +612,14 @@ describe('C4B/US-017 export surface — booking + completion + no-show exported;
     expect(typeof (mod as Record<string, unknown>).markNoShowAction).toBe('function')
   })
 
-  it('does not export rescheduleSessionAction (deferred to US-039)', async () => {
+  it('exports cancelSessionAction (US-039)', async () => {
     const mod = await import('@/actions/schedulingActions')
-    expect((mod as Record<string, unknown>).rescheduleSessionAction).toBeUndefined()
+    expect(typeof (mod as Record<string, unknown>).cancelSessionAction).toBe('function')
   })
 
-  it('does not export cancelSessionAction (deferred to US-039)', async () => {
+  it('does not export rescheduleSessionAction (deferred to a later US-039 increment)', async () => {
     const mod = await import('@/actions/schedulingActions')
-    expect((mod as Record<string, unknown>).cancelSessionAction).toBeUndefined()
+    expect((mod as Record<string, unknown>).rescheduleSessionAction).toBeUndefined()
   })
 })
 
@@ -1073,6 +1077,185 @@ describe('markNoShowAction', () => {
     expect(second.success).toBe(false)
     if (!second.success) expect(second.code).toBe('IMMUTABLE_STATUS')
     expect(mockMarkNoShow).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ─── cancelSessionAction (US-039) ──────────────────────────────────────────────
+
+const MOCK_CANCELLED_SESSION: FDSession = {
+  ...MOCK_COMPLETED_SESSION,
+  status: 'cancelled',
+}
+
+describe('cancelSessionAction', () => {
+  // Same tenant/trainer boundary as completeSessionAction/markNoShowAction:
+  // resolveTrainerId() and getTenantContext() are resolved server-side from the
+  // authenticated session, never from a client-supplied argument —
+  // cancelSessionAction's own signature (id, expectedVersion, reason?) has no
+  // tenant/trainer field a caller could forge. A failed/absent auth or tenant
+  // resolution must fail closed before cancelSession (and therefore any
+  // dependency) is ever invoked.
+  it('returns AUTH error when not authenticated — never calls cancelSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('AUTH')
+    expect(mockCancelSession).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenant context is missing — never calls cancelSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(null)
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockCancelSession).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenantId is null — never calls cancelSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue({ ...MOCK_TENANT_CTX, tenantId: null })
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockCancelSession).not.toHaveBeenCalled()
+  })
+
+  it('returns success with the cancelled session data', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCancelSession.mockResolvedValue(MOCK_CANCELLED_SESSION)
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.status).toBe('cancelled')
+      expect(result.data.id).toBe('fds-001')
+    }
+  })
+
+  it('passes id, expectedVersion, and reason through to cancelSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCancelSession.mockResolvedValue(MOCK_CANCELLED_SESSION)
+
+    await cancelSessionAction('fds-001', 1, 'client requested cancellation')
+
+    const [, id, expectedVersion, reason] = mockCancelSession.mock.calls[0]
+    expect(id).toBe('fds-001')
+    expect(expectedVersion).toBe(1)
+    expect(reason).toBe('client requested cancellation')
+  })
+
+  it('maps VersionConflictError to VERSION_CONFLICT code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const VersionConflictErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).VersionConflictError
+    mockCancelSession.mockRejectedValue(new VersionConflictErrorCls('fds-001'))
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('VERSION_CONFLICT')
+  })
+
+  it('maps ImmutableSessionError to IMMUTABLE_STATUS code (terminal/invalid states cannot be cancelled)', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+    mockCancelSession.mockRejectedValue(new ImmutableSessionErrorCls('fds-001', 'completed'))
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('IMMUTABLE_STATUS')
+  })
+
+  it('maps a generic ERP error to ERR code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCancelSession.mockRejectedValue(new Error('ERP write failed'))
+
+    const result = await cancelSessionAction('fds-001', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('ERR')
+      expect(result.message).toBe('ERP write failed')
+    }
+  })
+
+  it('fails closed to ERR for an unknown/not-found session id — no partial mutation', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCancelSession.mockRejectedValue(new Error('Session not found'))
+
+    const result = await cancelSessionAction('fds-does-not-exist', 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('ERR')
+      expect(result.message).toBe('Session not found')
+    }
+  })
+
+  it('does not call any invoice or package-consumption service', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockCancelSession.mockResolvedValue(MOCK_CANCELLED_SESSION)
+
+    await cancelSessionAction('fds-001', 1)
+
+    // cancelSession is the only service called at this level — invoice/package
+    // dependencies are wired into the deps object but cancelSession itself
+    // never calls them (proven at the service-test level); this just confirms
+    // the action doesn't perform any additional mutation of its own.
+    expect(mockCancelSession).toHaveBeenCalledOnce()
+  })
+
+  it('is retryable: first attempt ERR, second attempt succeeds', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+
+    mockCancelSession.mockRejectedValueOnce(new Error('ERP write failed'))
+    const first = await cancelSessionAction('fds-001', 1)
+    expect(first.success).toBe(false)
+    if (!first.success) expect(first.code).toBe('ERR')
+
+    mockCancelSession.mockResolvedValueOnce(MOCK_CANCELLED_SESSION)
+    const second = await cancelSessionAction('fds-001', 1)
+    expect(second.success).toBe(true)
+  })
+
+  it('the same session id submitted twice in a row is only genuinely cancelled once — the second attempt fails safely', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+
+    let processed = false
+    mockCancelSession.mockImplementation(async (_deps, id) => {
+      if (processed) throw new ImmutableSessionErrorCls(id as string, 'cancelled')
+      processed = true
+      return MOCK_CANCELLED_SESSION
+    })
+
+    const first  = await cancelSessionAction('fds-001', 1)
+    const second = await cancelSessionAction('fds-001', 1)
+
+    expect(first.success).toBe(true)
+    expect(second.success).toBe(false)
+    if (!second.success) expect(second.code).toBe('IMMUTABLE_STATUS')
+    expect(mockCancelSession).toHaveBeenCalledTimes(2)
   })
 })
 

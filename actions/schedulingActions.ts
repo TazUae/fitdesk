@@ -8,9 +8,10 @@
  * C4B scope: +completeSessionAction (trial + billing dispatch shell).
  * US-017 scope: +markNoShowAction (trial/PPS/package financial dispatch — see
  *   docs/execution/phase-1-plus-safe-run-plan.md for the approved design).
+ * US-039 scope: +cancelSessionAction (financially inert — see the same doc).
  *
- * Not included (deferred to US-039):
- *   cancelSessionAction, rescheduleSessionAction
+ * Not included (deferred to a later US-039 increment):
+ *   rescheduleSessionAction
  *
  * Auth: uses resolveTrainerId() from lib/auth/resolve-trainer (same pattern
  * as other FitDesk server actions) so all ERP queries are automatically
@@ -40,6 +41,7 @@ import { PackageConsumptionService } from '@/lib/billing/package-consumption-ser
 import {
   completeSession,
   markNoShow,
+  cancelSession,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
   PackageCompletionNotReadyError,
@@ -280,11 +282,14 @@ export async function bookPlanAction(
 }
 
 /**
- * Builds the CompletionDeps object completeSession()/markNoShow() need, scoped
- * to one resolved tenant/user. Shared by completeSessionAction,
- * batchCompleteSessionsAction, and markNoShowAction so all three go through the
- * exact same billing/ERP dispatch — one definition of "how a session outcome
- * mutates billing", not several that could drift apart.
+ * Builds the CompletionDeps object completeSession()/markNoShow()/cancelSession()
+ * need, scoped to one resolved tenant/user. Shared by completeSessionAction,
+ * batchCompleteSessionsAction, markNoShowAction, and cancelSessionAction so all
+ * four go through the exact same billing/ERP dispatch — one definition of "how a
+ * session outcome mutates billing", not several that could drift apart.
+ * (cancelSessionAction never actually exercises the billing/invoice/package
+ * dependencies — cancellation is financially inert — but reuses the same deps
+ * object for consistency, not because it needs them.)
  */
 function buildCompletionDeps(tenantCtx: TenantCtx, userId: string | null): CompletionDeps {
   return {
@@ -401,6 +406,52 @@ export async function markNoShowAction(
       id,
       expectedVersion,
       financialAction,
+      reason,
+    )
+    return { success: true, data: result }
+  } catch (err) {
+    return mapError(err)
+  }
+}
+
+/**
+ * Cancel an FD Session (US-039).
+ *
+ * Financially inert by construction: cancelSession never resolves billing mode,
+ * never touches the package ledger, and never creates/submits/voids an invoice.
+ * The patch it writes never includes `invoiceId` or `sessionConsumedPackage` — any
+ * existing value on the row (there normally isn't one pre-completion, but this
+ * holds regardless of billing mode or trial status) is left completely untouched.
+ *
+ * `reason` is optional free text appended to the session's existing notes (never
+ * overwritten) — same capture mechanism as markNoShowAction.
+ *
+ * Guards: version check (VERSION_CONFLICT) + mutable-state check (IMMUTABLE_STATUS),
+ * identical to completeSessionAction/markNoShowAction — only scheduled/confirmed
+ * sessions may be cancelled.
+ */
+export async function cancelSessionAction(
+  id:              string,
+  expectedVersion: number,
+  reason?:         string | null,
+): Promise<SchedulingResult<FDSession>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, code: 'ERR', message: 'Workspace not provisioned' }
+  }
+
+  const tenantCtx = { tenantId: ctx.tenantId }
+
+  try {
+    const result = await cancelSession(
+      buildCompletionDeps(tenantCtx, ctx.userId ?? null),
+      id,
+      expectedVersion,
       reason,
     )
     return { success: true, data: result }

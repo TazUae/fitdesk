@@ -1,5 +1,6 @@
 /**
- * Session completion service — marks an FD Session as completed or no-show.
+ * Session completion service — marks an FD Session as completed, no-show, or
+ * cancelled.
  *
  * completeSession billing dispatch:
  *   - Trial (isTrialSession=true): status flip only, no billing side-effects.
@@ -17,6 +18,12 @@
  *     completion, never creates an invoice) or 'waive' (status flip only). 'charge' is
  *     invalid for this mode — packages are pre-paid and are never invoiced at no-show.
  *   - Unset or missing client projection: fail closed.
+ *
+ * cancelSession (US-039 — approved design, see
+ * docs/execution/phase-1-plus-safe-run-plan.md): financially inert by construction —
+ * never creates, submits, voids, refunds, or credits an invoice, and never consumes or
+ * reverses a package session, regardless of billing mode. Only reachable pre-completion
+ * (the mutable-status guard), so there is never an invoice or package debit to disturb.
  *
  * All I/O dependencies are injected so this module has zero direct imports of ERP
  * clients, billing services, or database — making it unit-testable without mocking
@@ -304,6 +311,67 @@ export async function completeSession(
 
   // Defensive fallback: any unknown/reserved billing mode fails closed
   throw new BillingNotConfiguredError(current.clientId)
+}
+
+// ─── cancelSession (US-039) ─────────────────────────────────────────────────────
+
+/**
+ * Append a cancellation reason to the session's existing notes, if one is given.
+ * Same append-only contract as noShowNotesPatch — never overwrites prior notes,
+ * and is a no-op (no `notes` key at all) for a blank/absent reason.
+ */
+function cancelNotesPatch(
+  currentNotes: string | null,
+  reason?: string | null,
+): { notes?: string | null } {
+  const trimmed = reason?.trim()
+  if (!trimmed) return {}
+  const entry = `Cancelled: ${trimmed}`
+  return { notes: currentNotes ? `${currentNotes}\n${entry}` : entry }
+}
+
+/**
+ * Cancel a session (client/trainer cannot or will not attend — recorded before
+ * the session happens, unlike no-show which is recorded after).
+ *
+ * Guards applied in order (identical to completeSession/markNoShow):
+ *  1. Version check — rejects stale reads (optimistic concurrency).
+ *  2. Immutable-state check — only scheduled/confirmed may transition.
+ *
+ * Financial rule (US-039 — approved design, see the module-level doc comment):
+ * cancellation has NO financial effect, for any billing mode. It never calls
+ * resolveBillingMode, consumeForSession, findInvoiceBySession, createInvoice, or
+ * submitSalesInvoice — the patch it writes never includes `invoiceId` or
+ * `sessionConsumedPackage`, so any existing value on the row (there normally
+ * isn't one pre-completion, but this holds regardless) is left completely
+ * untouched, never voided/refunded/credited/deleted.
+ *
+ * `reason` is optional free text appended to the session's existing notes —
+ * same append-only contract as markNoShow's reason capture.
+ */
+export async function cancelSession(
+  deps: CompletionDeps,
+  id: string,
+  expectedVersion: number,
+  reason?: string | null,
+): Promise<FDSession> {
+  const current = await deps.findSessionById(id)
+
+  // Guard 1: optimistic concurrency
+  if (current.version !== expectedVersion) {
+    throw new VersionConflictError(id)
+  }
+
+  // Guard 2: terminal-state check — only scheduled/confirmed may be cancelled
+  if (!MUTABLE_STATUSES.includes(current.status)) {
+    throw new ImmutableSessionError(id, current.status)
+  }
+
+  return deps.updateSession(id, {
+    status:  'cancelled',
+    version: expectedVersion + 1,
+    ...cancelNotesPatch(current.notes, reason),
+  })
 }
 
 // ─── markNoShow (US-017) ───────────────────────────────────────────────────────
