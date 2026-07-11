@@ -6,10 +6,11 @@
  * C2 scope: list + config.
  * C3 scope: +buildPlanAction (server-side plan preview), +bookPlanAction (create sessions).
  * C4B scope: +completeSessionAction (trial + billing dispatch shell).
+ * US-017 scope: +markNoShowAction (trial/PPS/package financial dispatch — see
+ *   docs/execution/phase-1-plus-safe-run-plan.md for the approved design).
  *
- * Not included (deferred to C4C–C5):
- *   cancelSessionAction, rescheduleSessionAction, markNoShowAction
- *   Package ledger integration (C4C), pay-per-session invoice (C7).
+ * Not included (deferred to US-039):
+ *   cancelSessionAction, rescheduleSessionAction
  *
  * Auth: uses resolveTrainerId() from lib/auth/resolve-trainer (same pattern
  * as other FitDesk server actions) so all ERP queries are automatically
@@ -38,14 +39,17 @@ import {
 import { PackageConsumptionService } from '@/lib/billing/package-consumption-service'
 import {
   completeSession,
+  markNoShow,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
   PackageCompletionNotReadyError,
   NoPackageBalanceError,
   SessionRateNotConfiguredError,
+  InvalidNoShowActionError,
   VersionConflictError,
   ImmutableSessionError,
   type CompletionDeps,
+  type NoShowFinancialAction,
 } from '@/lib/scheduling/sessionCompletionService'
 import {
   previewSessionCompletion,
@@ -73,6 +77,7 @@ export type SchedulingErrorCode =
   | 'PACKAGE_NOT_READY'
   | 'NO_PACKAGE_BALANCE'
   | 'SESSION_RATE_NOT_CONFIGURED'
+  | 'INVALID_NO_SHOW_ACTION'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -110,6 +115,9 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
   }
   if (err instanceof SessionRateNotConfiguredError) {
     return { success: false, code: 'SESSION_RATE_NOT_CONFIGURED', message: err.message }
+  }
+  if (err instanceof InvalidNoShowActionError) {
+    return { success: false, code: 'INVALID_NO_SHOW_ACTION', message: err.message }
   }
   if (err instanceof VersionConflictError) {
     return { success: false, code: 'VERSION_CONFLICT', message: err.message }
@@ -272,11 +280,11 @@ export async function bookPlanAction(
 }
 
 /**
- * Builds the CompletionDeps object completeSession() needs, scoped to one
- * resolved tenant/user. Shared by completeSessionAction and
- * batchCompleteSessionsAction so both go through the exact same billing
- * dispatch — one definition of "how a session completes", not two that could
- * drift apart.
+ * Builds the CompletionDeps object completeSession()/markNoShow() need, scoped
+ * to one resolved tenant/user. Shared by completeSessionAction,
+ * batchCompleteSessionsAction, and markNoShowAction so all three go through the
+ * exact same billing/ERP dispatch — one definition of "how a session outcome
+ * mutates billing", not several that could drift apart.
  */
 function buildCompletionDeps(tenantCtx: TenantCtx, userId: string | null): CompletionDeps {
   return {
@@ -345,6 +353,55 @@ export async function completeSessionAction(
       buildCompletionDeps(tenantCtx, ctx.userId ?? null),
       id,
       expectedVersion,
+    )
+    return { success: true, data: result }
+  } catch (err) {
+    return mapError(err)
+  }
+}
+
+/**
+ * Mark an FD Session as no-show (US-017).
+ *
+ * `financialAction` is validated against the client's billing mode by markNoShow:
+ *   - pay-per-session: 'charge' (issues the session invoice via the same idempotent
+ *     path completion uses) or 'waive' (status flip only). 'deduct' → INVALID_NO_SHOW_ACTION.
+ *   - package: 'deduct' (ledger-first package consumption, never an invoice) or
+ *     'waive' (status flip only). 'charge' → INVALID_NO_SHOW_ACTION.
+ *   - Trial sessions ignore financialAction entirely — status flip only, no charge.
+ *
+ * `reason` is optional free text appended to the session's existing notes (never
+ * overwritten) — the only outcome-reason capture the current FD Session model
+ * supports.
+ *
+ * Guards: version check (VERSION_CONFLICT) + mutable-state check (IMMUTABLE_STATUS),
+ * identical to completeSessionAction.
+ */
+export async function markNoShowAction(
+  id:              string,
+  expectedVersion: number,
+  financialAction: NoShowFinancialAction,
+  reason?:         string | null,
+): Promise<SchedulingResult<FDSession>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, code: 'ERR', message: 'Workspace not provisioned' }
+  }
+
+  const tenantCtx = { tenantId: ctx.tenantId }
+
+  try {
+    const result = await markNoShow(
+      buildCompletionDeps(tenantCtx, ctx.userId ?? null),
+      id,
+      expectedVersion,
+      financialAction,
+      reason,
     )
     return { success: true, data: result }
   } catch (err) {

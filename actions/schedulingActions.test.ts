@@ -64,6 +64,7 @@ vi.mock('@/lib/scheduling/engine', () => ({
 // Mock completion service — action tests verify auth + error mapping, not service internals.
 vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
   completeSession: vi.fn(),
+  markNoShow:      vi.fn(),
   BillingNotConfiguredError: class BillingNotConfiguredError extends Error {
     clientId: string
     constructor(clientId: string) {
@@ -120,6 +121,18 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
       this.status = status
     }
   },
+  InvalidNoShowActionError: class InvalidNoShowActionError extends Error {
+    sessionId: string
+    financialAction: string
+    billingMode: string
+    constructor(sessionId: string, financialAction: string, billingMode: string) {
+      super(`No-show action '${financialAction}' is not valid for billing mode '${billingMode}' (session ${sessionId})`)
+      this.name = 'InvalidNoShowActionError'
+      this.sessionId = sessionId
+      this.financialAction = financialAction
+      this.billingMode = billingMode
+    }
+  },
 }))
 
 // Mock ERP client functions used by PPS completion deps.
@@ -156,6 +169,7 @@ import {
   buildPlanAction,
   bookPlanAction,
   completeSessionAction,
+  markNoShowAction,
   previewBatchCompletionAction,
   batchCompleteSessionsAction,
 } from '@/actions/schedulingActions'
@@ -176,6 +190,7 @@ const mockGetTrainerConfig    = vi.mocked(trainerConfigMod.getTrainerConfig)
 const mockBookFromPlan        = vi.mocked(bookingServiceMod.bookFromPlan)
 const mockBuildBookingPlan    = vi.mocked(engineMod.buildBookingPlan)
 const mockCompleteSession     = vi.mocked(completionServiceMod.completeSession)
+const mockMarkNoShow         = vi.mocked(completionServiceMod.markNoShow)
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -242,6 +257,7 @@ beforeEach(() => {
   mockBookFromPlan.mockReset()
   mockBuildBookingPlan.mockReset()
   mockCompleteSession.mockReset()
+  mockMarkNoShow.mockReset()
   mockFindClientByErpId.mockReset()
 })
 
@@ -569,9 +585,9 @@ describe('bookPlanAction', () => {
   })
 })
 
-// ─── C4B export surface ───────────────────────────────────────────────────────
+// ─── C4B/US-017 export surface ─────────────────────────────────────────────────
 
-describe('C4B export surface — booking + completion exported; no cancel/reschedule/no-show', () => {
+describe('C4B/US-017 export surface — booking + completion + no-show exported; no cancel/reschedule yet', () => {
   it('exports buildPlanAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect(typeof (mod as Record<string, unknown>).buildPlanAction).toBe('function')
@@ -587,19 +603,19 @@ describe('C4B export surface — booking + completion exported; no cancel/resche
     expect(typeof (mod as Record<string, unknown>).completeSessionAction).toBe('function')
   })
 
-  it('does not export rescheduleSessionAction', async () => {
+  it('exports markNoShowAction (US-017)', async () => {
+    const mod = await import('@/actions/schedulingActions')
+    expect(typeof (mod as Record<string, unknown>).markNoShowAction).toBe('function')
+  })
+
+  it('does not export rescheduleSessionAction (deferred to US-039)', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect((mod as Record<string, unknown>).rescheduleSessionAction).toBeUndefined()
   })
 
-  it('does not export cancelSessionAction', async () => {
+  it('does not export cancelSessionAction (deferred to US-039)', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect((mod as Record<string, unknown>).cancelSessionAction).toBeUndefined()
-  })
-
-  it('does not export markNoShowAction', async () => {
-    const mod = await import('@/actions/schedulingActions')
-    expect((mod as Record<string, unknown>).markNoShowAction).toBeUndefined()
   })
 })
 
@@ -827,6 +843,236 @@ describe('completeSessionAction', () => {
     })
     const second = await completeSessionAction('fds-001', 1)
     expect(second.success).toBe(true)
+  })
+})
+
+// ─── markNoShowAction (US-017) ─────────────────────────────────────────────────
+
+const MOCK_NO_SHOW_SESSION: FDSession = {
+  ...MOCK_COMPLETED_SESSION,
+  status: 'no_show',
+}
+
+describe('markNoShowAction', () => {
+  // The tenant/trainer boundary for this action is identical to
+  // completeSessionAction's: resolveTrainerId() and getTenantContext() are
+  // resolved server-side from the authenticated session, never from a
+  // client-supplied argument — markNoShowAction's own signature (id,
+  // expectedVersion, financialAction, reason?) has no tenant/trainer field a
+  // caller could forge. A failed/absent auth or tenant resolution must fail
+  // closed before markNoShow (and therefore any ERP/billing dependency) is
+  // ever invoked — the same guarantee the existing completion path relies on.
+  it('returns AUTH error when not authenticated — never calls markNoShow', async () => {
+    mockResolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('AUTH')
+    expect(mockMarkNoShow).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenant context is missing — never calls markNoShow', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(null)
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockMarkNoShow).not.toHaveBeenCalled()
+  })
+
+  it('returns ERR when tenantId is null — never calls markNoShow', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue({ ...MOCK_TENANT_CTX, tenantId: null })
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockMarkNoShow).not.toHaveBeenCalled()
+  })
+
+  it('returns success with the no_show session data', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockMarkNoShow.mockResolvedValue(MOCK_NO_SHOW_SESSION)
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.status).toBe('no_show')
+      expect(result.data.id).toBe('fds-001')
+    }
+  })
+
+  it('passes financialAction and reason through to markNoShow', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockMarkNoShow.mockResolvedValue(MOCK_NO_SHOW_SESSION)
+
+    await markNoShowAction('fds-001', 1, 'deduct', 'client did not show')
+
+    const [, id, expectedVersion, financialAction, reason] = mockMarkNoShow.mock.calls[0]
+    expect(id).toBe('fds-001')
+    expect(expectedVersion).toBe(1)
+    expect(financialAction).toBe('deduct')
+    expect(reason).toBe('client did not show')
+  })
+
+  it('maps BillingNotConfiguredError to BILLING_NOT_CONFIGURED code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const BillingNotConfiguredErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).BillingNotConfiguredError
+    mockMarkNoShow.mockRejectedValue(new BillingNotConfiguredErrorCls('CUST-001'))
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('BILLING_NOT_CONFIGURED')
+  })
+
+  it('maps InvalidNoShowActionError to INVALID_NO_SHOW_ACTION code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const InvalidNoShowActionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).InvalidNoShowActionError
+    mockMarkNoShow.mockRejectedValue(new InvalidNoShowActionErrorCls('fds-001', 'deduct', 'pay_per_session'))
+
+    const result = await markNoShowAction('fds-001', 1, 'deduct')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('INVALID_NO_SHOW_ACTION')
+  })
+
+  it('maps NoPackageBalanceError to NO_PACKAGE_BALANCE code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const NoPackageBalanceErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).NoPackageBalanceError
+    mockMarkNoShow.mockRejectedValue(new NoPackageBalanceErrorCls('CUST-001'))
+
+    const result = await markNoShowAction('fds-001', 1, 'deduct')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('NO_PACKAGE_BALANCE')
+  })
+
+  it('maps SessionRateNotConfiguredError to SESSION_RATE_NOT_CONFIGURED code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const SessionRateNotConfiguredErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).SessionRateNotConfiguredError
+    mockMarkNoShow.mockRejectedValue(new SessionRateNotConfiguredErrorCls('fds-001'))
+
+    const result = await markNoShowAction('fds-001', 1, 'charge')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('SESSION_RATE_NOT_CONFIGURED')
+  })
+
+  it('maps VersionConflictError to VERSION_CONFLICT code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const VersionConflictErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).VersionConflictError
+    mockMarkNoShow.mockRejectedValue(new VersionConflictErrorCls('fds-001'))
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('VERSION_CONFLICT')
+  })
+
+  it('maps ImmutableSessionError to IMMUTABLE_STATUS code (invalid state cannot transition to no_show)', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+    mockMarkNoShow.mockRejectedValue(new ImmutableSessionErrorCls('fds-001', 'completed'))
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('IMMUTABLE_STATUS')
+  })
+
+  it('maps a generic ERP error to ERR code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockMarkNoShow.mockRejectedValue(new Error('ERP write failed'))
+
+    const result = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('ERR')
+      expect(result.message).toBe('ERP write failed')
+    }
+  })
+
+  it('wires the same PPS invoice + package consumption deps as completeSessionAction', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockMarkNoShow.mockResolvedValue(MOCK_NO_SHOW_SESSION)
+
+    await markNoShowAction('fds-001', 1, 'charge')
+
+    const [deps] = mockMarkNoShow.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    expect(typeof deps.findInvoiceBySession).toBe('function')
+    expect(typeof deps.createInvoice).toBe('function')
+    expect(typeof deps.submitSalesInvoice).toBe('function')
+    expect(typeof deps.buildSessionInvoicePayload).toBe('function')
+    expect(typeof deps.getPostingDate).toBe('function')
+    expect(typeof deps.consumeForSession).toBe('function')
+    expect(typeof deps.resolveBillingMode).toBe('function')
+  })
+
+  it('is retryable: first attempt ERR, second attempt succeeds (idempotency/duplicate-prevention parity with completeSessionAction)', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+
+    // First attempt: ERP status write fails.
+    mockMarkNoShow.mockRejectedValueOnce(new Error('ERP write failed'))
+    const first = await markNoShowAction('fds-001', 1, 'deduct')
+    expect(first.success).toBe(false)
+    if (!first.success) expect(first.code).toBe('ERR')
+
+    // Second attempt (retry with the same expectedVersion): the service's own
+    // idempotency guard (sessionConsumedPackage already true → skip
+    // consumeForSession) is what makes this safe — this test only proves the
+    // action layer surfaces that success cleanly on retry.
+    mockMarkNoShow.mockResolvedValueOnce({
+      ...MOCK_NO_SHOW_SESSION,
+      sessionConsumedPackage: true,
+    })
+    const second = await markNoShowAction('fds-001', 1, 'deduct')
+    expect(second.success).toBe(true)
+  })
+
+  it('the same session id submitted twice in a row is only genuinely no-showed once — the second attempt fails safely', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+
+    let processed = false
+    mockMarkNoShow.mockImplementation(async (_deps, id) => {
+      if (processed) throw new ImmutableSessionErrorCls(id as string, 'no_show')
+      processed = true
+      return MOCK_NO_SHOW_SESSION
+    })
+
+    const first  = await markNoShowAction('fds-001', 1, 'waive')
+    const second = await markNoShowAction('fds-001', 1, 'waive')
+
+    expect(first.success).toBe(true)
+    expect(second.success).toBe(false)
+    if (!second.success) expect(second.code).toBe('IMMUTABLE_STATUS')
+    expect(mockMarkNoShow).toHaveBeenCalledTimes(2)
   })
 })
 

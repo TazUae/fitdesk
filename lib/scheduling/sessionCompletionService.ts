@@ -1,10 +1,21 @@
 /**
- * Session completion service — marks an FD Session as completed.
+ * Session completion service — marks an FD Session as completed or no-show.
  *
- * Billing dispatch:
+ * completeSession billing dispatch:
  *   - Trial (isTrialSession=true): status flip only, no billing side-effects.
  *   - Package: ledger-first package consumption (C4C), no invoice.
  *   - Pay-per-session: idempotent Sales Invoice create+submit (C7C), then status flip.
+ *   - Unset or missing client projection: fail closed.
+ *
+ * markNoShow financial dispatch (US-017 — approved design, see
+ * docs/execution/phase-1-plus-safe-run-plan.md):
+ *   - Trial: status flip only, no charge, regardless of the requested financial action.
+ *   - Pay-per-session: 'charge' (issues the invoice via the same idempotent path as
+ *     completion) or 'waive' (status flip only). 'deduct' is invalid for this mode —
+ *     PPS has no balance to deduct from.
+ *   - Package: 'deduct' (ledger-first consumption via the same idempotent path as
+ *     completion, never creates an invoice) or 'waive' (status flip only). 'charge' is
+ *     invalid for this mode — packages are pre-paid and are never invoiced at no-show.
  *   - Unset or missing client projection: fail closed.
  *
  * All I/O dependencies are injected so this module has zero direct imports of ERP
@@ -16,6 +27,17 @@ import type { FDSession, FDSessionStatus } from '@/types/scheduling'
 import type { BillingMode } from '@/types/clients'
 import type { Invoice } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
+
+// ─── No-show financial action (US-017) ────────────────────────────────────────
+
+/**
+ * The trainer's chosen financial handling of a no-show, resolved against the
+ * client's billing mode by markNoShow:
+ *   - 'charge' — pay-per-session only: issue the session invoice as usual.
+ *   - 'deduct' — package only: consume one package unit, no invoice.
+ *   - 'waive'  — both modes: status flip only, no financial effect.
+ */
+export type NoShowFinancialAction = 'charge' | 'deduct' | 'waive'
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -93,6 +115,25 @@ export class NoPackageBalanceError extends Error {
       `No active package with available sessions found for client ${clientId} — add or top up a package before completing`,
     )
     this.name = 'NoPackageBalanceError'
+  }
+}
+
+/**
+ * Thrown when markNoShow's requested financial action does not match the client's
+ * billing mode — e.g. 'deduct' for a pay-per-session client (no balance to deduct
+ * from) or 'charge' for a package client (packages are pre-paid, never invoiced at
+ * no-show). Fails closed rather than silently reinterpreting the trainer's choice.
+ */
+export class InvalidNoShowActionError extends Error {
+  constructor(
+    public readonly sessionId: string,
+    public readonly financialAction: NoShowFinancialAction,
+    public readonly billingMode: string,
+  ) {
+    super(
+      `No-show action '${financialAction}' is not valid for billing mode '${billingMode}' (session ${sessionId})`,
+    )
+    this.name = 'InvalidNoShowActionError'
   }
 }
 
@@ -258,6 +299,172 @@ export async function completeSession(
       status:                 'completed',
       sessionConsumedPackage: true,
       version:                expectedVersion + 1,
+    })
+  }
+
+  // Defensive fallback: any unknown/reserved billing mode fails closed
+  throw new BillingNotConfiguredError(current.clientId)
+}
+
+// ─── markNoShow (US-017) ───────────────────────────────────────────────────────
+
+/**
+ * Append a no-show reason to the session's existing notes, if one is given.
+ * Returns an empty patch (no `notes` key at all) when no reason is supplied, so
+ * a no-show call without a reason never touches the notes field — the model's
+ * only free-text field is never overwritten, only appended to.
+ */
+function noShowNotesPatch(
+  currentNotes: string | null,
+  reason?: string | null,
+): { notes?: string | null } {
+  const trimmed = reason?.trim()
+  if (!trimmed) return {}
+  const entry = `No-show: ${trimmed}`
+  return { notes: currentNotes ? `${currentNotes}\n${entry}` : entry }
+}
+
+/**
+ * Mark a session as no-show (client did not attend).
+ *
+ * Guards applied in order (identical to completeSession):
+ *  1. Version check — rejects stale reads (optimistic concurrency).
+ *  2. Immutable-state check — only scheduled/confirmed may transition.
+ *
+ * Financial dispatch — see the module-level doc comment for the full approved
+ * design. Reuses the exact same PPS invoice path (invoice-first, idempotent via
+ * findInvoiceBySession) and package path (ledger-first, idempotent via
+ * consumeForSession) that completeSession already uses — no new ERP surface.
+ *
+ * `reason` is optional free text (e.g. "client didn't show, no call") appended to
+ * the session's existing notes — the only capture mechanism the current FD Session
+ * model supports; never overwrites prior notes.
+ */
+export async function markNoShow(
+  deps: CompletionDeps,
+  id: string,
+  expectedVersion: number,
+  financialAction: NoShowFinancialAction,
+  reason?: string | null,
+): Promise<FDSession> {
+  const current = await deps.findSessionById(id)
+
+  // Guard 1: optimistic concurrency
+  if (current.version !== expectedVersion) {
+    throw new VersionConflictError(id)
+  }
+
+  // Guard 2: terminal-state check — only scheduled/confirmed may become no_show
+  if (!MUTABLE_STATUSES.includes(current.status)) {
+    throw new ImmutableSessionError(id, current.status)
+  }
+
+  // Trial flag takes priority — no billing lookup, no charge, regardless of the
+  // requested financialAction (mirrors completeSession's trial-wins-first dispatch).
+  if (current.isTrialSession) {
+    return deps.updateSession(id, {
+      status:  'no_show',
+      version: expectedVersion + 1,
+      ...noShowNotesPatch(current.notes, reason),
+    })
+  }
+
+  const billingMode = await deps.resolveBillingMode(current.clientId)
+
+  if (!billingMode || billingMode === 'unset') {
+    throw new BillingNotConfiguredError(current.clientId)
+  }
+
+  if (billingMode === 'pay_per_session') {
+    if (financialAction === 'deduct') {
+      throw new InvalidNoShowActionError(id, financialAction, billingMode)
+    }
+
+    if (financialAction === 'waive') {
+      return deps.updateSession(id, {
+        status:  'no_show',
+        version: expectedVersion + 1,
+        ...noShowNotesPatch(current.notes, reason),
+      })
+    }
+
+    // financialAction === 'charge' — identical idempotent invoice path as completeSession.
+    if (!current.rate || current.rate <= 0) {
+      throw new SessionRateNotConfiguredError(id)
+    }
+
+    let invoice = await deps.findInvoiceBySession(id)
+
+    if (invoice !== null) {
+      if (invoice.status === 'cancelled') {
+        throw new Error(
+          `FD Session ${id} has a cancelled Sales Invoice (${invoice.id}). ` +
+          'Cancel and re-book this session to issue a new invoice.',
+        )
+      }
+      if (invoice.status === 'draft') {
+        invoice = await deps.submitSalesInvoice(invoice.id)
+      }
+      // Any other status (sent, paid, overdue, partially_paid) → reuse as-is.
+    } else {
+      const postingDate = deps.getPostingDate()
+      const payload = deps.buildSessionInvoicePayload({
+        sessionId:     id,
+        erpCustomerId: current.clientId,
+        rate:          current.rate,
+        postingDate,
+      })
+      const draft = await deps.createInvoice(payload)
+      invoice = await deps.submitSalesInvoice(draft.id)
+    }
+
+    return deps.updateSession(id, {
+      status:    'no_show',
+      invoiceId: invoice.id,
+      version:   expectedVersion + 1,
+      ...noShowNotesPatch(current.notes, reason),
+    })
+  }
+
+  if (billingMode === 'package') {
+    if (financialAction === 'charge') {
+      throw new InvalidNoShowActionError(id, financialAction, billingMode)
+    }
+
+    if (financialAction === 'waive') {
+      return deps.updateSession(id, {
+        status:  'no_show',
+        version: expectedVersion + 1,
+        ...noShowNotesPatch(current.notes, reason),
+      })
+    }
+
+    // financialAction === 'deduct' — identical ledger-first idempotent path as completeSession.
+    // Never creates an invoice — packages are pre-paid.
+    if (current.sessionConsumedPackage) {
+      return deps.updateSession(id, {
+        status:                 'no_show',
+        sessionConsumedPackage: true,
+        version:                expectedVersion + 1,
+        ...noShowNotesPatch(current.notes, reason),
+      })
+    }
+
+    const { outcome } = await deps.consumeForSession({
+      sessionId:     id,
+      erpCustomerId: current.clientId,
+    })
+
+    if (outcome === 'no_package' || outcome === 'no_balance') {
+      throw new NoPackageBalanceError(current.clientId)
+    }
+
+    // consumed or already_done — both safe to proceed
+    return deps.updateSession(id, {
+      status:                 'no_show',
+      sessionConsumedPackage: true,
+      version:                expectedVersion + 1,
+      ...noShowNotesPatch(current.notes, reason),
     })
   }
 
