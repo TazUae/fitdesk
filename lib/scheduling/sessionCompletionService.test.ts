@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   completeSession,
   markNoShow,
+  cancelSession,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
   SessionRateNotConfiguredError,
@@ -881,6 +882,163 @@ describe('markNoShow — reason capture on notes', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// cancelSession (US-039) — approved design in docs/execution/phase-1-plus-safe-run-plan.md
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Version and immutable-state guards (identical to completeSession/markNoShow) ──
+
+describe('cancelSession — version guard', () => {
+  it('throws VersionConflictError when expectedVersion does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(VersionConflictError)
+  })
+
+  it('does not call updateSession when version does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('cancelSession — immutable-state guard (invalid transitions)', () => {
+  it('throws ImmutableSessionError for completed status', async () => {
+    const deps = makeDeps({ session: { status: 'completed' } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for a session already cancelled', async () => {
+    const deps = makeDeps({ session: { status: 'cancelled' } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for no_show status', async () => {
+    const deps = makeDeps({ session: { status: 'no_show' } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for skipped status', async () => {
+    const deps = makeDeps({ session: { status: 'skipped' } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('does not call updateSession for terminal statuses', async () => {
+    const deps = makeDeps({ session: { status: 'completed' } })
+    await expect(cancelSession(deps, 'fds-001', 1)).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Happy path — scheduled / confirmed → cancelled ───────────────────────────
+
+describe('cancelSession — cancels from scheduled or confirmed', () => {
+  it('cancels a scheduled session — status cancelled, version + 1', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', version: 1 } })
+    await cancelSession(deps, 'fds-001', 1)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:  'cancelled',
+      version: 2,
+    }))
+  })
+
+  it('cancels a confirmed session — status cancelled, version + 1', async () => {
+    const deps = makeDeps({ session: { status: 'confirmed', version: 5 } })
+    await cancelSession(deps, 'fds-001', 5)
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:  'cancelled',
+      version: 6,
+    }))
+  })
+
+  it('calls findSessionById once and updateSession once — no other I/O', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' } })
+    await cancelSession(deps, 'fds-001', 1)
+    expect(deps.findSessionById).toHaveBeenCalledOnce()
+    expect(deps.updateSession).toHaveBeenCalledOnce()
+  })
+})
+
+// ─── Financial inertness — the core US-039 guarantee ──────────────────────────
+
+describe('cancelSession — never has a financial side effect, for any billing mode', () => {
+  it('never calls resolveBillingMode', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' } })
+    await cancelSession(deps, 'fds-001', 1)
+    expect(deps.resolveBillingMode).not.toHaveBeenCalled()
+  })
+
+  it('never calls consumeForSession', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' } })
+    await cancelSession(deps, 'fds-001', 1)
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+  })
+
+  it('never calls findInvoiceBySession, createInvoice, or submitSalesInvoice', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' } })
+    await cancelSession(deps, 'fds-001', 1)
+    expect(deps.findInvoiceBySession).not.toHaveBeenCalled()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+  })
+
+  it('does not include invoiceId in the update patch — an existing invoiceId is left untouched', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', invoiceId: 'SINV-EXISTING' } })
+    await cancelSession(deps, 'fds-001', 1)
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('invoiceId')
+  })
+
+  it('does not include sessionConsumedPackage in the update patch — an existing true value is left untouched', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', sessionConsumedPackage: true } })
+    await cancelSession(deps, 'fds-001', 1)
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('sessionConsumedPackage')
+  })
+
+  it('behaves identically regardless of isTrialSession — never a billing lookup either way', async () => {
+    const trial    = makeDeps({ session: { status: 'scheduled', isTrialSession: true } })
+    const nonTrial = makeDeps({ session: { status: 'scheduled', isTrialSession: false } })
+    await cancelSession(trial, 'fds-001', 1)
+    await cancelSession(nonTrial, 'fds-001', 1)
+    expect(trial.resolveBillingMode).not.toHaveBeenCalled()
+    expect(nonTrial.resolveBillingMode).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Reason/notes capture ──────────────────────────────────────────────────────
+
+describe('cancelSession — reason capture on notes', () => {
+  it('appends the reason to notes when the session has no prior notes', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', notes: null } })
+    await cancelSession(deps, 'fds-001', 1, 'client requested cancellation')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      notes: 'Cancelled: client requested cancellation',
+    }))
+  })
+
+  it('appends the reason to existing notes, preserving prior content', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', notes: 'Prefers evening sessions' } })
+    await cancelSession(deps, 'fds-001', 1, 'trainer unavailable')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      notes: 'Prefers evening sessions\nCancelled: trainer unavailable',
+    }))
+  })
+
+  it('does not touch notes at all when no reason is supplied', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', notes: 'Prefers evening sessions' } })
+    await cancelSession(deps, 'fds-001', 1)
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('notes')
+  })
+
+  it('does not touch notes when reason is an empty/whitespace-only string', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled', notes: null } })
+    await cancelSession(deps, 'fds-001', 1, '   ')
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('notes')
+  })
+})
+
 // ─── No direct ERP/billing/db runtime imports ─────────────────────────────────
 
 describe('completeSession — no direct ERP, billing, or db runtime imports', () => {
@@ -890,6 +1048,7 @@ describe('completeSession — no direct ERP, billing, or db runtime imports', ()
     // module loads cleanly in an unmocked environment.
     expect(typeof completeSession).toBe('function')
     expect(typeof markNoShow).toBe('function')
+    expect(typeof cancelSession).toBe('function')
     expect(typeof BillingNotConfiguredError).toBe('function')
     expect(typeof NoPackageBalanceError).toBe('function')
     expect(typeof PayPerSessionCompletionDeferredError).toBe('function')
