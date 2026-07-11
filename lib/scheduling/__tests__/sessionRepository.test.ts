@@ -182,6 +182,28 @@ describe('findSessionsInRange', () => {
     const result = await findSessionsInRange('trainer-1', new Date('2026-01-05T00:00:00Z'), new Date('2026-01-05T23:59:59Z'))
     expect(result).toEqual([])
   })
+
+  it('filters by trainer_id (tenant/trainer ownership boundary) — US-025', async () => {
+    // This is the function lib/dashboard/dashboardDataService.ts calls to build
+    // dashboard session data — the literal code path the backlog's "Dashboard
+    // derived queries cannot include cross-tenant records" criterion is about.
+    // findSessionsForClient already asserts this same shape; findSessionsInRange
+    // did not until now.
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsInRange('trainer-1', new Date('2026-01-05T00:00:00Z'), new Date('2026-01-05T23:59:59Z'))
+    const [, opts] = mockErpFetch.mock.calls[0]
+    const filters = JSON.parse((opts as { params: { filters: string } }).params.filters)
+    expect(filters).toContainEqual(['trainer_id', '=', 'trainer-1'])
+  })
+
+  it('scopes to the requested trainer only, not any other trainer_id value', async () => {
+    mockErpFetch.mockResolvedValue({ data: [] })
+    await findSessionsInRange('trainer-2', new Date('2026-01-05T00:00:00Z'), new Date('2026-01-05T23:59:59Z'))
+    const [, opts] = mockErpFetch.mock.calls[0]
+    const filters = JSON.parse((opts as { params: { filters: string } }).params.filters) as unknown[]
+    expect(filters).toContainEqual(['trainer_id', '=', 'trainer-2'])
+    expect(filters).not.toContainEqual(['trainer_id', '=', 'trainer-1'])
+  })
 })
 
 // ─── findSessionsForClient (Phase 4 — client detail session history) ─────────
