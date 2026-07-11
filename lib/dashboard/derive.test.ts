@@ -9,6 +9,7 @@ import {
   getUnresolvedSessionAttentionItems,
   getMissingNextSessionAttentionItems,
   combineAttentionItems,
+  getSessionsThisWeek,
 } from './derive'
 import type { AttentionItem } from './derive'
 import type { Session, Invoice, Client } from '@/types'
@@ -785,5 +786,112 @@ describe('combineAttentionItems', () => {
     const items = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
     const result = combineAttentionItems([items], 3)
     expect(result[2].label).toBe('+2 more needs attention')
+  })
+})
+
+// ─── getSessionsThisWeek (US-045) ──────────────────────────────────────────────
+
+describe('getSessionsThisWeek', () => {
+  // TODAY = 2024-06-08. This week: [2024-06-02, 2024-06-08]. Last week: [2024-05-26, 2024-06-01].
+
+  it('returns all zeros for no sessions', () => {
+    expect(getSessionsThisWeek([], TODAY)).toEqual({ thisWeekCount: 0, lastWeekCount: 0, trend: 0 })
+  })
+
+  it('counts a session on today (inclusive upper bound)', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(1)
+  })
+
+  it('counts a session exactly 6 days ago (inclusive lower bound of this week)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-02', status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(1)
+  })
+
+  it('excludes a session exactly 7 days ago from this week (falls in last week instead)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-01', status: 'completed' })
+    const result = getSessionsThisWeek([s], TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(1)
+  })
+
+  it('counts a session exactly 13 days ago (inclusive lower bound of last week)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-05-26', status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).lastWeekCount).toBe(1)
+  })
+
+  it('excludes a session exactly 14 days ago from both windows', () => {
+    const s = makeSession({ id: 'S1', date: '2024-05-25', status: 'completed' })
+    const result = getSessionsThisWeek([s], TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(0)
+  })
+
+  it('excludes a future session from this week', () => {
+    const s = makeSession({ id: 'S1', date: FUTURE, status: 'scheduled' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(0)
+  })
+
+  it('excludes cancelled sessions from both windows', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'cancelled' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'cancelled' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(0)
+  })
+
+  it('includes scheduled, completed, and missed sessions (only cancelled is excluded)', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'scheduled' }),
+      makeSession({ id: 'S2', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S3', date: TODAY, status: 'missed' }),
+    ]
+    expect(getSessionsThisWeek(sessions, TODAY).thisWeekCount).toBe(3)
+  })
+
+  it('computes a positive trend when this week is busier than last', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S3', date: '2024-06-01', status: 'completed' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(2)
+    expect(result.lastWeekCount).toBe(1)
+    expect(result.trend).toBe(1)
+  })
+
+  it('computes a negative trend when this week is quieter than last', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'completed' }),
+      makeSession({ id: 'S3', date: '2024-05-30', status: 'completed' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(1)
+    expect(result.lastWeekCount).toBe(2)
+    expect(result.trend).toBe(-1)
+  })
+
+  it('computes a zero trend when both weeks match', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'completed' }),
+    ]
+    expect(getSessionsThisWeek(sessions, TODAY).trend).toBe(0)
+  })
+
+  it('does not conflict with Today Timeline data — same sessions can appear in both without double meaning', () => {
+    // Today Timeline (getTodaySections) and Sessions This Week both read from
+    // the same sessions array; this test documents that a today-dated session
+    // correctly appears in both derivations independently (no shared mutable
+    // state, no cross-function coupling).
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: '09:00', status: 'scheduled' })]
+    const todaySection = getTodaySections(sessions, TODAY)
+    const week = getSessionsThisWeek(sessions, TODAY)
+    expect(todaySection.upcoming).toHaveLength(1)
+    expect(week.thisWeekCount).toBe(1)
   })
 })

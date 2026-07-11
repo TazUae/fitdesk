@@ -413,3 +413,60 @@ export function combineAttentionItems(
     },
   ]
 }
+
+// ─── Sessions This Week (US-045) ────────────────────────────────────────────────
+
+export interface SessionsThisWeekSnapshot {
+  /** Non-cancelled sessions dated [today-6, today] inclusive. */
+  thisWeekCount:  number
+  /** Non-cancelled sessions dated [today-13, today-7] inclusive — the prior rolling week. */
+  lastWeekCount:  number
+  /** thisWeekCount - lastWeekCount. Positive = busier than last week. */
+  trend:          number
+}
+
+/** `today` shifted by `deltaDays` (may be negative), both YYYY-MM-DD. */
+function shiftDate(today: string, deltaDays: number): string {
+  const [y, m, d] = today.split('-').map(Number)
+  const ms = Date.UTC(y, m - 1, d) + deltaDays * 86_400_000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+/**
+ * Sessions this rolling week vs. last, for the Business Health "Sessions
+ * This Week" KPI (US-045).
+ *
+ * Deliberately a rolling 7-day window ([today-6, today]), not a calendar
+ * week starting on a configured weekday — types/settings.ts defines a
+ * CalendarSettings.weekStartsOn field for exactly this, but it is not wired
+ * to any real settings fetch anywhere in the repo (confirmed by search); see
+ * docs/execution/sprint-2-us-045-plan.md for the full reasoning. A rolling
+ * window is timezone-safe (same local YYYY-MM-DD string comparison used
+ * throughout this file), unambiguous, and doesn't depend on a setting that
+ * doesn't exist yet.
+ *
+ * Excludes cancelled sessions from both counts — a cancelled session isn't
+ * really "activity this week" for a business-health read. Includes
+ * scheduled, completed, and missed sessions (all represent real trainer
+ * activity/commitment for that day, unlike a cancellation).
+ */
+export function getSessionsThisWeek(
+  sessions: Session[],
+  today: string,
+): SessionsThisWeekSnapshot {
+  const thisWeekStart = shiftDate(today, -6)
+  const lastWeekStart = shiftDate(today, -13)
+  const lastWeekEnd    = shiftDate(today, -7)
+
+  const activeSessions = sessions.filter(s => s.status !== 'cancelled')
+
+  const thisWeekCount = activeSessions.filter(
+    s => s.date >= thisWeekStart && s.date <= today,
+  ).length
+
+  const lastWeekCount = activeSessions.filter(
+    s => s.date >= lastWeekStart && s.date <= lastWeekEnd,
+  ).length
+
+  return { thisWeekCount, lastWeekCount, trend: thisWeekCount - lastWeekCount }
+}
