@@ -191,4 +191,63 @@ describe('startWorkspace — zero-row onboarding (US-026)', () => {
     // Tenant creation was attempted (the orphan scenario) but no row was persisted.
     expect(createTenant).toHaveBeenCalledTimes(1)
   })
+
+  // 6. Stale failed-only row does not block re-provisioning (US-026 "no stale
+  //    mapping reappears") ───────────────────────────────────────────────────
+  //
+  // The idempotency check (step 4) only resumes 'queued'/'running'/'completed'
+  // rows — 'failed' is deliberately excluded. A user whose only prior row is
+  // 'failed' must fall through to slug generation (step 5), where the
+  // collision check on their OWN stale slug must be recognized as
+  // "same user, safe to proceed" rather than blocking as a real collision.
+  // This exact fallthrough path had no test before this addition — every
+  // existing idempotency test only covered 'completed'/'queued'/'running'.
+  it('does not resume a stale failed-only row — proceeds to create a fresh workspace', async () => {
+    // 1st findFirst call = idempotency check (status in queued/running/completed):
+    // the failed row is excluded by that filter, so this returns undefined.
+    // 2nd findFirst call = slug collision check: the stale failed row for this
+    // same user is what a real DB would return here (matching slug, same userId).
+    vi.mocked(db.query.workspaceProvisioning.findFirst)
+      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce({
+        id: 'row-stale-failed', userId: TEST_USER_ID, slug: 'my-gym',
+        tenantId: 'stale-tenant', jobId: 'stale-job', status: 'failed',
+      } as never)
+
+    const result = await startWorkspace({ workspaceName: 'My Gym', countryCode: 'LB' })
+
+    expect(result).toEqual({ success: true, jobId: JOB_ID, status: 'queued' })
+    // A genuinely new tenant/row was created — the stale failed mapping was
+    // not resumed or reused as the "current" workspace.
+    expect(createTenant).toHaveBeenCalledTimes(1)
+    expect(db.insert).toHaveBeenCalledTimes(1)
+    const insertArg = valuesMock.mock.calls[0][0]
+    expect(insertArg.tenantId).toBe(TENANT_ID) // the NEW tenant, not 'stale-tenant'
+    expect(insertArg.jobId).toBe(JOB_ID)       // the NEW job, not 'stale-job'
+  })
+
+  it('does not let another user\'s slug collision block or leak into this user\'s workspace', async () => {
+    // 1st call = idempotency check: none for this user.
+    // 2nd call = slug collision check: a DIFFERENT user already holds this
+    // exact slug — the code must regenerate a suffixed slug rather than
+    // resuming/reusing that other user's row.
+    vi.mocked(db.query.workspaceProvisioning.findFirst)
+      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce({
+        id: 'row-other-user', userId: 'a-different-user', slug: 'my-gym',
+        tenantId: 'other-tenant', jobId: 'other-job', status: 'completed',
+      } as never)
+      // 3rd call = re-check of the suffixed slug ("my-gym-2") — no collision.
+      .mockResolvedValueOnce(undefined as never)
+
+    const result = await startWorkspace({ workspaceName: 'My Gym', countryCode: 'LB' })
+
+    expect(result).toEqual({ success: true, jobId: JOB_ID, status: 'queued' })
+    const cpArg = vi.mocked(createTenant).mock.calls[0][0]
+    expect(cpArg.slug).toBe('my-gym-2')
+    expect(cpArg.slug).not.toBe('my-gym') // never reuses the other user's slug
+    const insertArg = valuesMock.mock.calls[0][0]
+    expect(insertArg.userId).toBe(TEST_USER_ID)
+    expect(insertArg.tenantId).toBe(TENANT_ID) // the NEW tenant, not 'other-tenant'
+  })
 })
