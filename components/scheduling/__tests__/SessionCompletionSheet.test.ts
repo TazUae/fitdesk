@@ -9,7 +9,7 @@
  *   - canComplete() pure function (eligibility: tests 2, 3, 4)
  *   - mapCompletionError() pure function (error messages: test 7)
  *   - Source invariants: no billing/payment imports (test 9)
- *   - Source invariants: no cancel/no-show/reschedule behavior (test 8)
+ *   - Source invariants: no cancel/reschedule behavior; no-show is implemented (US-017)
  */
 
 import { readFileSync } from 'fs'
@@ -165,15 +165,11 @@ describe('SessionCompletionSheet source — no billing / payment imports', () =>
   })
 })
 
-// ─── Source invariants — no cancel / no-show / reschedule (test 8) ───────────
+// ─── Source invariants — no cancel / reschedule; no-show is implemented (US-017) ──
 
-describe('SessionCompletionSheet source — no cancel, no-show, or reschedule behavior', () => {
+describe('SessionCompletionSheet source — no cancel or reschedule behavior', () => {
   it('does not call cancelSessionAction', () => {
     expect(SHEET_SRC).not.toContain('cancelSessionAction')
-  })
-
-  it('does not call markNoShowAction', () => {
-    expect(SHEET_SRC).not.toContain('markNoShowAction')
   })
 
   it('does not call rescheduleSessionAction', () => {
@@ -184,13 +180,75 @@ describe('SessionCompletionSheet source — no cancel, no-show, or reschedule be
     expect(SHEET_SRC).not.toMatch(/Cancel session/i)
   })
 
-  it('does not call markNoShowAction or render a no-show button handler', () => {
-    expect(SHEET_SRC).not.toContain('markNoShowAction')
-    expect(SHEET_SRC).not.toContain('handleMarkNoShow')
-  })
-
   it('does not render a Reschedule control', () => {
     expect(SHEET_SRC).not.toMatch(/Reschedule|rescheduleSession/i)
+  })
+})
+
+// ─── Source invariants — no-show UI is wired (US-017) ─────────────────────────
+
+describe('SessionCompletionSheet source — no-show UI (US-017)', () => {
+  it('imports markNoShowAction and previewBatchCompletionAction from actions/schedulingActions', () => {
+    expect(SHEET_SRC).toContain('markNoShowAction')
+    expect(SHEET_SRC).toContain('previewBatchCompletionAction')
+    expect(SHEET_SRC).toContain("from '@/actions/schedulingActions'")
+  })
+
+  it('renders a "Mark as no-show" trigger gated on noShowEligible', () => {
+    expect(SHEET_SRC).toContain('noShowEligible')
+    expect(SHEET_SRC).toContain('Mark as no-show')
+  })
+
+  it('gates the no-show trigger using canMarkNoShow', () => {
+    expect(SHEET_SRC).toContain('canMarkNoShow(session)')
+  })
+
+  it('fetches a billing-aware preview before showing financial options', () => {
+    expect(SHEET_SRC).toContain('previewBatchCompletionAction([session.id])')
+    expect(SHEET_SRC).toContain('getNoShowFinancialChoice')
+  })
+
+  it('calls markNoShowAction with session.id, session.version, the selected action, and reason', () => {
+    expect(SHEET_SRC).toContain('markNoShowAction(')
+    expect(SHEET_SRC).toContain('session.id,')
+    expect(SHEET_SRC).toContain('session.version,')
+    expect(SHEET_SRC).toContain('selectedAction,')
+    expect(SHEET_SRC).toContain("noShowReason.trim() || undefined")
+  })
+
+  it('requires an explicit financial-option selection before a confirm control appears', () => {
+    // Confirm is only rendered when selectedAction is set — not a single dangerous button.
+    expect(SHEET_SRC).toContain('selectedAction && (')
+    expect(SHEET_SRC).toContain('Confirm no-show')
+  })
+
+  it('does not create a package invoice or reference deduct for pay-per-session anywhere in this file', () => {
+    // The financial-option copy itself lives in completionUI.ts, not duplicated here —
+    // this just confirms the sheet does not hardcode any invoice/package-invoice wording.
+    expect(SHEET_SRC).not.toContain('package invoice')
+  })
+
+  it('maps no-show errors via mapNoShowError, not the completion error mapper', () => {
+    expect(SHEET_SRC).toContain('mapNoShowError(result.code)')
+  })
+
+  it('shows a loading state while the billing preview is being fetched', () => {
+    expect(SHEET_SRC).toContain("previewStatus === 'loading'")
+    expect(SHEET_SRC).toContain('Checking billing')
+  })
+
+  it('shows a retry path when the billing preview fails to load', () => {
+    expect(SHEET_SRC).toContain("previewStatus === 'error'")
+    expect(SHEET_SRC).toContain('Retry')
+  })
+
+  it('shows a success toast and refreshes via onCompleted on a successful no-show', () => {
+    expect(SHEET_SRC).toContain("toast.success('Session marked as no-show')")
+  })
+
+  it('back button returns to the main view without closing the sheet or mutating', () => {
+    expect(SHEET_SRC).toContain('handleBackFromNoShow')
+    expect(SHEET_SRC).toContain('resetNoShow')
   })
 })
 
