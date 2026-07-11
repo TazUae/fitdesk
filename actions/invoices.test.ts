@@ -32,6 +32,7 @@ import {
   collectPayment,
   finalizeInvoice,
   fetchInvoiceById,
+  getPaymentLink,
   issueInvoice,
   recordPayment,
 } from '@/actions/invoices'
@@ -43,6 +44,7 @@ import {
   getInvoiceByIdForTrainer,
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
+import { generatePaymentLink } from '@/lib/whish'
 import type { Invoice, InvoiceStatus, Payment } from '@/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
@@ -119,6 +121,52 @@ describe('fetchInvoiceById — ownership gate', () => {
     const result = await fetchInvoiceById('SINV-1')
     expect(result.success).toBe(true)
     expect(getInvoiceByIdForTrainer).toHaveBeenCalledWith('SINV-1', 'trainer-1')
+  })
+})
+
+// ─── getPaymentLink — isExternalPaymentsAllowed wiring (Sprint 1 follow-up Item 1) ──
+//
+// generatePaymentLink is fully mocked in this file (see the module mock
+// above) — lib/whish.test.ts covers the actual blocking behavior. These
+// tests cover the other half: that this action layer resolves
+// isExternalPaymentsAllowed() itself and threads the real result through as
+// generatePaymentLink's 6th argument, rather than never calling it (which is
+// exactly the bug this follow-up round found and fixed) or hardcoding `true`.
+
+describe('getPaymentLink — isExternalPaymentsAllowed wiring', () => {
+  const ENV_KEY = 'PILOT_ALLOW_EXTERNAL_PAYMENTS'
+  let savedEnv: string | undefined
+
+  beforeEach(() => {
+    mockAuth()
+    savedEnv = process.env[ENV_KEY]
+    delete process.env[ENV_KEY]
+    vi.mocked(generatePaymentLink).mockResolvedValue({ success: true, url: 'https://example.test/pay/1', reference: 'ref-1' })
+  })
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[ENV_KEY]
+    else process.env[ENV_KEY] = savedEnv
+    vi.clearAllMocks()
+  })
+
+  it('passes externalPaymentsAllowed=false when PILOT_ALLOW_EXTERNAL_PAYMENTS is unset (the real default)', async () => {
+    await getPaymentLink({ invoiceId: 'SINV-1', amount: 100, clientName: 'Jane Doe', provider: 'whish' })
+
+    expect(generatePaymentLink).toHaveBeenCalledWith(100, 'Jane Doe', 'SINV-1', 'whish', 'USD', false)
+  })
+
+  it('passes externalPaymentsAllowed=true when PILOT_ALLOW_EXTERNAL_PAYMENTS=true', async () => {
+    process.env[ENV_KEY] = 'true'
+
+    await getPaymentLink({ invoiceId: 'SINV-1', amount: 100, clientName: 'Jane Doe', provider: 'whish' })
+
+    expect(generatePaymentLink).toHaveBeenCalledWith(100, 'Jane Doe', 'SINV-1', 'whish', 'USD', true)
+  })
+
+  it('resolves the flag for every provider, not only whish (the callee decides relevance)', async () => {
+    await getPaymentLink({ invoiceId: 'SINV-1', amount: 100, clientName: 'Jane Doe', provider: 'cash' })
+
+    expect(generatePaymentLink).toHaveBeenCalledWith(100, 'Jane Doe', 'SINV-1', 'cash', 'USD', false)
   })
 })
 

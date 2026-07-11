@@ -718,7 +718,79 @@ describe('duplicate active package guard', () => {
   })
 })
 
-// ─── 17. Static invariants ───────────────────────────────────────────────────
+// ─── 17. Tenant isolation (US-025) ───────────────────────────────────────────
+//
+// package-assignment-service.test.ts previously used a single tenant fixture
+// throughout. PackageAssignmentService.assignPackage() does not itself query
+// client_index/package_template — it delegates to templateRepo.findById(ctx, ...)
+// and purchaseRepo.createPurchaseFromTemplate(ctx, ...), both of which are already
+// tenant-isolation-tested at the repository layer (see
+// client-package-purchase-repository.test.ts "rejects cross-tenant template
+// access" / "rejects purchase when client does not exist in this tenant").
+// These two tests prove the *service* correctly threads ctx through to those
+// calls end-to-end via its own public API, closing the "repository AND
+// server-action boundaries are covered" gap for this service specifically.
+
+const TENANT_B = 'tenant-pas-b'
+const CTX_B: TenantCtx = { tenantId: TENANT_B }
+
+describe('assignPackage — tenant isolation', () => {
+  it('rejects a packageTemplateId that belongs to another tenant', async () => {
+    // TEMPLATE_ID exists under TENANT (the default fixture tenant) — calling
+    // under TENANT_B's context must not find it.
+    await dbClient.execute(`
+      INSERT INTO "client_index"
+        ("id","tenant_id","erp_customer_id","full_name","phone_e164","billing_mode","created_at_utc","updated_at_utc")
+      VALUES
+        ('ci-pas-b1','${TENANT_B}','CUST-PAS-B1','Tenant B Client','+96170000002','package',
+         '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')
+    `)
+
+    await expect(
+      service.assignPackage(CTX_B, {
+        clientIndexId:     'ci-pas-b1',
+        erpCustomerId:     'CUST-PAS-B1',
+        packageTemplateId: TEMPLATE_ID, // belongs to TENANT, not TENANT_B
+        idempotencyKey:    'ikey-pas-b-cross-template',
+      }),
+    ).rejects.toThrow('package template not found')
+
+    expect(mockErp.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('rejects a clientIndexId that belongs to another tenant', async () => {
+    // Give TENANT_B its own active template so the failure is unambiguously
+    // about the client, not the template.
+    await dbClient.execute(`
+      INSERT INTO "package_template"
+        ("id","tenant_id","name","template_type","session_count","price_amount","currency",
+         "erp_item_code","status","created_at_utc","updated_at_utc")
+      VALUES
+        ('tpl-pas-b','${TENANT_B}','B Tenant Block','standard_block',10,50000,'USD',
+         'SVC-10','active','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')
+    `)
+
+    await expect(
+      service.assignPackage(CTX_B, {
+        clientIndexId:     CLIENT_ID, // belongs to TENANT, not TENANT_B
+        erpCustomerId:     ERP_CUSTOMER_ID,
+        packageTemplateId: 'tpl-pas-b',
+        idempotencyKey:    'ikey-pas-b-cross-client',
+      }),
+    ).rejects.toThrow('client not found')
+
+    expect(mockErp.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('does not leak TENANT purchases into a TENANT_B listPurchasesByClient call', async () => {
+    await service.assignPackage(CTX, baseInput())
+
+    const purchasesB = await purchaseRepo.listPurchasesByClient(CTX_B, CLIENT_ID)
+    expect(purchasesB).toHaveLength(0)
+  })
+})
+
+// ─── 18. Static invariants ───────────────────────────────────────────────────
 
 describe('service file invariants', () => {
   it('service source contains no forbidden patterns', () => {

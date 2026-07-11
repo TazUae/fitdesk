@@ -151,7 +151,7 @@ function SummaryGrid({
             {card.label}
           </p>
           <p className="mt-0.5 text-base font-bold" style={{ color: card.color }}>
-            {fmtMoney(card.value)}
+            {fmtMoney(card.value, summary.currency)}
           </p>
         </div>
       ))}

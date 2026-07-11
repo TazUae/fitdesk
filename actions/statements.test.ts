@@ -152,7 +152,7 @@ describe('getClientStatement', () => {
     if (result.success) {
       expect(result.data.rows).toEqual([])
       expect(result.data.summary).toEqual({
-        totalInvoiced: 0, totalPaid: 0, outstandingBalance: 0, overdueBalance: 0,
+        totalInvoiced: 0, totalPaid: 0, outstandingBalance: 0, overdueBalance: 0, currency: 'USD',
       })
     }
   })

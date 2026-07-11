@@ -56,6 +56,16 @@ export interface ClientStatementSummary {
   totalPaid: number
   outstandingBalance: number
   overdueBalance: number
+  /**
+   * ISO 4217 currency code for every amount in this summary. Derived from the
+   * first invoice that has one; 'USD' when there are no invoices at all
+   * (matches the same fallback lib/dashboard/derive.ts's getMoneySnapshot
+   * uses). FitDesk does not currently support a client with invoices in more
+   * than one currency — this field intentionally assumes a single currency
+   * per statement, consistent with existing invoice-summary behavior
+   * elsewhere in the app.
+   */
+  currency: string
 }
 
 export interface ClientStatement {
@@ -162,7 +172,9 @@ function buildSummary(
     .filter(i => i.status === 'overdue')
     .reduce((sum, i) => sum + i.outstandingAmount, 0)
 
-  return { totalInvoiced, totalPaid, outstandingBalance, overdueBalance }
+  const currency = realInvoices.find(i => i.currency)?.currency ?? 'USD'
+
+  return { totalInvoiced, totalPaid, outstandingBalance, overdueBalance, currency }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

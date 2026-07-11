@@ -120,8 +120,24 @@ describe('assembleStatement — summary totals', () => {
     const { rows, summary } = assembleStatement([], [])
     expect(rows).toEqual([])
     expect(summary).toEqual({
-      totalInvoiced: 0, totalPaid: 0, outstandingBalance: 0, overdueBalance: 0,
+      totalInvoiced: 0, totalPaid: 0, outstandingBalance: 0, overdueBalance: 0, currency: 'USD',
     })
+  })
+
+  // US-018 — "Currency is visible": the summary must report the client's real
+  // invoice currency, not silently assume USD. FitDesk's MENA rollout (AE, SA,
+  // LB, KW, QA) means a client statement in AED must never be labeled USD.
+  it('derives currency from the invoices when it is not USD', () => {
+    const { summary } = assembleStatement(
+      [invoice({ id: 'SINV-1', status: 'sent', amount: 100, outstandingAmount: 100, currency: 'AED' })],
+      [],
+    )
+    expect(summary.currency).toBe('AED')
+  })
+
+  it('defaults currency to USD when there are no invoices to derive it from', () => {
+    const { summary } = assembleStatement([], [payment({ id: 'PE-1', amount: 30 })])
+    expect(summary.currency).toBe('USD')
   })
 })
 

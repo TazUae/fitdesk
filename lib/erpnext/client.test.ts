@@ -19,8 +19,10 @@ vi.hoisted(() => {
 
 import {
   ERPNextError,
+  cancelSession,
   clampDueDate,
   createAndSubmitPaymentEntry,
+  createSession,
   findInvoiceBySession,
   getClientById,
   getCustomerBillingMode,
@@ -28,6 +30,10 @@ import {
   getInvoiceByIdForTrainer,
   getPaymentEntry,
   getPaymentsForCustomer,
+  getSessionById,
+  getSessions,
+  markSessionComplete,
+  markSessionMissed,
   submitPaymentEntry,
   submitSalesInvoice,
 } from './client'
@@ -638,5 +644,66 @@ describe('getCustomerBillingMode', () => {
       fetchMock.mockResolvedValueOnce(erpOk({ custom_billing_mode: value }))
       await expect(getCustomerBillingMode(CLIENT_ID)).resolves.toBeNull()
     }
+  })
+})
+
+// ─── PT Session stubs — orphaned, dead-end by design (Sprint 1 follow-up Item 2) ──
+//
+// actions/sessions.ts's completeSession/cancelSession/noShowSession call these
+// functions. They are unconditional stubs — the PT Session DocType does not
+// exist in this ERP instance; live scheduling uses the separate FD Session
+// path (lib/scheduling/sessionRepository.ts + sessionCompletionService.ts,
+// wired through actions/schedulingActions.ts, not this file). No component or
+// route imports completeSession/cancelSession/noShowSession from
+// actions/sessions.ts (confirmed by repo-wide grep during this work) — this
+// whole call chain is orphaned, not reachable from any UI today.
+//
+// These tests exist so that if this file is ever "half-fixed" — e.g. someone
+// changes getSessions to return real data without also wiring
+// createSession/markSessionComplete/cancelSession/markSessionMissed to a real
+// backend — the change fails loudly here instead of silently letting
+// actions/sessions.ts start reporting false success. See US-017 (No-Show
+// Session Outcome) and US-039 (Session Cancel / Reschedule Outcome) in
+// docs/execution/FINAL_DOC_PACK_TRACEABILITY_MAP.md for the real, live-backed
+// version of this feature that would replace this file's session functions
+// entirely, rather than "completing" these stubs in place.
+
+describe('PT Session stubs — orphaned, not wired to a live backend', () => {
+  it('getSessions returns an empty list rather than throwing', async () => {
+    await expect(getSessions({ trainerId: TRAINER_ID })).resolves.toEqual([])
+  })
+
+  it('getSessionById always throws 404 — no session can ever be "found" through this path', async () => {
+    await expect(getSessionById('S1', TRAINER_ID)).rejects.toBeInstanceOf(ERPNextError)
+    const err = await getSessionById('S1', TRAINER_ID).catch(e => e as ERPNextError)
+    expect(err.status).toBe(404)
+  })
+
+  it('createSession always throws 503 — never returns a fake-created session', async () => {
+    await expect(createSession({
+      client: 'CUST-1', trainer: TRAINER_ID, session_date: '2026-01-01',
+    })).rejects.toBeInstanceOf(ERPNextError)
+    const err = await createSession({
+      client: 'CUST-1', trainer: TRAINER_ID, session_date: '2026-01-01',
+    }).catch(e => e as ERPNextError)
+    expect(err.status).toBe(503)
+  })
+
+  it('markSessionComplete always throws 503 — never silently marks a session complete', async () => {
+    await expect(markSessionComplete('S1')).rejects.toBeInstanceOf(ERPNextError)
+    const err = await markSessionComplete('S1').catch(e => e as ERPNextError)
+    expect(err.status).toBe(503)
+  })
+
+  it('cancelSession always throws 503 — never silently cancels a session', async () => {
+    await expect(cancelSession('S1')).rejects.toBeInstanceOf(ERPNextError)
+    const err = await cancelSession('S1').catch(e => e as ERPNextError)
+    expect(err.status).toBe(503)
+  })
+
+  it('markSessionMissed always throws 503 — never silently marks a no-show', async () => {
+    await expect(markSessionMissed('S1')).rejects.toBeInstanceOf(ERPNextError)
+    const err = await markSessionMissed('S1').catch(e => e as ERPNextError)
+    expect(err.status).toBe(503)
   })
 })
