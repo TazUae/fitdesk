@@ -54,6 +54,7 @@ Build a simple, fast, reliable PT business operating system focused on:
 - Every query and every mutation must be scoped to the caller's resolved tenant/workspace/trainer context
 - Missing or unresolved tenant/workspace context fails closed (deny / not-found) — never fall back to unscoped access
 - Client-supplied IDs (`sessionId`, `clientId`, `invoiceId`, docname, etc.) must be ownership-verified against the resolved context before any read or mutation
+- This applies identically to background/queued/scheduled work (backfill, repair, reconcile jobs, future outbox consumers): a job must carry an explicit tenant scope through its entire execution, must never iterate "all tenants" implicitly, and must fail closed (skip/error, not fall back to unscoped) if its tenant context is missing or ambiguous
 - See `docs/security/H5-trainer-ownership.md` for a known-latent pattern of this class and `US-025` (Tenant-Isolation Test Coverage) in the Sprint 1 traceability map below
 
 ## Documentation Authority & Execution Kit
@@ -122,6 +123,13 @@ Client → Server Action / Route Handler → Typed Adapter → External Service
 - Delivery failures must be visible in the UI
 - Auto-sending without user confirmation is not allowed in MVP
 
+### WhatsApp Consent States (PD-005)
+
+- Every client carries one of four consent states: `unknown`, `opt_in_requested`, `opted_in`, `opted_out`
+- Reminder/follow-up workflows require `opted_in` — `unknown` blocks reminder generation and instead offers "Send Initial Opt-In Request"; `opted_out` clients are excluded entirely, with no override
+- Every consent-state change and every send attempt (success or failure) must be logged and auditable
+- As of 2026-07-11, no consent-state field exists in `lib/db/schema.ts` and no code enforces this gate — this is a known gap (see `docs/audits/OVERNIGHT_FINAL_DOC_PACK_AUDIT.md` R-2). Do not build WhatsApp reminder/follow-up send paths (US-048, US-050, US-059, or similar) without adding and enforcing this consent model first
+
 ---
 
 ## Payment Rules
@@ -157,11 +165,13 @@ Client → Server Action / Route Handler → Typed Adapter → External Service
 
 ---
 
-## AI Rules
+## AI Rules (Human-Sovereign AI)
 
-- AI is assistive only — never autonomous
-- Allowed: message suggestions, summaries, recommendations
-- Not allowed: auto-sending messages, unreviewed financial actions, autonomous agents
+- AI is a copilot, not an autopilot — the trainer remains the decision-maker for every mutation and external action
+- Allowed: parsing messy input into a draft, suggesting follow-ups, drafting WhatsApp copy, summarizing client context, recommending next actions
+- Not allowed, ever, regardless of confidence: auto-sending WhatsApp messages, auto-creating invoices, auto-booking sessions, auto-recording payments, auto-consuming packages, auto-publishing programs, overriding safety flags
+- Every mutation and every external send AI drafts requires explicit trainer approval before it executes
+- If AI fails, times out, or has low confidence, the manual workflow must continue unaffected — AI is never a hard dependency for a core action to be completable
 
 ---
 
