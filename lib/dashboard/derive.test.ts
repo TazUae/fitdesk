@@ -9,6 +9,7 @@ import {
   getUnresolvedSessionAttentionItems,
   getMissingNextSessionAttentionItems,
   combineAttentionItems,
+  formatOverflowLabel,
   getSessionsThisWeek,
 } from './derive'
 import type { AttentionItem } from './derive'
@@ -776,16 +777,35 @@ describe('combineAttentionItems', () => {
     expect(result[0].label).toBe('urgent') // highest-priority source's item survives truncation
   })
 
-  it('singularizes "1 more"', () => {
+  it('uses plural grammar when 7 items are combined under a cap of 6 (7 - 5 visible = 2 hidden)', () => {
     const items = Array.from({ length: 7 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
     const result = combineAttentionItems([items], 6)
-    expect(result[5].label).toBe('+2 more needs attention') // 7 - 5 visible = 2
+    expect(result[5].label).toBe('+2 more items need attention')
   })
 
-  it('a combined overflow of exactly 1 uses singular "need"', () => {
+  it('uses plural grammar when 4 items are combined under a cap of 3 (4 - 2 visible = 2 hidden)', () => {
     const items = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
     const result = combineAttentionItems([items], 3)
-    expect(result[2].label).toBe('+2 more needs attention')
+    expect(result[2].label).toBe('+2 more items need attention')
+  })
+})
+
+// ─── formatOverflowLabel (US-027 grammar) ──────────────────────────────────────
+//
+// combineAttentionItems always reserves one visible slot for the overflow
+// row itself, so overflowCount is never less than 2 through normal use of
+// the function (see its own doc comment) — the singular "1 hidden item"
+// branch of the grammar is untestable through combineAttentionItems without
+// a degenerate cap. formatOverflowLabel is tested directly instead so both
+// branches are covered without relying on unreachable/degenerate input.
+describe('formatOverflowLabel', () => {
+  it('uses singular grammar for exactly 1 hidden item', () => {
+    expect(formatOverflowLabel(1)).toBe('+1 more item needs attention')
+  })
+
+  it('uses plural grammar for multiple hidden items', () => {
+    expect(formatOverflowLabel(2)).toBe('+2 more items need attention')
+    expect(formatOverflowLabel(5)).toBe('+5 more items need attention')
   })
 })
 

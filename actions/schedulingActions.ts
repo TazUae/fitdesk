@@ -355,8 +355,10 @@ export async function completeSessionAction(
 // ─── US-057 — Unresolved Sessions Batch Resolution ─────────────────────────────
 
 export interface UnresolvedSessionPreviewItem {
-  id:      string
-  preview: SessionCompletionPreview
+  id:       string
+  preview?: SessionCompletionPreview
+  code?:    SchedulingErrorCode
+  message?: string
 }
 
 /**
@@ -366,10 +368,12 @@ export interface UnresolvedSessionPreviewItem {
  * Used by the batch-resolve UI to show financial consequences before the
  * trainer confirms (US-057 acceptance criterion).
  *
- * One session failing to preview (e.g. a stale/unknown id) is reported per
- * item via the `preview` field's absence — this function does not abort the
- * whole batch for one bad id, matching batchCompleteSessionsAction's own
- * per-item isolation.
+ * Auth/tenant resolution failures fail the whole call (nothing to preview
+ * per-item yet). Once resolved, each sessionId is previewed independently —
+ * one session failing to preview (e.g. a stale/unknown id) is reported per
+ * item via `code`/`message` with `preview` absent; it does not abort the
+ * rest of the batch, matching batchCompleteSessionsAction's own per-item
+ * isolation.
  */
 export async function previewBatchCompletionAction(
   sessionIds: string[],
@@ -385,12 +389,12 @@ export async function previewBatchCompletionAction(
   }
   const tenantCtx = { tenantId: ctx.tenantId }
 
-  try {
-    const clientRepo = new ClientRepository(db)
-    const ledgerRepo = new PackageLedgerRepository(db)
+  const clientRepo = new ClientRepository(db)
+  const ledgerRepo = new PackageLedgerRepository(db)
 
-    const items: UnresolvedSessionPreviewItem[] = []
-    for (const id of sessionIds) {
+  const items: UnresolvedSessionPreviewItem[] = []
+  for (const id of sessionIds) {
+    try {
       const session = await findSessionById(id)
       const client  = await clientRepo.findClientByErpId(tenantCtx, session.clientId)
       const billingMode = client?.billingMode ?? null
@@ -416,11 +420,16 @@ export async function previewBatchCompletionAction(
           totalPackageBalance,
         }),
       })
+    } catch (err) {
+      // Mirrors batchCompleteSessionsAction's per-item isolation: one bad
+      // sessionId (stale/unknown id, lookup failure) is reported on this
+      // item only, not thrown out of the loop.
+      const mapped = mapError<never>(err)
+      if (mapped.success) continue // unreachable; satisfies the type checker
+      items.push({ id, code: mapped.code, message: mapped.message })
     }
-    return { success: true, data: items }
-  } catch (err) {
-    return mapError(err)
   }
+  return { success: true, data: items }
 }
 
 export interface BatchCompletionItemResult {

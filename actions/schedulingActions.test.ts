@@ -928,6 +928,28 @@ describe('previewBatchCompletionAction', () => {
       expect(result.data.map(d => d.id)).toEqual(['fds-A', 'fds-B', 'fds-C'])
     }
   })
+
+  it('reports a per-item failure for a bad sessionId without aborting the rest of the batch', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTenantContext.mockResolvedValue(MOCK_TENANT_CTX)
+    mockFindSessionById.mockImplementation(async (id: string) => {
+      if (id === 'fds-bad') throw new Error('Session not found')
+      return makeSession({ id, isTrialSession: true })
+    })
+    mockFindClientByErpId.mockResolvedValue({ id: 'ci-1', billingMode: 'package', erpCustomerId: 'CUST-001' })
+
+    const result = await previewBatchCompletionAction(['fds-bad', 'fds-001'])
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].id).toBe('fds-bad')
+      expect(result.data[0].preview).toBeUndefined()
+      expect(result.data[0].code).toBe('ERR')
+      expect(result.data[0].message).toBe('Session not found')
+      expect(result.data[1]).toEqual({ id: 'fds-001', preview: { kind: 'trial' } })
+    }
+  })
 })
 
 // ─── batchCompleteSessionsAction (US-057) — extra emphasis on duplicate prevention ──

@@ -375,6 +375,20 @@ export function getMissingNextSessionAttentionItems(
 const DEFAULT_COMBINED_CAP = 6
 
 /**
+ * Pure grammar for the combined-overflow row's label. Extracted from
+ * combineAttentionItems so both branches (singular "+1 more item needs
+ * attention" and plural "+N more items need attention") are directly
+ * testable — the cap/visible-slicing logic below always reserves a slot for
+ * this row itself, so overflowCount is never less than 2 through normal
+ * (non-degenerate) use of combineAttentionItems, and the singular branch
+ * would otherwise be untestable without exercising a degenerate cap value.
+ */
+export function formatOverflowLabel(overflowCount: number): string {
+  const isSingular = overflowCount === 1
+  return `+${overflowCount} more item${isSingular ? '' : 's'} ${isSingular ? 'needs' : 'need'} attention`
+}
+
+/**
  * Combines multiple already-derived (and already individually-capped)
  * attention sources into one ordered, overall-capped list for the dashboard
  * (US-027 "Needs Attention Expansion").
@@ -405,7 +419,7 @@ export function combineAttentionItems(
     ...visible,
     {
       type:  combined[cap - 1].type,
-      label: `+${overflowCount} more need${overflowCount === 1 ? '' : 's'} attention`,
+      label: formatOverflowLabel(overflowCount),
       // No single destination fits a mixed-type overflow (invoices, sessions,
       // clients) — the client directory is the closest thing to a universal
       // "see everyone" catch-all, better than linking back to this same page.
