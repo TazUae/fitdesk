@@ -1,17 +1,25 @@
 /**
  * ActionCenter — lightweight attention panel.
  *
- * Renders itemized invoice attention cards:
- *   overdue_invoice  — red urgency (past due)
- *   pending_invoice  — amber collection prompt (sent / partially_paid)
- *   invoice_overflow — "+N more" cap link to invoices list
+ * Renders itemized attention cards:
+ *   overdue_invoice      — red urgency (past due)
+ *   pending_invoice      — amber collection prompt (sent / partially_paid)
+ *   invoice_overflow     — "+N more" cap link to invoices list
+ *   unresolved_session   — amber, session needs an outcome (US-057/US-003)
+ *   missing_next_session — calm/neutral, client has no upcoming session (US-003)
  *
  * Link-only — no mutation.
  * Caller must guard: if (attentionItems.length === 0) don't render this.
+ *
+ * IMPORTANT: every AttentionItem.type must have its own explicit branch
+ * here. The final return below assumes overdue_invoice shape
+ * (outstandingAmount/currency/ageDays) — a type that falls through to it
+ * without a dedicated branch would render with the wrong color and blank
+ * meta text instead of a visible error, so this is not a safe default.
  */
 
 import Link from 'next/link'
-import { AlertTriangle, ArrowRight, Clock } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CalendarX, Clock } from 'lucide-react'
 import { fmtMoneyCompact } from '@/lib/format/money'
 import type { AttentionItem } from '@/lib/dashboard/derive'
 
@@ -73,6 +81,60 @@ export function ActionCenter({ items }: ActionCenterProps) {
                     {' · To collect'}
                   </p>
                 )}
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+            </Link>
+          )
+        }
+
+        // ── Unresolved session — amber, needs an outcome (US-057/US-003) ────
+        if (item.type === 'unresolved_session') {
+          return (
+            <Link
+              key={idx}
+              href={item.href}
+              aria-label={item.label}
+              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-opacity active:opacity-70"
+              style={{
+                backgroundColor: 'rgba(232,197,71,0.07)',
+                borderColor:     'rgba(232,197,71,0.28)',
+              }}
+            >
+              <Clock
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--fd-accent)' }}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm" style={{ color: 'var(--fd-text)' }}>
+                  {item.label}
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+            </Link>
+          )
+        }
+
+        // ── Missing next session — calm/neutral, no upcoming session (US-003) ──
+        if (item.type === 'missing_next_session') {
+          return (
+            <Link
+              key={idx}
+              href={item.href}
+              aria-label={item.label}
+              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-opacity active:opacity-70"
+              style={{
+                backgroundColor: 'var(--fd-surface)',
+                borderColor:     'var(--fd-border)',
+              }}
+            >
+              <CalendarX
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--fd-muted)' }}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm" style={{ color: 'var(--fd-text)' }}>
+                  {item.label}
+                </p>
               </div>
               <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
             </Link>

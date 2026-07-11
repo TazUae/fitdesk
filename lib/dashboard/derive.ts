@@ -7,7 +7,7 @@
 
 import { fmtShortDate, fmtTime } from '@/lib/date'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
-import type { Session, Invoice } from '@/types'
+import type { Session, Invoice, Client } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,11 +45,19 @@ export interface MoneySnapshot {
 /** A single lightweight attention item — link only, no mutation. */
 export interface AttentionItem {
   /**
-   * overdue_invoice   — past due, strongest urgency (red).
-   * pending_invoice   — sent / partially_paid, collection prompt (amber).
-   * invoice_overflow  — "+N more" cap item linking to the invoices list.
+   * overdue_invoice      — past due, strongest urgency (red).
+   * pending_invoice      — sent / partially_paid, collection prompt (amber).
+   * invoice_overflow     — "+N more" cap item linking to the invoices list.
+   * unresolved_session   — past session with no recorded outcome (US-057/US-003).
+   * missing_next_session — active client with no future session booked (US-003).
+   *
+   * IMPORTANT: every type added here needs its own explicit render branch in
+   * features/dashboard/components/ActionCenter.tsx — that component's render
+   * loop falls through to overdue_invoice styling/fields for any type it
+   * doesn't explicitly recognize, which would silently render a broken card
+   * (wrong color, missing fields) for a type that isn't handled there yet.
    */
-  type: 'overdue_invoice' | 'pending_invoice' | 'invoice_overflow'
+  type: 'overdue_invoice' | 'pending_invoice' | 'invoice_overflow' | 'unresolved_session' | 'missing_next_session'
   label: string
   href: string
   /** Present on 'overdue_invoice' and 'pending_invoice' items. */
@@ -227,4 +235,252 @@ export function getAttentionItems(invoices: Invoice[], today?: string): Attentio
   }
 
   return items
+}
+
+// ─── Unresolved sessions (US-057) ──────────────────────────────────────────────
+
+/**
+ * A past session whose outcome was never recorded — still `'scheduled'`
+ * (covers both FD Session `'scheduled'` and `'confirmed'`, which
+ * lib/dashboard/fdSessionAdapter.ts's mapFDStatus both map to `'scheduled'`;
+ * either way the trainer never marked what actually happened) with a start
+ * time strictly before `now`.
+ */
+export interface UnresolvedSessionItem {
+  session:     Session
+  /** Days elapsed since the session's date (0 = today, still in the past by time). */
+  daysOverdue: number
+}
+
+/**
+ * Returns past sessions with no recorded outcome, oldest first (most overdue
+ * surfaces first — mirrors sortByAge's oldest-first convention for overdue
+ * invoices).
+ *
+ * `nowTime` (HH:mm) is optional, same contract as getNextUp: when provided, a
+ * session dated today whose `time` is before `nowTime` counts as unresolved;
+ * a session with no `time` is never excluded by the time check (its start
+ * can't be determined, so date-only comparison applies).
+ */
+export function getUnresolvedSessions(
+  sessions: Session[],
+  today: string,
+  nowTime?: string,
+): UnresolvedSessionItem[] {
+  const unresolved = sessions.filter(s => {
+    if (s.status !== 'scheduled') return false
+    if (s.date > today) return false
+    if (s.date < today) return true
+    // s.date === today
+    if (!nowTime || !s.time) return false
+    return s.time < nowTime
+  })
+
+  return unresolved
+    .map(session => ({ session, daysOverdue: daysSinceDue(today, session.date) }))
+    .sort((a, b) =>
+      a.session.date.localeCompare(b.session.date) || (a.session.time ?? '').localeCompare(b.session.time ?? ''),
+    )
+}
+
+const UNRESOLVED_CAP = 4
+
+/**
+ * Converts US-057's unresolved-session detection into the dashboard's
+ * AttentionItem card shape. Oldest-first (already sorted by
+ * getUnresolvedSessions), capped with an overflow item — same convention as
+ * getAttentionItems' invoice cap.
+ *
+ * href points at the schedule view, not a mutation — batch resolution itself
+ * is a separate confirmed action, not something this card triggers directly.
+ */
+export function getUnresolvedSessionAttentionItems(
+  items: UnresolvedSessionItem[],
+): AttentionItem[] {
+  if (items.length === 0) return []
+
+  const visible = items.slice(0, UNRESOLVED_CAP)
+  const overflowCount = items.length - UNRESOLVED_CAP
+
+  const result: AttentionItem[] = visible.map(({ session, daysOverdue }) => ({
+    type:       'unresolved_session' as const,
+    label:      `${session.clientName} — session needs an outcome${daysOverdue > 0 ? ` (${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} ago)` : ''}`,
+    href:       '/dashboard/schedule',
+    clientName: session.clientName,
+  }))
+
+  if (overflowCount > 0) {
+    result.push({
+      type:  'unresolved_session' as const,
+      label: `+${overflowCount} more unresolved session${overflowCount !== 1 ? 's' : ''}`,
+      href:  '/dashboard/schedule',
+    })
+  }
+
+  return result
+}
+
+const MISSING_NEXT_SESSION_CAP = 4
+
+/**
+ * Active clients with no future scheduled session in the already-fetched
+ * dashboard session window (US-003 "missing next sessions where data
+ * exists" — "where data exists" scopes this to the session window the
+ * dashboard already has on hand, not an exhaustive all-time lookup).
+ *
+ * A client with zero sessions ever (never booked) is intentionally excluded
+ * — that is the Add Client / first-booking loop's job (FE-002), not a
+ * Needs Attention signal; this card is about a client who was active and
+ * then fell off the schedule, not a brand-new client mid-onboarding.
+ */
+export function getMissingNextSessionAttentionItems(
+  clients: Client[],
+  sessions: Session[],
+  today: string,
+): AttentionItem[] {
+  const clientIdsWithHistory = new Set(sessions.map(s => s.clientId))
+  const clientIdsWithFutureSession = new Set(
+    sessions.filter(s => s.status === 'scheduled' && s.date >= today).map(s => s.clientId),
+  )
+
+  const candidates = clients.filter(c =>
+    c.status === 'active'
+    && clientIdsWithHistory.has(c.id)
+    && !clientIdsWithFutureSession.has(c.id),
+  )
+
+  if (candidates.length === 0) return []
+
+  const visible = candidates.slice(0, MISSING_NEXT_SESSION_CAP)
+  const overflowCount = candidates.length - MISSING_NEXT_SESSION_CAP
+
+  const result: AttentionItem[] = visible.map(client => ({
+    type:       'missing_next_session' as const,
+    label:      `${client.name} has no upcoming session booked`,
+    href:       `/dashboard/clients/${client.id}`,
+    clientName: client.name,
+  }))
+
+  if (overflowCount > 0) {
+    result.push({
+      type:  'missing_next_session' as const,
+      label: `+${overflowCount} more client${overflowCount !== 1 ? 's' : ''} with no upcoming session`,
+      href:  '/dashboard/clients',
+    })
+  }
+
+  return result
+}
+
+const DEFAULT_COMBINED_CAP = 6
+
+/**
+ * Pure grammar for the combined-overflow row's label. Extracted from
+ * combineAttentionItems so both branches (singular "+1 more item needs
+ * attention" and plural "+N more items need attention") are directly
+ * testable — the cap/visible-slicing logic below always reserves a slot for
+ * this row itself, so overflowCount is never less than 2 through normal
+ * (non-degenerate) use of combineAttentionItems, and the singular branch
+ * would otherwise be untestable without exercising a degenerate cap value.
+ */
+export function formatOverflowLabel(overflowCount: number): string {
+  const isSingular = overflowCount === 1
+  return `+${overflowCount} more item${isSingular ? '' : 's'} ${isSingular ? 'needs' : 'need'} attention`
+}
+
+/**
+ * Combines multiple already-derived (and already individually-capped)
+ * attention sources into one ordered, overall-capped list for the dashboard
+ * (US-027 "Needs Attention Expansion").
+ *
+ * Without an overall cap, three sources each capped at 4-5 items could show
+ * up to ~14 cards on one dashboard — technically correct, but the opposite
+ * of FITDESK_PRODUCT_PRINCIPLE_V1_1.md's "Calm... avoid alert spam", and not
+ * really "an operating inbox" if it's a wall of cards. `sources` must be
+ * passed in priority order (highest urgency first) — this function does not
+ * re-sort across sources, only truncates.
+ *
+ * If truncation cuts into the combined list, the truncated portion (which
+ * may itself include an inner source's own "+N more" row) is replaced with
+ * a single combined overflow row, so the trainer never sees two different
+ * "+N more" rows implying two different destinations for "the rest".
+ */
+export function combineAttentionItems(
+  sources: AttentionItem[][],
+  cap: number = DEFAULT_COMBINED_CAP,
+): AttentionItem[] {
+  const combined = sources.flat()
+  if (combined.length <= cap) return combined
+
+  const visible = combined.slice(0, cap - 1)
+  const overflowCount = combined.length - visible.length
+
+  return [
+    ...visible,
+    {
+      type:  combined[cap - 1].type,
+      label: formatOverflowLabel(overflowCount),
+      // No single destination fits a mixed-type overflow (invoices, sessions,
+      // clients) — the client directory is the closest thing to a universal
+      // "see everyone" catch-all, better than linking back to this same page.
+      href:  '/dashboard/clients',
+    },
+  ]
+}
+
+// ─── Sessions This Week (US-045) ────────────────────────────────────────────────
+
+export interface SessionsThisWeekSnapshot {
+  /** Non-cancelled sessions dated [today-6, today] inclusive. */
+  thisWeekCount:  number
+  /** Non-cancelled sessions dated [today-13, today-7] inclusive — the prior rolling week. */
+  lastWeekCount:  number
+  /** thisWeekCount - lastWeekCount. Positive = busier than last week. */
+  trend:          number
+}
+
+/** `today` shifted by `deltaDays` (may be negative), both YYYY-MM-DD. */
+function shiftDate(today: string, deltaDays: number): string {
+  const [y, m, d] = today.split('-').map(Number)
+  const ms = Date.UTC(y, m - 1, d) + deltaDays * 86_400_000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+/**
+ * Sessions this rolling week vs. last, for the Business Health "Sessions
+ * This Week" KPI (US-045).
+ *
+ * Deliberately a rolling 7-day window ([today-6, today]), not a calendar
+ * week starting on a configured weekday — types/settings.ts defines a
+ * CalendarSettings.weekStartsOn field for exactly this, but it is not wired
+ * to any real settings fetch anywhere in the repo (confirmed by search); see
+ * docs/execution/sprint-2-us-045-plan.md for the full reasoning. A rolling
+ * window is timezone-safe (same local YYYY-MM-DD string comparison used
+ * throughout this file), unambiguous, and doesn't depend on a setting that
+ * doesn't exist yet.
+ *
+ * Excludes cancelled sessions from both counts — a cancelled session isn't
+ * really "activity this week" for a business-health read. Includes
+ * scheduled, completed, and missed sessions (all represent real trainer
+ * activity/commitment for that day, unlike a cancellation).
+ */
+export function getSessionsThisWeek(
+  sessions: Session[],
+  today: string,
+): SessionsThisWeekSnapshot {
+  const thisWeekStart = shiftDate(today, -6)
+  const lastWeekStart = shiftDate(today, -13)
+  const lastWeekEnd    = shiftDate(today, -7)
+
+  const activeSessions = sessions.filter(s => s.status !== 'cancelled')
+
+  const thisWeekCount = activeSessions.filter(
+    s => s.date >= thisWeekStart && s.date <= today,
+  ).length
+
+  const lastWeekCount = activeSessions.filter(
+    s => s.date >= lastWeekStart && s.date <= lastWeekEnd,
+  ).length
+
+  return { thisWeekCount, lastWeekCount, trend: thisWeekCount - lastWeekCount }
 }

@@ -5,8 +5,15 @@ import {
   getMoneySnapshot,
   getUpcoming,
   getAttentionItems,
+  getUnresolvedSessions,
+  getUnresolvedSessionAttentionItems,
+  getMissingNextSessionAttentionItems,
+  combineAttentionItems,
+  formatOverflowLabel,
+  getSessionsThisWeek,
 } from './derive'
-import type { Session, Invoice } from '@/types'
+import type { AttentionItem } from './derive'
+import type { Session, Invoice, Client } from '@/types'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -39,6 +46,19 @@ function makeInvoice(partial: Partial<Invoice> & { id: string }): Invoice {
     status:            'sent',
     dueDate:           TODAY,
     issuedAt:          TODAY,
+    ...partial,
+  }
+}
+
+function makeClient(partial: Partial<Client> & { id: string }): Client {
+  return {
+    firstName:    'Alice',
+    name:         'Alice',
+    phone:        '+15550000',
+    status:       'active',
+    trainerId:    'T1',
+    sessionCount: 1,
+    createdAt:    '2024-01-01',
     ...partial,
   }
 }
@@ -479,5 +499,419 @@ describe('getAttentionItems', () => {
     expect(overflow.type).toBe('invoice_overflow')
     expect(overflow.label).toContain('+1')
     expect(overflow.href).toBe('/dashboard/invoices')
+  })
+})
+
+// ─── getUnresolvedSessions (US-057) ────────────────────────────────────────────
+
+describe('getUnresolvedSessions', () => {
+  it('returns empty array when there are no sessions', () => {
+    expect(getUnresolvedSessions([], TODAY)).toEqual([])
+  })
+
+  it('includes a past scheduled session', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY)
+    expect(result).toHaveLength(1)
+    expect(result[0].session.id).toBe('S1')
+  })
+
+  it('excludes a future scheduled session', () => {
+    const s = makeSession({ id: 'S1', date: FUTURE, status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a completed session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'completed' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a cancelled session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'cancelled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a missed (no-show) session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'missed' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a today session scheduled later than nowTime', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '18:00', status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY, '09:00')).toEqual([])
+  })
+
+  it('includes a today session scheduled earlier than nowTime', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY, '09:00')
+    expect(result).toHaveLength(1)
+  })
+
+  it('excludes a today session when nowTime is omitted (cannot determine if it has passed)', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a today session with no time even when nowTime is passed', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY, '23:59')).toEqual([])
+  })
+
+  it('sorts oldest-first', () => {
+    const sessions = [
+      makeSession({ id: 'S-recent', date: '2024-06-05', status: 'scheduled' }),
+      makeSession({ id: 'S-oldest', date: '2024-06-01', status: 'scheduled' }),
+      makeSession({ id: 'S-mid',    date: '2024-06-03', status: 'scheduled' }),
+    ]
+    const result = getUnresolvedSessions(sessions, TODAY)
+    expect(result.map(r => r.session.id)).toEqual(['S-oldest', 'S-mid', 'S-recent'])
+  })
+
+  it('computes daysOverdue relative to today', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-01', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY)
+    expect(result[0].daysOverdue).toBe(7) // 2024-06-08 - 2024-06-01
+  })
+
+  it('a today, past-time session has daysOverdue 0', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY, '09:00')
+    expect(result[0].daysOverdue).toBe(0)
+  })
+
+  it('mixed batch: only unresolved sessions are returned, others excluded', () => {
+    const sessions = [
+      makeSession({ id: 'S-unresolved-1', date: PAST, status: 'scheduled' }),
+      makeSession({ id: 'S-completed',    date: PAST, status: 'completed' }),
+      makeSession({ id: 'S-future',       date: FUTURE, status: 'scheduled' }),
+      makeSession({ id: 'S-unresolved-2', date: '2024-06-03', status: 'scheduled' }),
+      makeSession({ id: 'S-cancelled',    date: PAST, status: 'cancelled' }),
+    ]
+    const result = getUnresolvedSessions(sessions, TODAY)
+    expect(result.map(r => r.session.id)).toEqual(['S-unresolved-1', 'S-unresolved-2'])
+  })
+})
+
+// ─── getUnresolvedSessionAttentionItems (US-003) ───────────────────────────────
+
+describe('getUnresolvedSessionAttentionItems', () => {
+  it('returns empty array for no unresolved sessions', () => {
+    expect(getUnresolvedSessionAttentionItems([])).toEqual([])
+  })
+
+  it('maps an unresolved session to an attention item', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: PAST })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 7 }])
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('unresolved_session')
+    expect(result[0].clientName).toBe('Bob')
+    expect(result[0].label).toContain('Bob')
+    expect(result[0].label).toContain('7 days ago')
+    expect(result[0].href).toBe('/dashboard/schedule')
+  })
+
+  it('singularizes "1 day ago"', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: PAST })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 1 }])
+    expect(result[0].label).toContain('1 day ago')
+    expect(result[0].label).not.toContain('1 days ago')
+  })
+
+  it('omits the "days ago" suffix for daysOverdue 0', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: TODAY })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 0 }])
+    expect(result[0].label).not.toContain('days ago')
+    expect(result[0].label).not.toContain('day ago')
+  })
+
+  it('caps at 4 with an overflow item', () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({
+      session:     makeSession({ id: `S${i}`, clientName: `Client${i}`, date: PAST }),
+      daysOverdue: i + 1,
+    }))
+    const result = getUnresolvedSessionAttentionItems(items)
+    expect(result).toHaveLength(5) // 4 visible + 1 overflow
+    expect(result[4].label).toContain('+2 more')
+  })
+
+  it('does not append an overflow item at exactly the cap', () => {
+    const items = Array.from({ length: 4 }, (_, i) => ({
+      session:     makeSession({ id: `S${i}`, clientName: `Client${i}`, date: PAST }),
+      daysOverdue: i + 1,
+    }))
+    const result = getUnresolvedSessionAttentionItems(items)
+    expect(result).toHaveLength(4)
+  })
+})
+
+// ─── getMissingNextSessionAttentionItems (US-003) ──────────────────────────────
+
+describe('getMissingNextSessionAttentionItems', () => {
+  it('returns empty array with no clients', () => {
+    expect(getMissingNextSessionAttentionItems([], [], TODAY)).toEqual([])
+  })
+
+  it('excludes an active client with a future scheduled session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: FUTURE, status: 'scheduled' })]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('includes an active client with only past sessions (no future one)', () => {
+    const client = makeClient({ id: 'C1', name: 'Bob', status: 'active' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: PAST, status: 'completed' })]
+    const result = getMissingNextSessionAttentionItems([client], sessions, TODAY)
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('missing_next_session')
+    expect(result[0].clientName).toBe('Bob')
+    expect(result[0].href).toBe('/dashboard/clients/C1')
+  })
+
+  it('excludes a client with zero session history entirely (brand new / never booked)', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    expect(getMissingNextSessionAttentionItems([client], [], TODAY)).toEqual([])
+  })
+
+  it('excludes an inactive client even with only past sessions', () => {
+    const client = makeClient({ id: 'C1', status: 'inactive' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: PAST, status: 'completed' })]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('a session scheduled today (not yet past) counts as a future session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [
+      makeSession({ id: 'S0', clientId: 'C1', date: PAST, status: 'completed' }),
+      makeSession({ id: 'S1', clientId: 'C1', date: TODAY, status: 'scheduled' }),
+    ]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('a cancelled future session does not count as an upcoming session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [
+      makeSession({ id: 'S0', clientId: 'C1', date: PAST, status: 'completed' }),
+      makeSession({ id: 'S1', clientId: 'C1', date: FUTURE, status: 'cancelled' }),
+    ]
+    const result = getMissingNextSessionAttentionItems([client], sessions, TODAY)
+    expect(result).toHaveLength(1)
+  })
+
+  it('caps at 4 with an overflow item', () => {
+    const clients = Array.from({ length: 6 }, (_, i) => makeClient({ id: `C${i}`, status: 'active' }))
+    const sessions = clients.map((c, i) =>
+      makeSession({ id: `S${i}`, clientId: c.id, date: PAST, status: 'completed' }),
+    )
+    const result = getMissingNextSessionAttentionItems(clients, sessions, TODAY)
+    expect(result).toHaveLength(5) // 4 visible + 1 overflow
+    expect(result[4].label).toContain('+2 more')
+    expect(result[4].href).toBe('/dashboard/clients')
+  })
+
+  it('mixed set: only active clients with history and no future session are included', () => {
+    const clientA = makeClient({ id: 'C-A', status: 'active' })   // has future session -> excluded
+    const clientB = makeClient({ id: 'C-B', status: 'active' })   // only past -> included
+    const clientC = makeClient({ id: 'C-C', status: 'inactive' }) // inactive -> excluded
+    const clientD = makeClient({ id: 'C-D', status: 'active' })   // no history at all -> excluded
+    const sessions = [
+      makeSession({ id: 'S-A', clientId: 'C-A', date: FUTURE, status: 'scheduled' }),
+      makeSession({ id: 'S-B', clientId: 'C-B', date: PAST,   status: 'completed' }),
+      makeSession({ id: 'S-C', clientId: 'C-C', date: PAST,   status: 'completed' }),
+    ]
+    const result = getMissingNextSessionAttentionItems([clientA, clientB, clientC, clientD], sessions, TODAY)
+    expect(result.map(r => r.clientName)).toEqual(['Alice']) // only clientB (default name from fixture)
+  })
+})
+
+// ─── combineAttentionItems (US-027) ────────────────────────────────────────────
+
+function makeAttentionItem(partial: Partial<AttentionItem> & { type: AttentionItem['type'] }): AttentionItem {
+  return {
+    label: 'item',
+    href:  '/dashboard',
+    ...partial,
+  }
+}
+
+describe('combineAttentionItems', () => {
+  it('returns empty array when all sources are empty', () => {
+    expect(combineAttentionItems([[], [], []])).toEqual([])
+  })
+
+  it('concatenates sources in the order given when under the cap', () => {
+    const overdue     = [makeAttentionItem({ type: 'overdue_invoice', label: 'A' })]
+    const unresolved  = [makeAttentionItem({ type: 'unresolved_session', label: 'B' })]
+    const missingNext = [makeAttentionItem({ type: 'missing_next_session', label: 'C' })]
+    const result = combineAttentionItems([overdue, unresolved, missingNext])
+    expect(result.map(r => r.label)).toEqual(['A', 'B', 'C'])
+  })
+
+  it('does not truncate or add an overflow row at exactly the cap', () => {
+    const items = Array.from({ length: 6 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items])
+    expect(result).toHaveLength(6)
+    expect(result.map(r => r.label)).toEqual(items.map(i => i.label))
+  })
+
+  it('truncates and appends one combined overflow row when the total exceeds the cap', () => {
+    const overdue     = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `O${i}` }))
+    const unresolved  = Array.from({ length: 5 }, (_, i) => makeAttentionItem({ type: 'unresolved_session', label: `U${i}` }))
+    const result = combineAttentionItems([overdue, unresolved])
+    expect(result).toHaveLength(6) // 5 visible + 1 combined overflow
+    expect(result.slice(0, 5).map(r => r.label)).toEqual(['O0', 'O1', 'O2', 'O3', 'U0'])
+    expect(result[5].label).toContain('+4 more')
+    expect(result[5].href).toBe('/dashboard/clients')
+  })
+
+  it('respects a custom cap', () => {
+    const items = Array.from({ length: 5 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 3)
+    expect(result).toHaveLength(3)
+    expect(result[2].label).toContain('+3 more')
+  })
+
+  it('preserves priority order — higher-priority source appears first even when it would be truncated last', () => {
+    const overdue = [makeAttentionItem({ type: 'overdue_invoice', label: 'urgent' })]
+    const missingNext = Array.from({ length: 10 }, (_, i) => makeAttentionItem({ type: 'missing_next_session', label: `soft${i}` }))
+    const result = combineAttentionItems([overdue, missingNext], 3)
+    expect(result[0].label).toBe('urgent') // highest-priority source's item survives truncation
+  })
+
+  it('uses plural grammar when 7 items are combined under a cap of 6 (7 - 5 visible = 2 hidden)', () => {
+    const items = Array.from({ length: 7 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 6)
+    expect(result[5].label).toBe('+2 more items need attention')
+  })
+
+  it('uses plural grammar when 4 items are combined under a cap of 3 (4 - 2 visible = 2 hidden)', () => {
+    const items = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 3)
+    expect(result[2].label).toBe('+2 more items need attention')
+  })
+})
+
+// ─── formatOverflowLabel (US-027 grammar) ──────────────────────────────────────
+//
+// combineAttentionItems always reserves one visible slot for the overflow
+// row itself, so overflowCount is never less than 2 through normal use of
+// the function (see its own doc comment) — the singular "1 hidden item"
+// branch of the grammar is untestable through combineAttentionItems without
+// a degenerate cap. formatOverflowLabel is tested directly instead so both
+// branches are covered without relying on unreachable/degenerate input.
+describe('formatOverflowLabel', () => {
+  it('uses singular grammar for exactly 1 hidden item', () => {
+    expect(formatOverflowLabel(1)).toBe('+1 more item needs attention')
+  })
+
+  it('uses plural grammar for multiple hidden items', () => {
+    expect(formatOverflowLabel(2)).toBe('+2 more items need attention')
+    expect(formatOverflowLabel(5)).toBe('+5 more items need attention')
+  })
+})
+
+// ─── getSessionsThisWeek (US-045) ──────────────────────────────────────────────
+
+describe('getSessionsThisWeek', () => {
+  // TODAY = 2024-06-08. This week: [2024-06-02, 2024-06-08]. Last week: [2024-05-26, 2024-06-01].
+
+  it('returns all zeros for no sessions', () => {
+    expect(getSessionsThisWeek([], TODAY)).toEqual({ thisWeekCount: 0, lastWeekCount: 0, trend: 0 })
+  })
+
+  it('counts a session on today (inclusive upper bound)', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(1)
+  })
+
+  it('counts a session exactly 6 days ago (inclusive lower bound of this week)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-02', status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(1)
+  })
+
+  it('excludes a session exactly 7 days ago from this week (falls in last week instead)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-01', status: 'completed' })
+    const result = getSessionsThisWeek([s], TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(1)
+  })
+
+  it('counts a session exactly 13 days ago (inclusive lower bound of last week)', () => {
+    const s = makeSession({ id: 'S1', date: '2024-05-26', status: 'completed' })
+    expect(getSessionsThisWeek([s], TODAY).lastWeekCount).toBe(1)
+  })
+
+  it('excludes a session exactly 14 days ago from both windows', () => {
+    const s = makeSession({ id: 'S1', date: '2024-05-25', status: 'completed' })
+    const result = getSessionsThisWeek([s], TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(0)
+  })
+
+  it('excludes a future session from this week', () => {
+    const s = makeSession({ id: 'S1', date: FUTURE, status: 'scheduled' })
+    expect(getSessionsThisWeek([s], TODAY).thisWeekCount).toBe(0)
+  })
+
+  it('excludes cancelled sessions from both windows', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'cancelled' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'cancelled' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(0)
+    expect(result.lastWeekCount).toBe(0)
+  })
+
+  it('includes scheduled, completed, and missed sessions (only cancelled is excluded)', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'scheduled' }),
+      makeSession({ id: 'S2', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S3', date: TODAY, status: 'missed' }),
+    ]
+    expect(getSessionsThisWeek(sessions, TODAY).thisWeekCount).toBe(3)
+  })
+
+  it('computes a positive trend when this week is busier than last', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S3', date: '2024-06-01', status: 'completed' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(2)
+    expect(result.lastWeekCount).toBe(1)
+    expect(result.trend).toBe(1)
+  })
+
+  it('computes a negative trend when this week is quieter than last', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'completed' }),
+      makeSession({ id: 'S3', date: '2024-05-30', status: 'completed' }),
+    ]
+    const result = getSessionsThisWeek(sessions, TODAY)
+    expect(result.thisWeekCount).toBe(1)
+    expect(result.lastWeekCount).toBe(2)
+    expect(result.trend).toBe(-1)
+  })
+
+  it('computes a zero trend when both weeks match', () => {
+    const sessions = [
+      makeSession({ id: 'S1', date: TODAY, status: 'completed' }),
+      makeSession({ id: 'S2', date: '2024-06-01', status: 'completed' }),
+    ]
+    expect(getSessionsThisWeek(sessions, TODAY).trend).toBe(0)
+  })
+
+  it('does not conflict with Today Timeline data — same sessions can appear in both without double meaning', () => {
+    // Today Timeline (getTodaySections) and Sessions This Week both read from
+    // the same sessions array; this test documents that a today-dated session
+    // correctly appears in both derivations independently (no shared mutable
+    // state, no cross-function coupling).
+    const sessions = [makeSession({ id: 'S1', date: TODAY, time: '09:00', status: 'scheduled' })]
+    const todaySection = getTodaySections(sessions, TODAY)
+    const week = getSessionsThisWeek(sessions, TODAY)
+    expect(todaySection.upcoming).toHaveLength(1)
+    expect(week.thisWeekCount).toBe(1)
   })
 })
