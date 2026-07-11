@@ -136,6 +136,43 @@ vi.mock('@/lib/scheduling/sessionCompletionService', () => ({
   },
 }))
 
+// Mock reschedule service — action tests verify auth + error mapping, not service internals.
+vi.mock('@/lib/scheduling/sessionRescheduleService', () => ({
+  rescheduleSession: vi.fn(),
+  DstInvalidError: class DstInvalidError extends Error {
+    sessionId: string
+    date: string
+    time: string
+    constructor(sessionId: string, date: string, time: string) {
+      super(`Session ${sessionId}: "${date} ${time}" does not exist in this timezone (DST gap)`)
+      this.name = 'DstInvalidError'
+      this.sessionId = sessionId
+      this.date = date
+      this.time = time
+    }
+  },
+  RescheduleConflictError: class RescheduleConflictError extends Error {
+    sessionId: string
+    kind: string
+    constructor(sessionId: string, kind: string) {
+      super(`Session ${sessionId}: new time conflicts with an existing booking (${kind})`)
+      this.name = 'RescheduleConflictError'
+      this.sessionId = sessionId
+      this.kind = kind
+    }
+  },
+  RescheduleOutOfHoursError: class RescheduleOutOfHoursError extends Error {
+    sessionId: string
+    reason: string
+    constructor(sessionId: string, reason: string) {
+      super(`Session ${sessionId}: ${reason}`)
+      this.name = 'RescheduleOutOfHoursError'
+      this.sessionId = sessionId
+      this.reason = reason
+    }
+  },
+}))
+
 // Mock ERP client functions used by PPS completion deps.
 vi.mock('@/lib/erpnext/client', () => ({
   findInvoiceBySession: vi.fn(),
@@ -172,6 +209,7 @@ import {
   completeSessionAction,
   markNoShowAction,
   cancelSessionAction,
+  rescheduleSessionAction,
   previewBatchCompletionAction,
   batchCompleteSessionsAction,
 } from '@/actions/schedulingActions'
@@ -182,6 +220,7 @@ import * as trainerConfigMod from '@/lib/scheduling/trainerConfig'
 import * as bookingServiceMod from '@/lib/scheduling/bookingService'
 import * as engineMod from '@/lib/scheduling/engine'
 import * as completionServiceMod from '@/lib/scheduling/sessionCompletionService'
+import * as rescheduleServiceMod from '@/lib/scheduling/sessionRescheduleService'
 import type { FDSession, TrainerConfig, BookingPlan, Occurrence } from '@/types/scheduling'
 
 const mockResolveTrainerId    = vi.mocked(resolveTrainerMod.resolveTrainerId)
@@ -194,6 +233,7 @@ const mockBuildBookingPlan    = vi.mocked(engineMod.buildBookingPlan)
 const mockCompleteSession     = vi.mocked(completionServiceMod.completeSession)
 const mockMarkNoShow         = vi.mocked(completionServiceMod.markNoShow)
 const mockCancelSession      = vi.mocked(completionServiceMod.cancelSession)
+const mockRescheduleSession  = vi.mocked(rescheduleServiceMod.rescheduleSession)
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -262,6 +302,7 @@ beforeEach(() => {
   mockCompleteSession.mockReset()
   mockMarkNoShow.mockReset()
   mockCancelSession.mockReset()
+  mockRescheduleSession.mockReset()
   mockFindClientByErpId.mockReset()
 })
 
@@ -591,7 +632,7 @@ describe('bookPlanAction', () => {
 
 // ─── C4B/US-017 export surface ─────────────────────────────────────────────────
 
-describe('C4B/US-017/US-039 export surface — booking + completion + no-show + cancel exported; no reschedule yet', () => {
+describe('C4B/US-017/US-039 export surface — booking + completion + no-show + cancel + reschedule exported', () => {
   it('exports buildPlanAction', async () => {
     const mod = await import('@/actions/schedulingActions')
     expect(typeof (mod as Record<string, unknown>).buildPlanAction).toBe('function')
@@ -617,9 +658,9 @@ describe('C4B/US-017/US-039 export surface — booking + completion + no-show + 
     expect(typeof (mod as Record<string, unknown>).cancelSessionAction).toBe('function')
   })
 
-  it('does not export rescheduleSessionAction (deferred to a later US-039 increment)', async () => {
+  it('exports rescheduleSessionAction (US-039)', async () => {
     const mod = await import('@/actions/schedulingActions')
-    expect((mod as Record<string, unknown>).rescheduleSessionAction).toBeUndefined()
+    expect(typeof (mod as Record<string, unknown>).rescheduleSessionAction).toBe('function')
   })
 })
 
@@ -1256,6 +1297,207 @@ describe('cancelSessionAction', () => {
     expect(second.success).toBe(false)
     if (!second.success) expect(second.code).toBe('IMMUTABLE_STATUS')
     expect(mockCancelSession).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ─── rescheduleSessionAction (US-039) ──────────────────────────────────────────
+
+const MOCK_RESCHEDULED_SESSION: FDSession = {
+  ...MOCK_SESSION,
+  startAt: new Date('2026-01-06T07:00:00Z'),
+  endAt:   new Date('2026-01-06T08:00:00Z'),
+  version: 2,
+}
+
+describe('rescheduleSessionAction', () => {
+  it('returns AUTH error when not authenticated — never calls rescheduleSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ error: 'Not authenticated.' })
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('AUTH')
+    expect(mockRescheduleSession).not.toHaveBeenCalled()
+  })
+
+  // Unlike completeSessionAction/markNoShowAction/cancelSessionAction, reschedule
+  // never touches the local billing DB (no ClientRepository/PackageConsumptionService
+  // dependency exists in RescheduleDeps at all), so it does not need — and must
+  // not call — getTenantContext(). This is a deliberate design difference, not
+  // an oversight; asserted explicitly so a future edit can't silently add an
+  // unnecessary tenant-context requirement back in.
+  it('never calls getTenantContext — reschedule has no local-DB dependency', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockResolvedValue(MOCK_RESCHEDULED_SESSION)
+
+    await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(mockGetTenantContext).not.toHaveBeenCalled()
+  })
+
+  it('returns success with the rescheduled session data', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockResolvedValue(MOCK_RESCHEDULED_SESSION)
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.id).toBe('fds-001')
+      expect(result.data.version).toBe(2)
+    }
+  })
+
+  it('passes id, expectedVersion, newLocalDate, newLocalTime, and reason through to rescheduleSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockResolvedValue(MOCK_RESCHEDULED_SESSION)
+
+    await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00', 'client asked to move')
+
+    const [, , id, expectedVersion, newLocalDate, newLocalTime, reason] = mockRescheduleSession.mock.calls[0]
+    expect(id).toBe('fds-001')
+    expect(expectedVersion).toBe(1)
+    expect(newLocalDate).toBe('2026-01-06')
+    expect(newLocalTime).toBe('10:00')
+    expect(reason).toBe('client asked to move')
+  })
+
+  it('passes the resolved trainer\'s config to rescheduleSession', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockResolvedValue(MOCK_RESCHEDULED_SESSION)
+
+    await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    const [, config] = mockRescheduleSession.mock.calls[0]
+    expect(config).toEqual(MOCK_CONFIG)
+    expect(mockGetTrainerConfig).toHaveBeenCalledWith('trainer-1')
+  })
+
+  it('wires findSessionById/findSessionsInRange/updateSession as deps', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockResolvedValue(MOCK_RESCHEDULED_SESSION)
+
+    await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    const [deps] = mockRescheduleSession.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    expect(typeof deps.findSessionById).toBe('function')
+    expect(typeof deps.findSessionsInRange).toBe('function')
+    expect(typeof deps.updateSession).toBe('function')
+    // No invoice/package-consumption dep exists at all in this deps object.
+    expect(deps).not.toHaveProperty('createInvoice')
+    expect(deps).not.toHaveProperty('consumeForSession')
+  })
+
+  it('maps VersionConflictError to VERSION_CONFLICT code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    const VersionConflictErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).VersionConflictError
+    mockRescheduleSession.mockRejectedValue(new VersionConflictErrorCls('fds-001'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('VERSION_CONFLICT')
+  })
+
+  it('maps ImmutableSessionError to IMMUTABLE_STATUS code (terminal statuses cannot be rescheduled)', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    const ImmutableSessionErrorCls =
+      (await import('@/lib/scheduling/sessionCompletionService')).ImmutableSessionError
+    mockRescheduleSession.mockRejectedValue(new ImmutableSessionErrorCls('fds-001', 'completed'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('IMMUTABLE_STATUS')
+  })
+
+  it('maps DstInvalidError to a structured DST_INVALID code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    const DstInvalidErrorCls =
+      (await import('@/lib/scheduling/sessionRescheduleService')).DstInvalidError
+    mockRescheduleSession.mockRejectedValue(new DstInvalidErrorCls('fds-001', '2026-03-08', '02:30'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-03-08', '02:30')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('DST_INVALID')
+  })
+
+  it('maps RescheduleConflictError to CONFLICT code (overlap or buffer)', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    const RescheduleConflictErrorCls =
+      (await import('@/lib/scheduling/sessionRescheduleService')).RescheduleConflictError
+    mockRescheduleSession.mockRejectedValue(new RescheduleConflictErrorCls('fds-001', 'overlap'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('CONFLICT')
+  })
+
+  it('maps RescheduleOutOfHoursError to OUT_OF_HOURS code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    const RescheduleOutOfHoursErrorCls =
+      (await import('@/lib/scheduling/sessionRescheduleService')).RescheduleOutOfHoursError
+    mockRescheduleSession.mockRejectedValue(new RescheduleOutOfHoursErrorCls('fds-001', 'Not a working day (sat)'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-10', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('OUT_OF_HOURS')
+      expect(result.message).toBe('Not a working day (sat)')
+    }
+  })
+
+  it('maps a generic ERP error to ERR code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+    mockRescheduleSession.mockRejectedValue(new Error('ERP write failed'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('ERR')
+      expect(result.message).toBe('ERP write failed')
+    }
+  })
+
+  it('maps a getTrainerConfig failure to ERR code', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockRejectedValue(new Error('ERP unavailable'))
+
+    const result = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('ERR')
+    expect(mockRescheduleSession).not.toHaveBeenCalled()
+  })
+
+  it('is retryable: first attempt ERR, second attempt succeeds', async () => {
+    mockResolveTrainerId.mockResolvedValue({ trainerId: 'trainer-1' })
+    mockGetTrainerConfig.mockResolvedValue(MOCK_CONFIG)
+
+    mockRescheduleSession.mockRejectedValueOnce(new Error('ERP write failed'))
+    const first = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+    expect(first.success).toBe(false)
+    if (!first.success) expect(first.code).toBe('ERR')
+
+    mockRescheduleSession.mockResolvedValueOnce(MOCK_RESCHEDULED_SESSION)
+    const second = await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
+    expect(second.success).toBe(true)
   })
 })
 
