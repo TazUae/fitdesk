@@ -9,7 +9,8 @@
  *   - canComplete() pure function (eligibility: tests 2, 3, 4)
  *   - mapCompletionError() pure function (error messages: test 7)
  *   - Source invariants: no billing/payment imports (test 9)
- *   - Source invariants: no cancel/reschedule behavior; no-show is implemented (US-017)
+ *   - Source invariants: no-show (US-017), cancel (US-039), and reschedule
+ *     (US-039) sub-view UI are all implemented and wired
  */
 
 import { readFileSync } from 'fs'
@@ -165,26 +166,6 @@ describe('SessionCompletionSheet source — no billing / payment imports', () =>
   })
 })
 
-// ─── Source invariants — no cancel / reschedule; no-show is implemented (US-017) ──
-
-describe('SessionCompletionSheet source — no cancel or reschedule behavior', () => {
-  it('does not call cancelSessionAction', () => {
-    expect(SHEET_SRC).not.toContain('cancelSessionAction')
-  })
-
-  it('does not call rescheduleSessionAction', () => {
-    expect(SHEET_SRC).not.toContain('rescheduleSessionAction')
-  })
-
-  it('does not render a Cancel session button', () => {
-    expect(SHEET_SRC).not.toMatch(/Cancel session/i)
-  })
-
-  it('does not render a Reschedule control', () => {
-    expect(SHEET_SRC).not.toMatch(/Reschedule|rescheduleSession/i)
-  })
-})
-
 // ─── Source invariants — no-show UI is wired (US-017) ─────────────────────────
 
 describe('SessionCompletionSheet source — no-show UI (US-017)', () => {
@@ -249,6 +230,132 @@ describe('SessionCompletionSheet source — no-show UI (US-017)', () => {
   it('back button returns to the main view without closing the sheet or mutating', () => {
     expect(SHEET_SRC).toContain('handleBackFromNoShow')
     expect(SHEET_SRC).toContain('resetNoShow')
+  })
+})
+
+// ─── Source invariants — cancel UI (US-039) ────────────────────────────────────
+
+describe('SessionCompletionSheet source — cancel UI (US-039)', () => {
+  it('imports cancelSessionAction from actions/schedulingActions', () => {
+    expect(SHEET_SRC).toContain('cancelSessionAction')
+    expect(SHEET_SRC).toContain("from '@/actions/schedulingActions'")
+  })
+
+  it('renders a "Cancel session" trigger gated on cancelEligible', () => {
+    expect(SHEET_SRC).toContain('cancelEligible')
+    expect(SHEET_SRC).toContain('Cancel session')
+  })
+
+  it('gates the cancel trigger using canCancel — hidden for terminal/immutable statuses', () => {
+    expect(SHEET_SRC).toContain('canCancel(session)')
+  })
+
+  it('requires an explicit Confirm tap before calling cancelSessionAction — not a single dangerous button', () => {
+    // handleOpenCancel only opens the explanatory sub-view; the mutation itself
+    // is behind a distinctly-labeled "Confirm cancellation" button in a
+    // separate handler (handleConfirmCancel), not fired directly from the trigger.
+    expect(SHEET_SRC).toContain('handleOpenCancel')
+    expect(SHEET_SRC).toContain('handleConfirmCancel')
+    expect(SHEET_SRC).toContain('Confirm cancellation')
+  })
+
+  it('explains that cancellation preserves client history and has no billing effect', () => {
+    expect(SHEET_SRC).toContain("stays in the client&apos;s history")
+    expect(SHEET_SRC).toContain('No invoice is created, voided, refunded, or credited')
+  })
+
+  it('calls cancelSessionAction with session.id, session.version, and reason', () => {
+    expect(SHEET_SRC).toContain('cancelSessionAction(')
+    expect(SHEET_SRC).toContain('session.id,')
+    expect(SHEET_SRC).toContain('session.version,')
+    expect(SHEET_SRC).toContain('cancelReason.trim() || undefined')
+  })
+
+  it('maps cancel errors via mapCancelError, not the completion/no-show error mappers', () => {
+    expect(SHEET_SRC).toContain('mapCancelError(result.code)')
+  })
+
+  it('shows a success toast and refreshes via onCompleted on a successful cancellation', () => {
+    expect(SHEET_SRC).toContain("toast.success('Session cancelled')")
+  })
+
+  it('back button returns to the main view without closing the sheet or mutating', () => {
+    expect(SHEET_SRC).toContain('handleBackFromCancel')
+    expect(SHEET_SRC).toContain('resetCancel')
+  })
+
+  it('resets cancel sub-view state when the sheet is closed', () => {
+    expect(SHEET_SRC).toContain('resetCancel()')
+  })
+})
+
+// ─── Source invariants — reschedule UI (US-039) ────────────────────────────────
+
+describe('SessionCompletionSheet source — reschedule UI (US-039)', () => {
+  it('imports rescheduleSessionAction from actions/schedulingActions', () => {
+    expect(SHEET_SRC).toContain('rescheduleSessionAction')
+    expect(SHEET_SRC).toContain("from '@/actions/schedulingActions'")
+  })
+
+  it('renders a "Reschedule session" trigger gated on rescheduleEligible', () => {
+    expect(SHEET_SRC).toContain('rescheduleEligible')
+    expect(SHEET_SRC).toContain('Reschedule session')
+  })
+
+  it('gates the reschedule trigger using canReschedule — hidden for terminal/immutable statuses', () => {
+    expect(SHEET_SRC).toContain('canReschedule(session)')
+  })
+
+  it('uses minimal native date/time inputs, not a full booking sheet', () => {
+    expect(SHEET_SRC).toContain('type="date"')
+    expect(SHEET_SRC).toContain('type="time"')
+    expect(SHEET_SRC).not.toContain('BookingSheet')
+  })
+
+  it('requires both date and time before the Confirm control appears', () => {
+    // The Confirm button in the reschedule footer is only rendered when both
+    // newDate and newTime are set — not a single always-visible submit button.
+    expect(SHEET_SRC).toContain('newDate && newTime && (')
+    expect(SHEET_SRC).toContain('Confirm reschedule')
+  })
+
+  it('calls rescheduleSessionAction with session.id, session.version, newDate, newTime, and reason', () => {
+    expect(SHEET_SRC).toContain('rescheduleSessionAction(')
+    expect(SHEET_SRC).toContain('session.id,')
+    expect(SHEET_SRC).toContain('session.version,')
+    expect(SHEET_SRC).toContain('newDate,')
+    expect(SHEET_SRC).toContain('newTime,')
+    expect(SHEET_SRC).toContain('rescheduleReason.trim() || undefined')
+  })
+
+  it('explains that rescheduling changes the time and has no financial effect', () => {
+    expect(SHEET_SRC).toMatch(/no financial effect/i)
+  })
+
+  it('maps reschedule errors (conflict/DST/out-of-hours/version/immutable) via mapRescheduleError', () => {
+    expect(SHEET_SRC).toContain('mapRescheduleError(result.code)')
+  })
+
+  it('shows a success toast and refreshes via onCompleted on a successful reschedule', () => {
+    expect(SHEET_SRC).toContain("toast.success('Session rescheduled')")
+  })
+
+  it('back button returns to the main view without closing the sheet or mutating', () => {
+    expect(SHEET_SRC).toContain('handleBackFromReschedule')
+    expect(SHEET_SRC).toContain('resetReschedule')
+  })
+
+  it('resets reschedule sub-view state when the sheet is closed', () => {
+    expect(SHEET_SRC).toContain('resetReschedule()')
+  })
+
+  it('cancel and no-show UI remain wired after the shared sheet file was touched again', () => {
+    // Regression guard for the "shared file, multiple increments" overlap risk —
+    // adding reschedule must not have clobbered the earlier no-show/cancel wiring.
+    expect(SHEET_SRC).toContain('markNoShowAction')
+    expect(SHEET_SRC).toContain('cancelSessionAction')
+    expect(SHEET_SRC).toContain('Mark as no-show')
+    expect(SHEET_SRC).toContain('Cancel session')
   })
 })
 

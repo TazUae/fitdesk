@@ -8,10 +8,10 @@
  * C4B scope: +completeSessionAction (trial + billing dispatch shell).
  * US-017 scope: +markNoShowAction (trial/PPS/package financial dispatch — see
  *   docs/execution/phase-1-plus-safe-run-plan.md for the approved design).
- * US-039 scope: +cancelSessionAction (financially inert — see the same doc).
- *
- * Not included (deferred to a later US-039 increment):
- *   rescheduleSessionAction
+ * US-039 scope: +cancelSessionAction, +rescheduleSessionAction (both financially
+ *   inert — see the same doc). Reschedule reuses the pure conflict/DST/availability
+ *   primitives from lib/scheduling/engine.ts via lib/scheduling/sessionRescheduleService.ts,
+ *   the same logic bookingService.ts already uses for new bookings.
  *
  * Auth: uses resolveTrainerId() from lib/auth/resolve-trainer (same pattern
  * as other FitDesk server actions) so all ERP queries are automatically
@@ -58,6 +58,12 @@ import {
   type SessionCompletionPreview,
 } from '@/lib/scheduling/sessionCompletionPreview'
 import {
+  rescheduleSession,
+  DstInvalidError,
+  RescheduleConflictError,
+  RescheduleOutOfHoursError,
+} from '@/lib/scheduling/sessionRescheduleService'
+import {
   findInvoiceBySession,
   createInvoice,
   submitSalesInvoice,
@@ -80,6 +86,7 @@ export type SchedulingErrorCode =
   | 'NO_PACKAGE_BALANCE'
   | 'SESSION_RATE_NOT_CONFIGURED'
   | 'INVALID_NO_SHOW_ACTION'
+  | 'DST_INVALID'
   | 'ERR'
 
 export type SchedulingResult<T> =
@@ -120,6 +127,15 @@ function mapError<T>(err: unknown): SchedulingResult<T> {
   }
   if (err instanceof InvalidNoShowActionError) {
     return { success: false, code: 'INVALID_NO_SHOW_ACTION', message: err.message }
+  }
+  if (err instanceof RescheduleConflictError) {
+    return { success: false, code: 'CONFLICT', message: err.message }
+  }
+  if (err instanceof RescheduleOutOfHoursError) {
+    return { success: false, code: 'OUT_OF_HOURS', message: err.reason }
+  }
+  if (err instanceof DstInvalidError) {
+    return { success: false, code: 'DST_INVALID', message: err.message }
   }
   if (err instanceof VersionConflictError) {
     return { success: false, code: 'VERSION_CONFLICT', message: err.message }
@@ -452,6 +468,64 @@ export async function cancelSessionAction(
       buildCompletionDeps(tenantCtx, ctx.userId ?? null),
       id,
       expectedVersion,
+      reason,
+    )
+    return { success: true, data: result }
+  } catch (err) {
+    return mapError(err)
+  }
+}
+
+/**
+ * Reschedule an FD Session to a new local date/time (US-039).
+ *
+ * Single-occurrence only: moves this one FD Session's start_at/end_at in place
+ * (Option A from the approved US-039 design). A series member additionally gets
+ * isOverride=true so future series-level edits skip this row.
+ *
+ * Financially inert by construction: rescheduleSession never resolves billing
+ * mode and has no invoice/package dependency to call at all — the patch it
+ * writes never includes `invoiceId` or `sessionConsumedPackage`.
+ *
+ * Conflict-aware, DST-safe, and self-excluding: reuses the same pure
+ * detectConflict/checkAvailability primitives bookingService.ts uses for new
+ * bookings, against a buffer-expanded window of the trainer's existing
+ * sessions with this session's own id excluded (it must never conflict with
+ * its own prior slot).
+ *
+ * `newLocalDate`/`newLocalTime` are interpreted in the session's own recorded
+ * timezone. `reason` is optional free text appended to existing notes (never
+ * overwritten).
+ *
+ * Guards/codes: VERSION_CONFLICT, IMMUTABLE_STATUS (only scheduled/confirmed
+ * may be rescheduled), DST_INVALID (spring-forward gap), CONFLICT (overlap or
+ * buffer with another session), OUT_OF_HOURS (outside working hours).
+ *
+ * Unlike completeSessionAction/markNoShowAction/cancelSessionAction, this does
+ * not need tenant context — it never touches the local billing DB, only the
+ * ERP-proxied FD Session repository (same as listFDSessionsAction/bookPlanAction).
+ */
+export async function rescheduleSessionAction(
+  id:              string,
+  expectedVersion: number,
+  newLocalDate:    string,
+  newLocalTime:    string,
+  reason?:         string | null,
+): Promise<SchedulingResult<FDSession>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  try {
+    const config = await getTrainerConfig(resolved.trainerId)
+    const result = await rescheduleSession(
+      { findSessionById, findSessionsInRange, updateSession },
+      config,
+      id,
+      expectedVersion,
+      newLocalDate,
+      newLocalTime,
       reason,
     )
     return { success: true, data: result }

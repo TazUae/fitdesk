@@ -9,8 +9,12 @@ import { describe, expect, it } from 'vitest'
 import {
   canComplete,
   canMarkNoShow,
+  canCancel,
+  canReschedule,
   mapCompletionError,
   mapNoShowError,
+  mapCancelError,
+  mapRescheduleError,
   getNoShowFinancialChoice,
 } from '@/lib/scheduling/completionUI'
 import type { FDSession } from '@/types/scheduling'
@@ -218,6 +222,131 @@ describe('canMarkNoShow', () => {
     it(`returns false for status = ${status} (past session) — immutable/terminal`, () => {
       const session = makeSession({ status, startAt: new Date(Date.now() - 60_000) })
       expect(canMarkNoShow(session)).toBe(false)
+    })
+  }
+})
+
+// ─── mapCancelError (US-039) ────────────────────────────────────────────────────
+
+describe('mapCancelError', () => {
+  it('maps VERSION_CONFLICT to its user-facing message', () => {
+    expect(mapCancelError('VERSION_CONFLICT')).toBe(
+      'This session changed. Refresh and try again.',
+    )
+  })
+
+  it('maps IMMUTABLE_STATUS to its user-facing message', () => {
+    expect(mapCancelError('IMMUTABLE_STATUS')).toBe(
+      'This session is already finalized.',
+    )
+  })
+
+  it('falls back to the generic message for an unknown code', () => {
+    expect(mapCancelError('SOME_UNKNOWN_CODE')).toBe(
+      'Could not cancel this session. Please try again.',
+    )
+  })
+
+  it('falls back to the generic message for an empty string code', () => {
+    expect(mapCancelError('')).toBe('Could not cancel this session. Please try again.')
+  })
+
+  it('does not use billing-related codes — cancel never resolves billing mode', () => {
+    // BILLING_NOT_CONFIGURED/NO_PACKAGE_BALANCE/etc. are never thrown by
+    // cancelSession, so they must fall through to the generic message here,
+    // not accidentally resolve to a no-show/completion-specific string.
+    expect(mapCancelError('BILLING_NOT_CONFIGURED')).toBe(
+      'Could not cancel this session. Please try again.',
+    )
+  })
+})
+
+// ─── canCancel (US-039) ─────────────────────────────────────────────────────────
+
+describe('canCancel', () => {
+  it('returns true for a scheduled session regardless of start time (future or past)', () => {
+    const future = makeSession({ status: 'scheduled', startAt: new Date(Date.now() + 60_000) })
+    const past   = makeSession({ status: 'scheduled', startAt: new Date(Date.now() - 60_000) })
+    expect(canCancel(future)).toBe(true)
+    expect(canCancel(past)).toBe(true)
+  })
+
+  it('returns true for a confirmed session regardless of start time', () => {
+    const future = makeSession({ status: 'confirmed', startAt: new Date(Date.now() + 60_000) })
+    expect(canCancel(future)).toBe(true)
+  })
+
+  for (const status of ['completed', 'cancelled', 'no_show', 'skipped'] as const) {
+    it(`returns false for status = ${status} — immutable/terminal`, () => {
+      const session = makeSession({ status })
+      expect(canCancel(session)).toBe(false)
+    })
+  }
+})
+
+// ─── mapRescheduleError (US-039) ────────────────────────────────────────────────
+
+describe('mapRescheduleError', () => {
+  it('maps VERSION_CONFLICT to its user-facing message', () => {
+    expect(mapRescheduleError('VERSION_CONFLICT')).toBe(
+      'This session changed. Refresh and try again.',
+    )
+  })
+
+  it('maps IMMUTABLE_STATUS to its user-facing message', () => {
+    expect(mapRescheduleError('IMMUTABLE_STATUS')).toBe(
+      'This session is already finalized.',
+    )
+  })
+
+  it('maps DST_INVALID to its user-facing message', () => {
+    expect(mapRescheduleError('DST_INVALID')).toBe(
+      'That time does not exist in this timezone (daylight saving change) — pick a different time.',
+    )
+  })
+
+  it('maps CONFLICT to its user-facing message', () => {
+    expect(mapRescheduleError('CONFLICT')).toBe(
+      'That time conflicts with another session on your calendar.',
+    )
+  })
+
+  it('maps OUT_OF_HOURS to its user-facing message', () => {
+    expect(mapRescheduleError('OUT_OF_HOURS')).toBe(
+      'That time is outside your working hours.',
+    )
+  })
+
+  it('falls back to the generic message for an unknown code', () => {
+    expect(mapRescheduleError('SOME_UNKNOWN_CODE')).toBe(
+      'Could not reschedule this session. Please try again.',
+    )
+  })
+
+  it('falls back to the generic message for an empty string code', () => {
+    expect(mapRescheduleError('')).toBe('Could not reschedule this session. Please try again.')
+  })
+})
+
+// ─── canReschedule (US-039) ─────────────────────────────────────────────────────
+
+describe('canReschedule', () => {
+  it('returns true for a scheduled session regardless of start time (future or past)', () => {
+    const future = makeSession({ status: 'scheduled', startAt: new Date(Date.now() + 60_000) })
+    const past   = makeSession({ status: 'scheduled', startAt: new Date(Date.now() - 60_000) })
+    expect(canReschedule(future)).toBe(true)
+    expect(canReschedule(past)).toBe(true)
+  })
+
+  it('returns true for a confirmed session regardless of start time', () => {
+    const future = makeSession({ status: 'confirmed', startAt: new Date(Date.now() + 60_000) })
+    expect(canReschedule(future)).toBe(true)
+  })
+
+  for (const status of ['completed', 'cancelled', 'no_show', 'skipped'] as const) {
+    it(`returns false for status = ${status} — immutable/terminal`, () => {
+      const session = makeSession({ status })
+      expect(canReschedule(session)).toBe(false)
     })
   }
 })
