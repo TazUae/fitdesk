@@ -6,8 +6,10 @@ import {
   getUpcoming,
   getAttentionItems,
   getUnresolvedSessions,
+  getUnresolvedSessionAttentionItems,
+  getMissingNextSessionAttentionItems,
 } from './derive'
-import type { Session, Invoice } from '@/types'
+import type { Session, Invoice, Client } from '@/types'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,19 @@ function makeInvoice(partial: Partial<Invoice> & { id: string }): Invoice {
     status:            'sent',
     dueDate:           TODAY,
     issuedAt:          TODAY,
+    ...partial,
+  }
+}
+
+function makeClient(partial: Partial<Client> & { id: string }): Client {
+  return {
+    firstName:    'Alice',
+    name:         'Alice',
+    phone:        '+15550000',
+    status:       'active',
+    trainerId:    'T1',
+    sessionCount: 1,
+    createdAt:    '2024-01-01',
     ...partial,
   }
 }
@@ -570,5 +585,136 @@ describe('getUnresolvedSessions', () => {
     ]
     const result = getUnresolvedSessions(sessions, TODAY)
     expect(result.map(r => r.session.id)).toEqual(['S-unresolved-1', 'S-unresolved-2'])
+  })
+})
+
+// ─── getUnresolvedSessionAttentionItems (US-003) ───────────────────────────────
+
+describe('getUnresolvedSessionAttentionItems', () => {
+  it('returns empty array for no unresolved sessions', () => {
+    expect(getUnresolvedSessionAttentionItems([])).toEqual([])
+  })
+
+  it('maps an unresolved session to an attention item', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: PAST })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 7 }])
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('unresolved_session')
+    expect(result[0].clientName).toBe('Bob')
+    expect(result[0].label).toContain('Bob')
+    expect(result[0].label).toContain('7 days ago')
+    expect(result[0].href).toBe('/dashboard/schedule')
+  })
+
+  it('singularizes "1 day ago"', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: PAST })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 1 }])
+    expect(result[0].label).toContain('1 day ago')
+    expect(result[0].label).not.toContain('1 days ago')
+  })
+
+  it('omits the "days ago" suffix for daysOverdue 0', () => {
+    const s = makeSession({ id: 'S1', clientName: 'Bob', date: TODAY })
+    const result = getUnresolvedSessionAttentionItems([{ session: s, daysOverdue: 0 }])
+    expect(result[0].label).not.toContain('days ago')
+    expect(result[0].label).not.toContain('day ago')
+  })
+
+  it('caps at 4 with an overflow item', () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({
+      session:     makeSession({ id: `S${i}`, clientName: `Client${i}`, date: PAST }),
+      daysOverdue: i + 1,
+    }))
+    const result = getUnresolvedSessionAttentionItems(items)
+    expect(result).toHaveLength(5) // 4 visible + 1 overflow
+    expect(result[4].label).toContain('+2 more')
+  })
+
+  it('does not append an overflow item at exactly the cap', () => {
+    const items = Array.from({ length: 4 }, (_, i) => ({
+      session:     makeSession({ id: `S${i}`, clientName: `Client${i}`, date: PAST }),
+      daysOverdue: i + 1,
+    }))
+    const result = getUnresolvedSessionAttentionItems(items)
+    expect(result).toHaveLength(4)
+  })
+})
+
+// ─── getMissingNextSessionAttentionItems (US-003) ──────────────────────────────
+
+describe('getMissingNextSessionAttentionItems', () => {
+  it('returns empty array with no clients', () => {
+    expect(getMissingNextSessionAttentionItems([], [], TODAY)).toEqual([])
+  })
+
+  it('excludes an active client with a future scheduled session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: FUTURE, status: 'scheduled' })]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('includes an active client with only past sessions (no future one)', () => {
+    const client = makeClient({ id: 'C1', name: 'Bob', status: 'active' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: PAST, status: 'completed' })]
+    const result = getMissingNextSessionAttentionItems([client], sessions, TODAY)
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('missing_next_session')
+    expect(result[0].clientName).toBe('Bob')
+    expect(result[0].href).toBe('/dashboard/clients/C1')
+  })
+
+  it('excludes a client with zero session history entirely (brand new / never booked)', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    expect(getMissingNextSessionAttentionItems([client], [], TODAY)).toEqual([])
+  })
+
+  it('excludes an inactive client even with only past sessions', () => {
+    const client = makeClient({ id: 'C1', status: 'inactive' })
+    const sessions = [makeSession({ id: 'S1', clientId: 'C1', date: PAST, status: 'completed' })]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('a session scheduled today (not yet past) counts as a future session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [
+      makeSession({ id: 'S0', clientId: 'C1', date: PAST, status: 'completed' }),
+      makeSession({ id: 'S1', clientId: 'C1', date: TODAY, status: 'scheduled' }),
+    ]
+    expect(getMissingNextSessionAttentionItems([client], sessions, TODAY)).toEqual([])
+  })
+
+  it('a cancelled future session does not count as an upcoming session', () => {
+    const client = makeClient({ id: 'C1', status: 'active' })
+    const sessions = [
+      makeSession({ id: 'S0', clientId: 'C1', date: PAST, status: 'completed' }),
+      makeSession({ id: 'S1', clientId: 'C1', date: FUTURE, status: 'cancelled' }),
+    ]
+    const result = getMissingNextSessionAttentionItems([client], sessions, TODAY)
+    expect(result).toHaveLength(1)
+  })
+
+  it('caps at 4 with an overflow item', () => {
+    const clients = Array.from({ length: 6 }, (_, i) => makeClient({ id: `C${i}`, status: 'active' }))
+    const sessions = clients.map((c, i) =>
+      makeSession({ id: `S${i}`, clientId: c.id, date: PAST, status: 'completed' }),
+    )
+    const result = getMissingNextSessionAttentionItems(clients, sessions, TODAY)
+    expect(result).toHaveLength(5) // 4 visible + 1 overflow
+    expect(result[4].label).toContain('+2 more')
+    expect(result[4].href).toBe('/dashboard/clients')
+  })
+
+  it('mixed set: only active clients with history and no future session are included', () => {
+    const clientA = makeClient({ id: 'C-A', status: 'active' })   // has future session -> excluded
+    const clientB = makeClient({ id: 'C-B', status: 'active' })   // only past -> included
+    const clientC = makeClient({ id: 'C-C', status: 'inactive' }) // inactive -> excluded
+    const clientD = makeClient({ id: 'C-D', status: 'active' })   // no history at all -> excluded
+    const sessions = [
+      makeSession({ id: 'S-A', clientId: 'C-A', date: FUTURE, status: 'scheduled' }),
+      makeSession({ id: 'S-B', clientId: 'C-B', date: PAST,   status: 'completed' }),
+      makeSession({ id: 'S-C', clientId: 'C-C', date: PAST,   status: 'completed' }),
+    ]
+    const result = getMissingNextSessionAttentionItems([clientA, clientB, clientC, clientD], sessions, TODAY)
+    expect(result.map(r => r.clientName)).toEqual(['Alice']) // only clientB (default name from fixture)
   })
 })

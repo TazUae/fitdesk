@@ -16,6 +16,9 @@ import {
   getMoneySnapshot,
   getUpcoming,
   getAttentionItems,
+  getUnresolvedSessions,
+  getUnresolvedSessionAttentionItems,
+  getMissingNextSessionAttentionItems,
 } from '@/lib/dashboard/derive'
 import type { Client, Session, Invoice } from '@/types'
 
@@ -79,11 +82,22 @@ export default async function DashboardPage() {
     clients !== null ? clients.filter(c => c.status === 'active').length : null
 
   // ── Derived values ────────────────────────────────────────────────────────
-  const nextUp         = getNextUp(sessions, today, nowTime)
-  const todaySection   = getTodaySections(sessions, today)
-  const moneySnapshot  = getMoneySnapshot(invoices, monthStart)
-  const upcoming       = getUpcoming(sessions, today)
-  const attentionItems = getAttentionItems(invoices)
+  const nextUp        = getNextUp(sessions, today, nowTime)
+  const todaySection  = getTodaySections(sessions, today)
+  const moneySnapshot = getMoneySnapshot(invoices, monthStart)
+  const upcoming      = getUpcoming(sessions, today)
+
+  // US-003 Needs Attention Upgrade: overdue/pending payments (existing) +
+  // unresolved session outcomes (US-057) + clients with no upcoming session.
+  // "Low package balance" is a documented, deferred gap — see
+  // docs/execution/sprint-2-us-003-plan.md (needs a product-decided
+  // threshold before it can be built, not a judgment call made here).
+  const unresolvedSessions = getUnresolvedSessions(sessions, today, nowTime)
+  const attentionItems = [
+    ...getAttentionItems(invoices),
+    ...getUnresolvedSessionAttentionItems(unresolvedSessions),
+    ...(clients !== null ? getMissingNextSessionAttentionItems(clients, sessions, today) : []),
+  ]
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (

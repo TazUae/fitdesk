@@ -7,7 +7,7 @@
 
 import { fmtShortDate, fmtTime } from '@/lib/date'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
-import type { Session, Invoice } from '@/types'
+import type { Session, Invoice, Client } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,11 +45,19 @@ export interface MoneySnapshot {
 /** A single lightweight attention item — link only, no mutation. */
 export interface AttentionItem {
   /**
-   * overdue_invoice   — past due, strongest urgency (red).
-   * pending_invoice   — sent / partially_paid, collection prompt (amber).
-   * invoice_overflow  — "+N more" cap item linking to the invoices list.
+   * overdue_invoice      — past due, strongest urgency (red).
+   * pending_invoice      — sent / partially_paid, collection prompt (amber).
+   * invoice_overflow     — "+N more" cap item linking to the invoices list.
+   * unresolved_session   — past session with no recorded outcome (US-057/US-003).
+   * missing_next_session — active client with no future session booked (US-003).
+   *
+   * IMPORTANT: every type added here needs its own explicit render branch in
+   * features/dashboard/components/ActionCenter.tsx — that component's render
+   * loop falls through to overdue_invoice styling/fields for any type it
+   * doesn't explicitly recognize, which would silently render a broken card
+   * (wrong color, missing fields) for a type that isn't handled there yet.
    */
-  type: 'overdue_invoice' | 'pending_invoice' | 'invoice_overflow'
+  type: 'overdue_invoice' | 'pending_invoice' | 'invoice_overflow' | 'unresolved_session' | 'missing_next_session'
   label: string
   href: string
   /** Present on 'overdue_invoice' and 'pending_invoice' items. */
@@ -273,4 +281,93 @@ export function getUnresolvedSessions(
     .sort((a, b) =>
       a.session.date.localeCompare(b.session.date) || (a.session.time ?? '').localeCompare(b.session.time ?? ''),
     )
+}
+
+const UNRESOLVED_CAP = 4
+
+/**
+ * Converts US-057's unresolved-session detection into the dashboard's
+ * AttentionItem card shape. Oldest-first (already sorted by
+ * getUnresolvedSessions), capped with an overflow item — same convention as
+ * getAttentionItems' invoice cap.
+ *
+ * href points at the schedule view, not a mutation — batch resolution itself
+ * is a separate confirmed action, not something this card triggers directly.
+ */
+export function getUnresolvedSessionAttentionItems(
+  items: UnresolvedSessionItem[],
+): AttentionItem[] {
+  if (items.length === 0) return []
+
+  const visible = items.slice(0, UNRESOLVED_CAP)
+  const overflowCount = items.length - UNRESOLVED_CAP
+
+  const result: AttentionItem[] = visible.map(({ session, daysOverdue }) => ({
+    type:       'unresolved_session' as const,
+    label:      `${session.clientName} — session needs an outcome${daysOverdue > 0 ? ` (${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} ago)` : ''}`,
+    href:       '/dashboard/schedule',
+    clientName: session.clientName,
+  }))
+
+  if (overflowCount > 0) {
+    result.push({
+      type:  'unresolved_session' as const,
+      label: `+${overflowCount} more unresolved session${overflowCount !== 1 ? 's' : ''}`,
+      href:  '/dashboard/schedule',
+    })
+  }
+
+  return result
+}
+
+const MISSING_NEXT_SESSION_CAP = 4
+
+/**
+ * Active clients with no future scheduled session in the already-fetched
+ * dashboard session window (US-003 "missing next sessions where data
+ * exists" — "where data exists" scopes this to the session window the
+ * dashboard already has on hand, not an exhaustive all-time lookup).
+ *
+ * A client with zero sessions ever (never booked) is intentionally excluded
+ * — that is the Add Client / first-booking loop's job (FE-002), not a
+ * Needs Attention signal; this card is about a client who was active and
+ * then fell off the schedule, not a brand-new client mid-onboarding.
+ */
+export function getMissingNextSessionAttentionItems(
+  clients: Client[],
+  sessions: Session[],
+  today: string,
+): AttentionItem[] {
+  const clientIdsWithHistory = new Set(sessions.map(s => s.clientId))
+  const clientIdsWithFutureSession = new Set(
+    sessions.filter(s => s.status === 'scheduled' && s.date >= today).map(s => s.clientId),
+  )
+
+  const candidates = clients.filter(c =>
+    c.status === 'active'
+    && clientIdsWithHistory.has(c.id)
+    && !clientIdsWithFutureSession.has(c.id),
+  )
+
+  if (candidates.length === 0) return []
+
+  const visible = candidates.slice(0, MISSING_NEXT_SESSION_CAP)
+  const overflowCount = candidates.length - MISSING_NEXT_SESSION_CAP
+
+  const result: AttentionItem[] = visible.map(client => ({
+    type:       'missing_next_session' as const,
+    label:      `${client.name} has no upcoming session booked`,
+    href:       `/dashboard/clients/${client.id}`,
+    clientName: client.name,
+  }))
+
+  if (overflowCount > 0) {
+    result.push({
+      type:  'missing_next_session' as const,
+      label: `+${overflowCount} more client${overflowCount !== 1 ? 's' : ''} with no upcoming session`,
+      href:  '/dashboard/clients',
+    })
+  }
+
+  return result
 }
