@@ -7,13 +7,16 @@ import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import {
   completeSessionAction,
   markNoShowAction,
+  cancelSessionAction,
   previewBatchCompletionAction,
 } from '@/actions/schedulingActions'
 import {
   mapCompletionError,
   mapNoShowError,
+  mapCancelError,
   canComplete,
   canMarkNoShow,
+  canCancel,
   getNoShowFinancialChoice,
   type NoShowFinancialAction,
   type NoShowFinancialChoice,
@@ -86,9 +89,24 @@ export function SessionCompletionSheet({
     setNoShowError(null)
   }
 
+  // ─── Cancel sub-view state (US-039) ────────────────────────────────────────
+  // Simpler than no-show: cancellation has exactly one outcome (no financial
+  // branching), so there is no billing preview to fetch — just an explanation,
+  // an optional reason, and a confirm step.
+  const [cancelOpen, setCancelOpen]     = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError]   = useState<string | null>(null)
+
+  function resetCancel() {
+    setCancelOpen(false)
+    setCancelReason('')
+    setCancelError(null)
+  }
+
   function handleClose() {
     setError(null)
     resetNoShow()
+    resetCancel()
     onClose()
   }
 
@@ -168,25 +186,65 @@ export function SessionCompletionSheet({
     })
   }
 
+  function handleOpenCancel() {
+    setCancelOpen(true)
+    setCancelError(null)
+  }
+
+  function handleBackFromCancel() {
+    resetCancel()
+  }
+
+  /**
+   * Retry-safe like handleConfirmNoShow: on failure session.version is
+   * unchanged (no mutation happened), so tapping Confirm again re-attempts
+   * safely with the same version.
+   */
+  function handleConfirmCancel() {
+    if (!session) return
+    setCancelError(null)
+    startTransition(async () => {
+      const result = await cancelSessionAction(
+        session.id,
+        session.version,
+        cancelReason.trim() || undefined,
+      )
+      if (result.success) {
+        toast.success('Session cancelled')
+        resetCancel()
+        onClose()
+        onCompleted()
+      } else {
+        setCancelError(mapCancelError(result.code))
+      }
+    })
+  }
+
   const eligible       = !!session && canComplete(session)
   const noShowEligible = !!session && canMarkNoShow(session)
+  const cancelEligible = !!session && canCancel(session)
   const isTerminal = !!session && !['scheduled', 'confirmed'].includes(session.status)
   const isFuture   = !!session && !isTerminal && session.startAt.getTime() > Date.now()
 
   const selectedOption = noShowChoice?.options.find(o => o.action === selectedAction) ?? null
 
+  // Derived header state — shared across all three sub-views (main/no-show/cancel).
+  const sheetTitle = noShowOpen ? 'Mark as no-show' : cancelOpen ? 'Cancel session' : 'Complete session'
+  const showBackButton = noShowOpen || cancelOpen
+  const handleBack = noShowOpen ? handleBackFromNoShow : handleBackFromCancel
+
   return (
     <WorkspaceShell
       open={open}
       onClose={handleClose}
-      label={noShowOpen ? 'Mark as no-show' : 'Complete session'}
+      label={sheetTitle}
       header={
         <div className="flex items-center justify-between px-5 pb-3 pt-4">
           <div className="flex items-center gap-2">
-            {noShowOpen && (
+            {showBackButton && (
               <button
                 type="button"
-                onClick={handleBackFromNoShow}
+                onClick={handleBack}
                 className="flex h-8 w-8 items-center justify-center rounded-full transition-opacity hover:opacity-70"
                 style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-muted)' }}
                 aria-label="Back"
@@ -195,7 +253,7 @@ export function SessionCompletionSheet({
               </button>
             )}
             <p className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-              {noShowOpen ? 'Mark as no-show' : 'Complete session'}
+              {sheetTitle}
             </p>
           </div>
           <button
@@ -237,6 +295,31 @@ export function SessionCompletionSheet({
               Back
             </button>
           </div>
+        ) : cancelOpen ? (
+          <div
+            className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
+            style={{ borderColor: 'var(--fd-border)' }}
+          >
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={handleConfirmCancel}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
+              style={{ backgroundColor: 'var(--fd-red)', color: '#fff' }}
+            >
+              {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirm cancellation
+            </button>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={handleBackFromCancel}
+              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
+              style={{ color: 'var(--fd-muted)' }}
+            >
+              Back
+            </button>
+          </div>
         ) : (
           <div
             className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
@@ -268,6 +351,17 @@ export function SessionCompletionSheet({
                 style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
               >
                 Mark as no-show
+              </button>
+            )}
+            {cancelEligible && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={handleOpenCancel}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+              >
+                Cancel session
               </button>
             )}
             <button
@@ -411,6 +505,61 @@ export function SessionCompletionSheet({
               {noShowError && (
                 <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
                   {noShowError}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      ) : cancelOpen ? (
+        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+          {session && (
+            <>
+              {/* Session mini-summary */}
+              <div
+                className="flex flex-col gap-1 rounded-2xl p-4"
+                style={{ backgroundColor: 'var(--fd-card)', border: '1px solid var(--fd-border)' }}
+              >
+                <p className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
+                  {session.clientName}
+                </p>
+                <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  {formatLocalDateTime(session)}
+                </p>
+              </div>
+
+              {/* What cancellation does and does not do */}
+              <div
+                className="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  backgroundColor: 'var(--fd-card)',
+                  border:          '1px solid var(--fd-border)',
+                  color:           'var(--fd-text)',
+                }}
+              >
+                <p>Cancelling removes this session from your calendar, but it stays in the client&apos;s history.</p>
+                <p className="mt-2" style={{ color: 'var(--fd-muted)' }}>
+                  No invoice is created, voided, refunded, or credited, and no package session is
+                  used or reversed — cancelling never changes billing.
+                </p>
+              </div>
+
+              {/* Optional reason — appended to the session's existing notes server-side, never overwritten */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                  Reason (optional)
+                </label>
+                <textarea
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. client requested cancellation"
+                  className="input-base resize-none"
+                />
+              </div>
+
+              {cancelError && (
+                <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
+                  {cancelError}
                 </p>
               )}
             </>

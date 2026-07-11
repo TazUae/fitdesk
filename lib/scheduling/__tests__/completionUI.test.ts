@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest'
 import {
   canComplete,
   canMarkNoShow,
+  canCancel,
   mapCompletionError,
   mapNoShowError,
+  mapCancelError,
   getNoShowFinancialChoice,
 } from '@/lib/scheduling/completionUI'
 import type { FDSession } from '@/types/scheduling'
@@ -218,6 +220,64 @@ describe('canMarkNoShow', () => {
     it(`returns false for status = ${status} (past session) — immutable/terminal`, () => {
       const session = makeSession({ status, startAt: new Date(Date.now() - 60_000) })
       expect(canMarkNoShow(session)).toBe(false)
+    })
+  }
+})
+
+// ─── mapCancelError (US-039) ────────────────────────────────────────────────────
+
+describe('mapCancelError', () => {
+  it('maps VERSION_CONFLICT to its user-facing message', () => {
+    expect(mapCancelError('VERSION_CONFLICT')).toBe(
+      'This session changed. Refresh and try again.',
+    )
+  })
+
+  it('maps IMMUTABLE_STATUS to its user-facing message', () => {
+    expect(mapCancelError('IMMUTABLE_STATUS')).toBe(
+      'This session is already finalized.',
+    )
+  })
+
+  it('falls back to the generic message for an unknown code', () => {
+    expect(mapCancelError('SOME_UNKNOWN_CODE')).toBe(
+      'Could not cancel this session. Please try again.',
+    )
+  })
+
+  it('falls back to the generic message for an empty string code', () => {
+    expect(mapCancelError('')).toBe('Could not cancel this session. Please try again.')
+  })
+
+  it('does not use billing-related codes — cancel never resolves billing mode', () => {
+    // BILLING_NOT_CONFIGURED/NO_PACKAGE_BALANCE/etc. are never thrown by
+    // cancelSession, so they must fall through to the generic message here,
+    // not accidentally resolve to a no-show/completion-specific string.
+    expect(mapCancelError('BILLING_NOT_CONFIGURED')).toBe(
+      'Could not cancel this session. Please try again.',
+    )
+  })
+})
+
+// ─── canCancel (US-039) ─────────────────────────────────────────────────────────
+
+describe('canCancel', () => {
+  it('returns true for a scheduled session regardless of start time (future or past)', () => {
+    const future = makeSession({ status: 'scheduled', startAt: new Date(Date.now() + 60_000) })
+    const past   = makeSession({ status: 'scheduled', startAt: new Date(Date.now() - 60_000) })
+    expect(canCancel(future)).toBe(true)
+    expect(canCancel(past)).toBe(true)
+  })
+
+  it('returns true for a confirmed session regardless of start time', () => {
+    const future = makeSession({ status: 'confirmed', startAt: new Date(Date.now() + 60_000) })
+    expect(canCancel(future)).toBe(true)
+  })
+
+  for (const status of ['completed', 'cancelled', 'no_show', 'skipped'] as const) {
+    it(`returns false for status = ${status} — immutable/terminal`, () => {
+      const session = makeSession({ status })
+      expect(canCancel(session)).toBe(false)
     })
   }
 })

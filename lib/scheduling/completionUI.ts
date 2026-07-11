@@ -42,6 +42,19 @@ export function mapNoShowError(code: string): string {
   return NO_SHOW_ERROR_MESSAGES[code] ?? 'Could not mark this session as no-show. Please try again.'
 }
 
+// ─── Cancel error code → user-facing message (US-039) ─────────────────────────
+
+// cancelSession only ever throws VersionConflictError or ImmutableSessionError —
+// it never resolves billing mode, so none of the billing-related codes apply here.
+const CANCEL_ERROR_MESSAGES: Record<string, string> = {
+  VERSION_CONFLICT: 'This session changed. Refresh and try again.',
+  IMMUTABLE_STATUS: 'This session is already finalized.',
+}
+
+export function mapCancelError(code: string): string {
+  return CANCEL_ERROR_MESSAGES[code] ?? 'Could not cancel this session. Please try again.'
+}
+
 // ─── Eligibility checks ────────────────────────────────────────────────────────
 
 export function canComplete(session: FDSession): boolean {
@@ -63,6 +76,17 @@ export function canMarkNoShow(session: FDSession): boolean {
   const isEligibleStatus = session.status === 'scheduled' || session.status === 'confirmed'
   const isPast = session.startAt.getTime() <= Date.now()
   return isEligibleStatus && isPast
+}
+
+/**
+ * Unlike canComplete/canMarkNoShow, cancellation has no time constraint — a
+ * session is normally cancelled BEFORE it happens, not after, so a future
+ * scheduled session is exactly the common case this must allow. Only the
+ * terminal-status guard applies, matching cancelSession's own MUTABLE_STATUSES
+ * check (see docs/execution/phase-1-plus-safe-run-plan.md, US-039).
+ */
+export function canCancel(session: FDSession): boolean {
+  return session.status === 'scheduled' || session.status === 'confirmed'
 }
 
 // ─── No-show financial choice (US-017) ────────────────────────────────────────
