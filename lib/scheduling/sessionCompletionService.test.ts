@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   completeSession,
+  markNoShow,
   BillingNotConfiguredError,
   PayPerSessionCompletionDeferredError,
   SessionRateNotConfiguredError,
   NoPackageBalanceError,
+  InvalidNoShowActionError,
   VersionConflictError,
   ImmutableSessionError,
 } from '@/lib/scheduling/sessionCompletionService'
@@ -504,6 +506,381 @@ describe('completeSession — pay-per-session path', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// markNoShow (US-017) — approved design in docs/execution/phase-1-plus-safe-run-plan.md
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Version and immutable-state guards (identical to completeSession) ───────
+
+describe('markNoShow — version guard', () => {
+  it('throws VersionConflictError when expectedVersion does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(VersionConflictError)
+  })
+
+  it('does not call updateSession when version does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('does not call resolveBillingMode when version does not match', async () => {
+    const deps = makeDeps({ session: { version: 2 } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toThrow()
+    expect(deps.resolveBillingMode).not.toHaveBeenCalled()
+  })
+})
+
+describe('markNoShow — immutable-state guard (invalid transitions)', () => {
+  it('throws ImmutableSessionError for completed status', async () => {
+    const deps = makeDeps({ session: { status: 'completed' } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for cancelled status', async () => {
+    const deps = makeDeps({ session: { status: 'cancelled' } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for a session already no_show', async () => {
+    const deps = makeDeps({ session: { status: 'no_show' } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('throws ImmutableSessionError for skipped status', async () => {
+    const deps = makeDeps({ session: { status: 'skipped' } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(ImmutableSessionError)
+  })
+
+  it('does not call updateSession for terminal statuses', async () => {
+    const deps = makeDeps({ session: { status: 'completed' } })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toThrow()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('allows scheduled to proceed to billing-mode dispatch', async () => {
+    const deps = makeDeps({ session: { status: 'scheduled' }, billingMode: 'package', consumeOutcome: 'consumed' })
+    const result = await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ status: 'no_show' }))
+    void result
+  })
+
+  it('allows confirmed to proceed to billing-mode dispatch', async () => {
+    const deps = makeDeps({ session: { status: 'confirmed' }, billingMode: 'package', consumeOutcome: 'consumed' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ status: 'no_show' }))
+  })
+})
+
+// ─── Trial sessions — no charge regardless of requested financialAction ──────
+
+describe('markNoShow — trial sessions', () => {
+  it('flips status to no_show when financialAction is "charge" — no invoice created', async () => {
+    const deps = makeDeps({ session: { isTrialSession: true } })
+    await markNoShow(deps, 'fds-001', 1, 'charge')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ status: 'no_show', version: 2 }))
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('flips status to no_show when financialAction is "deduct" — no consumption', async () => {
+    const deps = makeDeps({ session: { isTrialSession: true } })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ status: 'no_show', version: 2 }))
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+  })
+
+  it('flips status to no_show when financialAction is "waive"', async () => {
+    const deps = makeDeps({ session: { isTrialSession: true } })
+    const result = await markNoShow(deps, 'fds-001', 1, 'waive')
+    void result
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({ status: 'no_show' }))
+  })
+
+  it('does not call resolveBillingMode for trial sessions', async () => {
+    const deps = makeDeps({ session: { isTrialSession: true } })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    expect(deps.resolveBillingMode).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Billing-mode / financial-action validation ───────────────────────────────
+
+describe('markNoShow — billing mode and financial-action validation', () => {
+  it('throws BillingNotConfiguredError for unset billing mode', async () => {
+    const deps = makeDeps({ billingMode: 'unset' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(BillingNotConfiguredError)
+  })
+
+  it('throws BillingNotConfiguredError when client projection is missing (null)', async () => {
+    const deps = makeDeps({ billingMode: null })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).rejects.toBeInstanceOf(BillingNotConfiguredError)
+  })
+
+  it('throws InvalidNoShowActionError for "deduct" on a pay-per-session client', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'deduct')).rejects.toBeInstanceOf(InvalidNoShowActionError)
+  })
+
+  it('does not call consumeForSession or updateSession for an invalid "deduct" on pay-per-session', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'deduct')).rejects.toThrow()
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('throws InvalidNoShowActionError for "charge" on a package client', async () => {
+    const deps = makeDeps({ billingMode: 'package' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toBeInstanceOf(InvalidNoShowActionError)
+  })
+
+  it('does not call createInvoice or updateSession for an invalid "charge" on package', async () => {
+    const deps = makeDeps({ billingMode: 'package' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toThrow()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Pay-per-session — waive ──────────────────────────────────────────────────
+
+describe('markNoShow — pay-per-session — waive', () => {
+  it('flips status to no_show with no invoice created', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:  'no_show',
+      version: 2,
+    }))
+  })
+
+  it('does not require a configured rate — waive never invoices', async () => {
+    const deps = makeDeps({ session: { rate: 0 }, billingMode: 'pay_per_session' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'waive')).resolves.toBeDefined()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('does not write invoiceId on the update patch', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('invoiceId')
+  })
+})
+
+// ─── Pay-per-session — charge ─────────────────────────────────────────────────
+
+describe('markNoShow — pay-per-session — charge', () => {
+  it('creates and submits a new invoice when none exists, then updates FD Session to no_show', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    await markNoShow(deps, 'fds-001', 1, 'charge')
+    expect(deps.createInvoice).toHaveBeenCalledOnce()
+    expect(deps.submitSalesInvoice).toHaveBeenCalledOnce()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:    'no_show',
+      invoiceId: 'SINV-001',
+    }))
+  })
+
+  it('invoice-first: createInvoice and submitSalesInvoice resolve before updateSession is called', async () => {
+    const callOrder: string[] = []
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.createInvoice as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('create')
+      return makeInvoice({ status: 'draft' })
+    })
+    ;(deps.submitSalesInvoice as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('submit')
+      return makeInvoice({ status: 'sent' })
+    })
+    ;(deps.updateSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('update')
+      return { ...BASE_SESSION, status: 'no_show', version: 2 }
+    })
+    await markNoShow(deps, 'fds-001', 1, 'charge')
+    expect(callOrder).toEqual(['create', 'submit', 'update'])
+  })
+
+  it('reuses an existing submitted invoice — does not call createInvoice', async () => {
+    const existing = makeInvoice({ id: 'SINV-EXISTING', status: 'sent' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: existing })
+    await markNoShow(deps, 'fds-001', 1, 'charge')
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:    'no_show',
+      invoiceId: 'SINV-EXISTING',
+    }))
+  })
+
+  it('submits an existing draft invoice — does not call createInvoice', async () => {
+    const draft     = makeInvoice({ id: 'SINV-DRAFT', status: 'draft' })
+    const submitted = makeInvoice({ id: 'SINV-DRAFT', status: 'sent' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: draft, submittedInvoice: submitted })
+    await markNoShow(deps, 'fds-001', 1, 'charge')
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).toHaveBeenCalledWith('SINV-DRAFT')
+  })
+
+  it('throws when existing invoice is cancelled — does not create a second invoice', async () => {
+    const cancelled = makeInvoice({ id: 'SINV-CANCELLED', status: 'cancelled' })
+    const deps = makeDeps({ billingMode: 'pay_per_session', existingInvoice: cancelled })
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toThrow()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('throws SessionRateNotConfiguredError when rate is 0', async () => {
+    const deps = makeDeps({ session: { rate: 0 }, billingMode: 'pay_per_session' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+  })
+
+  it('throws SessionRateNotConfiguredError when rate is negative', async () => {
+    const deps = makeDeps({ session: { rate: -50 }, billingMode: 'pay_per_session' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toBeInstanceOf(SessionRateNotConfiguredError)
+  })
+
+  it('does not call updateSession when createInvoice throws', async () => {
+    const deps = makeDeps({ billingMode: 'pay_per_session' })
+    ;(deps.createInvoice as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ERP create failed'))
+    await expect(markNoShow(deps, 'fds-001', 1, 'charge')).rejects.toThrow('ERP create failed')
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Package — waive ──────────────────────────────────────────────────────────
+
+describe('markNoShow — package — waive', () => {
+  it('flips status to no_show with no consumption and no invoice', async () => {
+    const deps = makeDeps({ billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:  'no_show',
+      version: 2,
+    }))
+  })
+
+  it('does not set sessionConsumedPackage on the update patch', async () => {
+    const deps = makeDeps({ billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('sessionConsumedPackage')
+  })
+})
+
+// ─── Package — deduct ─────────────────────────────────────────────────────────
+
+describe('markNoShow — package — deduct', () => {
+  it('calls consumeForSession exactly once with sessionId === session docname', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.consumeForSession).toHaveBeenCalledOnce()
+    expect(deps.consumeForSession).toHaveBeenCalledWith({ sessionId: 'fds-001', erpCustomerId: 'CUST-001' })
+  })
+
+  it('never creates a package invoice during no-show deduct', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.findInvoiceBySession).not.toHaveBeenCalled()
+    expect(deps.buildSessionInvoicePayload).not.toHaveBeenCalled()
+    expect(deps.createInvoice).not.toHaveBeenCalled()
+    expect(deps.submitSalesInvoice).not.toHaveBeenCalled()
+  })
+
+  it('completes with sessionConsumedPackage: true and status no_show on consumed outcome', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'no_show',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('idempotency — completes with sessionConsumedPackage: true on already_done outcome (ledger replay)', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'already_done' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'no_show',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('idempotency — skips consumeForSession entirely when sessionConsumedPackage is already true (retry after ERP write failure)', async () => {
+    const deps = makeDeps({ session: { sessionConsumedPackage: true }, billingMode: 'package', consumeOutcome: 'consumed' })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(deps.consumeForSession).not.toHaveBeenCalled()
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      status:                 'no_show',
+      sessionConsumedPackage: true,
+    }))
+  })
+
+  it('throws NoPackageBalanceError on no_package outcome — does not call updateSession', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_package' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'deduct')).rejects.toBeInstanceOf(NoPackageBalanceError)
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('throws NoPackageBalanceError on no_balance outcome — does not call updateSession', async () => {
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'no_balance' })
+    await expect(markNoShow(deps, 'fds-001', 1, 'deduct')).rejects.toBeInstanceOf(NoPackageBalanceError)
+    expect(deps.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('ledger-first: consumeForSession resolves before updateSession is called', async () => {
+    const callOrder: string[] = []
+    const deps = makeDeps({ billingMode: 'package', consumeOutcome: 'consumed' })
+    ;(deps.consumeForSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('consume')
+      return { outcome: 'consumed' }
+    })
+    ;(deps.updateSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push('update')
+      return { ...BASE_SESSION, status: 'no_show', version: 2, sessionConsumedPackage: true }
+    })
+    await markNoShow(deps, 'fds-001', 1, 'deduct')
+    expect(callOrder).toEqual(['consume', 'update'])
+  })
+})
+
+// ─── Reason/notes capture (approved behavior #3 — audit) ─────────────────────
+
+describe('markNoShow — reason capture on notes', () => {
+  it('appends the reason to notes when the session has no prior notes', async () => {
+    const deps = makeDeps({ session: { notes: null }, billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive', 'client did not show, no call')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      notes: 'No-show: client did not show, no call',
+    }))
+  })
+
+  it('appends the reason to existing notes, preserving prior content', async () => {
+    const deps = makeDeps({ session: { notes: 'Prefers evening sessions' }, billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive', 'forgot the appointment')
+    expect(deps.updateSession).toHaveBeenCalledWith('fds-001', expect.objectContaining({
+      notes: 'Prefers evening sessions\nNo-show: forgot the appointment',
+    }))
+  })
+
+  it('does not touch notes at all when no reason is supplied', async () => {
+    const deps = makeDeps({ session: { notes: 'Prefers evening sessions' }, billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive')
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('notes')
+  })
+
+  it('does not touch notes when reason is an empty/whitespace-only string', async () => {
+    const deps = makeDeps({ session: { notes: null }, billingMode: 'package' })
+    await markNoShow(deps, 'fds-001', 1, 'waive', '   ')
+    const [, patch] = (deps.updateSession as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(patch).not.toHaveProperty('notes')
+  })
+})
+
 // ─── No direct ERP/billing/db runtime imports ─────────────────────────────────
 
 describe('completeSession — no direct ERP, billing, or db runtime imports', () => {
@@ -512,10 +889,12 @@ describe('completeSession — no direct ERP, billing, or db runtime imports', ()
     // @/lib/erpnext/types (pure interfaces, no runtime code). This test verifies the
     // module loads cleanly in an unmocked environment.
     expect(typeof completeSession).toBe('function')
+    expect(typeof markNoShow).toBe('function')
     expect(typeof BillingNotConfiguredError).toBe('function')
     expect(typeof NoPackageBalanceError).toBe('function')
     expect(typeof PayPerSessionCompletionDeferredError).toBe('function')
     expect(typeof SessionRateNotConfiguredError).toBe('function')
+    expect(typeof InvalidNoShowActionError).toBe('function')
     expect(typeof VersionConflictError).toBe('function')
     expect(typeof ImmutableSessionError).toBe('function')
   })
