@@ -198,3 +198,140 @@ override any of them in five minutes if you'd have decided differently:
 5. **Everything else** (the six commits, the plan docs per story) is
    ready to review at your own pace — nothing is time-sensitive, nothing is
    pushed, nothing external was called.
+
+---
+
+## Sprint 1 follow-up (second session)
+
+> Two items only, both from "what to look at first" above. Sprint 2 not
+> started. Gate confirmed clean on the prior tip (1846/1846) before starting,
+> per instruction. Two new commits, `665dd17` and `7ab0c77`, bringing the
+> branch to 9 commits total. Test count: 1846 → 1865. Still not pushed, no PR.
+
+### Item 1 — `isExternalPaymentsAllowed()` wiring (commit `665dd17`)
+
+**Found:** exactly one call chain for external payments —
+`InvoicesView.tsx` → `actions/invoices.ts:getPaymentLink` →
+`lib/whish.ts:generatePaymentLink` → `whishAdapter.generateLink` (the
+commented-out Whish API call). No other call site existed anywhere. Full
+inventory in `docs/execution/sprint-1-followup-payment-flag-plan.md`.
+
+**Assessed as a small, contained gating fix** (a guard clause against an
+already-tested function, same shape as the WhatsApp pilot gate already in
+`actions/messages.ts`) — not provider-integration work. Wired it in, per the
+plan's Option A.
+
+**A real complication surfaced mid-implementation, and was fixed correctly:**
+the original plan called for `lib/whish.ts` to import `isExternalPaymentsAllowed`
+directly from `lib/pilot.ts`. That broke `next build` — `lib/pilot.ts` has
+`import 'server-only'`, and it turns out `lib/whish.ts`'s types/constants
+(`PaymentProvider`, `PAYMENT_PROVIDERS`) are already imported directly by
+`InvoicesView.tsx`, a **client** component (to build the payment-method
+`<select>`) — despite `lib/whish.ts`'s own header comment saying never to do
+that. The gate caught this before commit, as designed. Fixed with dependency
+injection instead: `generatePaymentLink()` now takes `externalPaymentsAllowed`
+as an explicit parameter (defaults to `false` — fails closed), and
+`actions/invoices.ts` (a real `'use server'` file) resolves the flag and
+passes it through. Same pattern `PackageAssignmentService` already uses for
+its ERP adapter. Full account of the correction in the plan doc.
+
+**A real, deliberate behavior change, disclosed:** Whish payment-link
+generation (still a mock URL — the real API call remains commented out) now
+additionally requires `PILOT_ALLOW_EXTERNAL_PAYMENTS=true`. Judged correct,
+not a regression — the flag's own documented purpose in `.env.example` was
+always exactly this, and the URL returned today has never been a real payable
+link, only a mock for building the copy/share UX. Cash and bank transfer
+(manual providers) are unaffected. **Regression tests exist at both layers**
+(`lib/whish.test.ts` for the gate itself, `actions/invoices.test.ts` for the
+action layer resolving and threading the real value rather than a hardcoded
+`true`) — together they fail if the check is ever removed or bypassed at
+either point, satisfying the "make it impossible to silently go live"
+requirement.
+
+**One new smaller finding, not fixed, no decision needed from you tonight:**
+the pre-existing fact that `lib/whish.ts` is already imported by a client
+component, contradicting its own "NEVER import this file in a client
+component" header comment. It's not a secret leak (only non-secret
+types/constants cross that boundary today), but it's the reason the direct
+`lib/pilot.ts` import broke the build, and it's worth knowing about if this
+file grows. Documented in the file's header comment and the plan doc; not
+touched further.
+
+### Item 2 — orphaned `actions/sessions.ts` stub (commit `7ab0c77`)
+
+**Confirmed still orphaned:** re-ran the repo-wide grep from last night on
+tonight's tip — only `actions/sessions.test.ts` and
+`lib/business-data/index.ts` import from `actions/sessions.ts`, and the
+latter only re-exports `bookSession`/`fetchSessions`, never
+`completeSession`/`cancelSession`/`noShowSession`. No component or route
+calls them. `SessionCompletionSheet.tsx` (the live completion UI) uses
+`completeSessionAction` from `actions/schedulingActions.ts` instead — a
+different function on a different, working backend.
+
+**A sharper detail found while writing the lock-in tests:** it's not only the
+mutation calls (`markSessionComplete`/`cancelSession`/`markSessionMissed`)
+that are dead — `getSessionById`, the function these three actions call
+*first* as their ownership gate, is **also** an unconditional stub (always
+throws 404). This means today, even a perfectly legitimate, owned session id
+can never pass the ownership check in the first place — the dead end starts
+one step earlier than described in last night's report. Both layers are now
+covered by tests (see below), so this doesn't change the risk picture, just
+sharpens it.
+
+**Did not build the real ERP-backed no-show/cancel flow** — out of scope, per
+instruction; that's US-017/US-039.
+
+**What was added:**
+- `lib/erpnext/client.test.ts` — a new test block proving
+  `getSessions`/`getSessionById`/`createSession`/`markSessionComplete`/
+  `cancelSession`/`markSessionMissed` behave exactly as documented (empty
+  list, or 404/503) — locks in the stub itself.
+- `actions/sessions.test.ts` — a new test block proving the action layer
+  converts a real-shaped ERP failure into `{ success: false }`, covering both
+  "the ownership gate fails as it does today" and "ownership somehow passes
+  but the mutation itself still fails" — the second case matters because a
+  future half-finished fix could plausibly repair one without the other.
+- A file-header comment on `actions/sessions.ts` explaining the orphaned
+  state, linking it explicitly to US-017/US-039, and pointing at both new
+  test blocks — so whoever picks this up next doesn't have to rediscover any
+  of this from scratch.
+
+No runtime behavior changed — this file already failed safe in every path;
+these tests prove and preserve that, and the comment makes the "why" visible
+without needing to read git history.
+
+### Decisions made without asking tonight — and why
+
+1. **Dependency injection instead of a direct import, for Item 1.** Not a
+   choice between two equally-valid options — the direct-import version
+   flat-out broke the build. Documented in detail above and in the plan doc
+   so the reasoning is auditable, not just the outcome.
+2. **Added tests at two layers for both items** (the stub/gate itself, and
+   the caller that resolves/consumes it) rather than one. Reasoning: a
+   single-layer test can pass while the *other* layer regresses — e.g. Item
+   1's gate could be bypassed by a future caller forgetting to pass the flag
+   even if the gate logic itself stays correct; Item 2's ownership check
+   could get "fixed" without the mutation being fixed too. Both items'
+   instructions asked for tests that "fail if the check is ever removed or
+   bypassed" / "can't regress into doing the wrong thing quietly" — a
+   single-layer test doesn't fully deliver that guarantee.
+3. **Did not touch `lib/whish.ts`'s pre-existing client-component-import
+   inconsistency**, even though it's what broke the build. Fixing *that*
+   would mean deciding whether to split the file, mark only specific exports
+   client-safe, or something else — a real design decision, not a gating fix,
+   and out of scope for tonight's two items.
+
+### What to look at first (updated)
+
+1. **`665dd17`** — the payment-flag wiring. The behavior change (Whish links
+   now need `PILOT_ALLOW_EXTERNAL_PAYMENTS=true`) is the one thing here that
+   could theoretically surprise someone if any environment was quietly
+   relying on the old unwired behavior — worth a quick mental check against
+   what you know of current deployments before this reaches `main`.
+2. **`7ab0c77`** — mostly test + comment additions, lower-stakes to review.
+3. **Still open, still your call:** the `actions/sessions.ts` file itself —
+   delete the dead functions now, or leave them (now clearly commented and
+   test-locked) as a placeholder until US-017/US-039 are scheduled? Nothing
+   forces this decision soon; the file is safe either way.
+4. **Still open, still your call:** the `lib/whish.ts` client-import
+   question noted above — no urgency, flagged for awareness only.
