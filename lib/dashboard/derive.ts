@@ -371,3 +371,45 @@ export function getMissingNextSessionAttentionItems(
 
   return result
 }
+
+const DEFAULT_COMBINED_CAP = 6
+
+/**
+ * Combines multiple already-derived (and already individually-capped)
+ * attention sources into one ordered, overall-capped list for the dashboard
+ * (US-027 "Needs Attention Expansion").
+ *
+ * Without an overall cap, three sources each capped at 4-5 items could show
+ * up to ~14 cards on one dashboard — technically correct, but the opposite
+ * of FITDESK_PRODUCT_PRINCIPLE_V1_1.md's "Calm... avoid alert spam", and not
+ * really "an operating inbox" if it's a wall of cards. `sources` must be
+ * passed in priority order (highest urgency first) — this function does not
+ * re-sort across sources, only truncates.
+ *
+ * If truncation cuts into the combined list, the truncated portion (which
+ * may itself include an inner source's own "+N more" row) is replaced with
+ * a single combined overflow row, so the trainer never sees two different
+ * "+N more" rows implying two different destinations for "the rest".
+ */
+export function combineAttentionItems(
+  sources: AttentionItem[][],
+  cap: number = DEFAULT_COMBINED_CAP,
+): AttentionItem[] {
+  const combined = sources.flat()
+  if (combined.length <= cap) return combined
+
+  const visible = combined.slice(0, cap - 1)
+  const overflowCount = combined.length - visible.length
+
+  return [
+    ...visible,
+    {
+      type:  combined[cap - 1].type,
+      label: `+${overflowCount} more need${overflowCount === 1 ? '' : 's'} attention`,
+      // No single destination fits a mixed-type overflow (invoices, sessions,
+      // clients) — the client directory is the closest thing to a universal
+      // "see everyone" catch-all, better than linking back to this same page.
+      href:  '/dashboard/clients',
+    },
+  ]
+}

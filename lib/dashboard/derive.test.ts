@@ -8,7 +8,9 @@ import {
   getUnresolvedSessions,
   getUnresolvedSessionAttentionItems,
   getMissingNextSessionAttentionItems,
+  combineAttentionItems,
 } from './derive'
+import type { AttentionItem } from './derive'
 import type { Session, Invoice, Client } from '@/types'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -716,5 +718,72 @@ describe('getMissingNextSessionAttentionItems', () => {
     ]
     const result = getMissingNextSessionAttentionItems([clientA, clientB, clientC, clientD], sessions, TODAY)
     expect(result.map(r => r.clientName)).toEqual(['Alice']) // only clientB (default name from fixture)
+  })
+})
+
+// ─── combineAttentionItems (US-027) ────────────────────────────────────────────
+
+function makeAttentionItem(partial: Partial<AttentionItem> & { type: AttentionItem['type'] }): AttentionItem {
+  return {
+    label: 'item',
+    href:  '/dashboard',
+    ...partial,
+  }
+}
+
+describe('combineAttentionItems', () => {
+  it('returns empty array when all sources are empty', () => {
+    expect(combineAttentionItems([[], [], []])).toEqual([])
+  })
+
+  it('concatenates sources in the order given when under the cap', () => {
+    const overdue     = [makeAttentionItem({ type: 'overdue_invoice', label: 'A' })]
+    const unresolved  = [makeAttentionItem({ type: 'unresolved_session', label: 'B' })]
+    const missingNext = [makeAttentionItem({ type: 'missing_next_session', label: 'C' })]
+    const result = combineAttentionItems([overdue, unresolved, missingNext])
+    expect(result.map(r => r.label)).toEqual(['A', 'B', 'C'])
+  })
+
+  it('does not truncate or add an overflow row at exactly the cap', () => {
+    const items = Array.from({ length: 6 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items])
+    expect(result).toHaveLength(6)
+    expect(result.map(r => r.label)).toEqual(items.map(i => i.label))
+  })
+
+  it('truncates and appends one combined overflow row when the total exceeds the cap', () => {
+    const overdue     = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `O${i}` }))
+    const unresolved  = Array.from({ length: 5 }, (_, i) => makeAttentionItem({ type: 'unresolved_session', label: `U${i}` }))
+    const result = combineAttentionItems([overdue, unresolved])
+    expect(result).toHaveLength(6) // 5 visible + 1 combined overflow
+    expect(result.slice(0, 5).map(r => r.label)).toEqual(['O0', 'O1', 'O2', 'O3', 'U0'])
+    expect(result[5].label).toContain('+4 more')
+    expect(result[5].href).toBe('/dashboard/clients')
+  })
+
+  it('respects a custom cap', () => {
+    const items = Array.from({ length: 5 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 3)
+    expect(result).toHaveLength(3)
+    expect(result[2].label).toContain('+3 more')
+  })
+
+  it('preserves priority order — higher-priority source appears first even when it would be truncated last', () => {
+    const overdue = [makeAttentionItem({ type: 'overdue_invoice', label: 'urgent' })]
+    const missingNext = Array.from({ length: 10 }, (_, i) => makeAttentionItem({ type: 'missing_next_session', label: `soft${i}` }))
+    const result = combineAttentionItems([overdue, missingNext], 3)
+    expect(result[0].label).toBe('urgent') // highest-priority source's item survives truncation
+  })
+
+  it('singularizes "1 more"', () => {
+    const items = Array.from({ length: 7 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 6)
+    expect(result[5].label).toBe('+2 more needs attention') // 7 - 5 visible = 2
+  })
+
+  it('a combined overflow of exactly 1 uses singular "need"', () => {
+    const items = Array.from({ length: 4 }, (_, i) => makeAttentionItem({ type: 'overdue_invoice', label: `I${i}` }))
+    const result = combineAttentionItems([items], 3)
+    expect(result[2].label).toBe('+2 more needs attention')
   })
 })

@@ -19,6 +19,7 @@ import {
   getUnresolvedSessions,
   getUnresolvedSessionAttentionItems,
   getMissingNextSessionAttentionItems,
+  combineAttentionItems,
 } from '@/lib/dashboard/derive'
 import type { Client, Session, Invoice } from '@/types'
 
@@ -87,17 +88,26 @@ export default async function DashboardPage() {
   const moneySnapshot = getMoneySnapshot(invoices, monthStart)
   const upcoming      = getUpcoming(sessions, today)
 
-  // US-003 Needs Attention Upgrade: overdue/pending payments (existing) +
-  // unresolved session outcomes (US-057) + clients with no upcoming session.
-  // "Low package balance" is a documented, deferred gap — see
-  // docs/execution/sprint-2-us-003-plan.md (needs a product-decided
-  // threshold before it can be built, not a judgment call made here).
+  // US-003/US-027 Needs Attention: overdue/pending payments (existing) +
+  // unresolved session outcomes (US-057) + clients with no upcoming session,
+  // combined in priority order and capped overall (US-027 — see
+  // docs/execution/sprint-2-us-027-plan.md for why an overall cap matters:
+  // three sources each capped individually could otherwise show ~14 cards
+  // at once, which is alert spam, not "an operating inbox").
+  // "Low package balance" / "package renewal prompts" are a documented,
+  // deferred gap — see docs/execution/sprint-2-us-003-plan.md and
+  // sprint-2-us-027-plan.md (needs a product-decided threshold before it
+  // can be built, not a judgment call made here).
   const unresolvedSessions = getUnresolvedSessions(sessions, today, nowTime)
-  const attentionItems = [
-    ...getAttentionItems(invoices),
-    ...getUnresolvedSessionAttentionItems(unresolvedSessions),
-    ...(clients !== null ? getMissingNextSessionAttentionItems(clients, sessions, today) : []),
-  ]
+  const invoiceAttentionItems = getAttentionItems(invoices)
+  const unresolvedSessionItems = getUnresolvedSessionAttentionItems(unresolvedSessions)
+  const missingNextSessionItems =
+    clients !== null ? getMissingNextSessionAttentionItems(clients, sessions, today) : []
+  const attentionItems = combineAttentionItems([
+    invoiceAttentionItems,
+    unresolvedSessionItems,
+    missingNextSessionItems,
+  ])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
