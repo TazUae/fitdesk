@@ -10,9 +10,11 @@ import {
   canComplete,
   canMarkNoShow,
   canCancel,
+  canReschedule,
   mapCompletionError,
   mapNoShowError,
   mapCancelError,
+  mapRescheduleError,
   getNoShowFinancialChoice,
 } from '@/lib/scheduling/completionUI'
 import type { FDSession } from '@/types/scheduling'
@@ -278,6 +280,73 @@ describe('canCancel', () => {
     it(`returns false for status = ${status} — immutable/terminal`, () => {
       const session = makeSession({ status })
       expect(canCancel(session)).toBe(false)
+    })
+  }
+})
+
+// ─── mapRescheduleError (US-039) ────────────────────────────────────────────────
+
+describe('mapRescheduleError', () => {
+  it('maps VERSION_CONFLICT to its user-facing message', () => {
+    expect(mapRescheduleError('VERSION_CONFLICT')).toBe(
+      'This session changed. Refresh and try again.',
+    )
+  })
+
+  it('maps IMMUTABLE_STATUS to its user-facing message', () => {
+    expect(mapRescheduleError('IMMUTABLE_STATUS')).toBe(
+      'This session is already finalized.',
+    )
+  })
+
+  it('maps DST_INVALID to its user-facing message', () => {
+    expect(mapRescheduleError('DST_INVALID')).toBe(
+      'That time does not exist in this timezone (daylight saving change) — pick a different time.',
+    )
+  })
+
+  it('maps CONFLICT to its user-facing message', () => {
+    expect(mapRescheduleError('CONFLICT')).toBe(
+      'That time conflicts with another session on your calendar.',
+    )
+  })
+
+  it('maps OUT_OF_HOURS to its user-facing message', () => {
+    expect(mapRescheduleError('OUT_OF_HOURS')).toBe(
+      'That time is outside your working hours.',
+    )
+  })
+
+  it('falls back to the generic message for an unknown code', () => {
+    expect(mapRescheduleError('SOME_UNKNOWN_CODE')).toBe(
+      'Could not reschedule this session. Please try again.',
+    )
+  })
+
+  it('falls back to the generic message for an empty string code', () => {
+    expect(mapRescheduleError('')).toBe('Could not reschedule this session. Please try again.')
+  })
+})
+
+// ─── canReschedule (US-039) ─────────────────────────────────────────────────────
+
+describe('canReschedule', () => {
+  it('returns true for a scheduled session regardless of start time (future or past)', () => {
+    const future = makeSession({ status: 'scheduled', startAt: new Date(Date.now() + 60_000) })
+    const past   = makeSession({ status: 'scheduled', startAt: new Date(Date.now() - 60_000) })
+    expect(canReschedule(future)).toBe(true)
+    expect(canReschedule(past)).toBe(true)
+  })
+
+  it('returns true for a confirmed session regardless of start time', () => {
+    const future = makeSession({ status: 'confirmed', startAt: new Date(Date.now() + 60_000) })
+    expect(canReschedule(future)).toBe(true)
+  })
+
+  for (const status of ['completed', 'cancelled', 'no_show', 'skipped'] as const) {
+    it(`returns false for status = ${status} — immutable/terminal`, () => {
+      const session = makeSession({ status })
+      expect(canReschedule(session)).toBe(false)
     })
   }
 })

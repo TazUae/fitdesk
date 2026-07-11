@@ -8,15 +8,18 @@ import {
   completeSessionAction,
   markNoShowAction,
   cancelSessionAction,
+  rescheduleSessionAction,
   previewBatchCompletionAction,
 } from '@/actions/schedulingActions'
 import {
   mapCompletionError,
   mapNoShowError,
   mapCancelError,
+  mapRescheduleError,
   canComplete,
   canMarkNoShow,
   canCancel,
+  canReschedule,
   getNoShowFinancialChoice,
   type NoShowFinancialAction,
   type NoShowFinancialChoice,
@@ -103,10 +106,28 @@ export function SessionCompletionSheet({
     setCancelError(null)
   }
 
+  // ─── Reschedule sub-view state (US-039) ────────────────────────────────────
+  // Also simple like cancel: no billing branching, just a new date/time (via
+  // minimal native inputs), an optional reason, and a confirm step.
+  const [rescheduleOpen, setRescheduleOpen]     = useState(false)
+  const [newDate, setNewDate]                   = useState('')
+  const [newTime, setNewTime]                   = useState('')
+  const [rescheduleReason, setRescheduleReason] = useState('')
+  const [rescheduleError, setRescheduleError]   = useState<string | null>(null)
+
+  function resetReschedule() {
+    setRescheduleOpen(false)
+    setNewDate('')
+    setNewTime('')
+    setRescheduleReason('')
+    setRescheduleError(null)
+  }
+
   function handleClose() {
     setError(null)
     resetNoShow()
     resetCancel()
+    resetReschedule()
     onClose()
   }
 
@@ -220,18 +241,63 @@ export function SessionCompletionSheet({
     })
   }
 
-  const eligible       = !!session && canComplete(session)
-  const noShowEligible = !!session && canMarkNoShow(session)
-  const cancelEligible = !!session && canCancel(session)
+  function handleOpenReschedule() {
+    setRescheduleOpen(true)
+    setRescheduleError(null)
+  }
+
+  function handleBackFromReschedule() {
+    resetReschedule()
+  }
+
+  /**
+   * Only reachable once both newDate and newTime are filled in — the Confirm
+   * control itself is not rendered until then (see the footer below).
+   * Retry-safe like the other confirm handlers: on failure session.version is
+   * unchanged, so tapping Confirm again re-attempts safely.
+   */
+  function handleConfirmReschedule() {
+    if (!session || !newDate || !newTime) return
+    setRescheduleError(null)
+    startTransition(async () => {
+      const result = await rescheduleSessionAction(
+        session.id,
+        session.version,
+        newDate,
+        newTime,
+        rescheduleReason.trim() || undefined,
+      )
+      if (result.success) {
+        toast.success('Session rescheduled')
+        resetReschedule()
+        onClose()
+        onCompleted()
+      } else {
+        setRescheduleError(mapRescheduleError(result.code))
+      }
+    })
+  }
+
+  const eligible           = !!session && canComplete(session)
+  const noShowEligible     = !!session && canMarkNoShow(session)
+  const cancelEligible     = !!session && canCancel(session)
+  const rescheduleEligible = !!session && canReschedule(session)
   const isTerminal = !!session && !['scheduled', 'confirmed'].includes(session.status)
   const isFuture   = !!session && !isTerminal && session.startAt.getTime() > Date.now()
 
   const selectedOption = noShowChoice?.options.find(o => o.action === selectedAction) ?? null
 
-  // Derived header state — shared across all three sub-views (main/no-show/cancel).
-  const sheetTitle = noShowOpen ? 'Mark as no-show' : cancelOpen ? 'Cancel session' : 'Complete session'
-  const showBackButton = noShowOpen || cancelOpen
-  const handleBack = noShowOpen ? handleBackFromNoShow : handleBackFromCancel
+  // Derived header state — shared across all four sub-views (main/no-show/cancel/reschedule).
+  const sheetTitle =
+    noShowOpen      ? 'Mark as no-show' :
+    cancelOpen      ? 'Cancel session' :
+    rescheduleOpen  ? 'Reschedule session' :
+    'Complete session'
+  const showBackButton = noShowOpen || cancelOpen || rescheduleOpen
+  const handleBack =
+    noShowOpen ? handleBackFromNoShow :
+    cancelOpen ? handleBackFromCancel :
+    handleBackFromReschedule
 
   return (
     <WorkspaceShell
@@ -320,6 +386,33 @@ export function SessionCompletionSheet({
               Back
             </button>
           </div>
+        ) : rescheduleOpen ? (
+          <div
+            className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
+            style={{ borderColor: 'var(--fd-border)' }}
+          >
+            {newDate && newTime && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={handleConfirmReschedule}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
+                style={{ backgroundColor: 'var(--fd-blue)', color: '#fff' }}
+              >
+                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirm reschedule
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={handleBackFromReschedule}
+              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
+              style={{ color: 'var(--fd-muted)' }}
+            >
+              Back
+            </button>
+          </div>
         ) : (
           <div
             className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
@@ -362,6 +455,17 @@ export function SessionCompletionSheet({
                 style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
               >
                 Cancel session
+              </button>
+            )}
+            {rescheduleEligible && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={handleOpenReschedule}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
+                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+              >
+                Reschedule session
               </button>
             )}
             <button
@@ -560,6 +664,84 @@ export function SessionCompletionSheet({
               {cancelError && (
                 <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
                   {cancelError}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      ) : rescheduleOpen ? (
+        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+          {session && (
+            <>
+              {/* Session mini-summary */}
+              <div
+                className="flex flex-col gap-1 rounded-2xl p-4"
+                style={{ backgroundColor: 'var(--fd-card)', border: '1px solid var(--fd-border)' }}
+              >
+                <p className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
+                  {session.clientName}
+                </p>
+                <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+                  Currently: {formatLocalDateTime(session)}
+                </p>
+              </div>
+
+              {/* What rescheduling does and does not do */}
+              <div
+                className="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  backgroundColor: 'var(--fd-card)',
+                  border:          '1px solid var(--fd-border)',
+                  color:           'var(--fd-text)',
+                }}
+              >
+                Rescheduling changes this session&apos;s time. It has no financial effect — no
+                invoice, refund, credit, or package change.
+              </div>
+
+              {/* Minimal native date/time inputs */}
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label className="block text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                    New date
+                  </label>
+                  <input
+                    type="date"
+                    value={newDate}
+                    onChange={e => setNewDate(e.target.value)}
+                    className="input-base"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label className="block text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                    New time
+                  </label>
+                  <input
+                    type="time"
+                    value={newTime}
+                    onChange={e => setNewTime(e.target.value)}
+                    className="input-base"
+                  />
+                </div>
+              </div>
+
+              {/* Optional reason — appended to the session's existing notes server-side, never overwritten */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
+                  Reason (optional)
+                </label>
+                <textarea
+                  value={rescheduleReason}
+                  onChange={e => setRescheduleReason(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. client asked to move to Tuesday"
+                  className="input-base resize-none"
+                />
+              </div>
+
+              {rescheduleError && (
+                <p className="text-sm" style={{ color: 'var(--fd-red)' }}>
+                  {rescheduleError}
                 </p>
               )}
             </>

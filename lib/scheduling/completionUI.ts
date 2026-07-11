@@ -55,6 +55,20 @@ export function mapCancelError(code: string): string {
   return CANCEL_ERROR_MESSAGES[code] ?? 'Could not cancel this session. Please try again.'
 }
 
+// ─── Reschedule error code → user-facing message (US-039) ─────────────────────
+
+const RESCHEDULE_ERROR_MESSAGES: Record<string, string> = {
+  VERSION_CONFLICT: 'This session changed. Refresh and try again.',
+  IMMUTABLE_STATUS: 'This session is already finalized.',
+  DST_INVALID:      'That time does not exist in this timezone (daylight saving change) — pick a different time.',
+  CONFLICT:         'That time conflicts with another session on your calendar.',
+  OUT_OF_HOURS:     'That time is outside your working hours.',
+}
+
+export function mapRescheduleError(code: string): string {
+  return RESCHEDULE_ERROR_MESSAGES[code] ?? 'Could not reschedule this session. Please try again.'
+}
+
 // ─── Eligibility checks ────────────────────────────────────────────────────────
 
 export function canComplete(session: FDSession): boolean {
@@ -86,6 +100,17 @@ export function canMarkNoShow(session: FDSession): boolean {
  * check (see docs/execution/phase-1-plus-safe-run-plan.md, US-039).
  */
 export function canCancel(session: FDSession): boolean {
+  return session.status === 'scheduled' || session.status === 'confirmed'
+}
+
+/**
+ * Same reasoning and logic as canCancel — a session can be rescheduled at any
+ * point before it reaches a terminal outcome, regardless of whether its
+ * original start time has already passed (e.g. an unresolved past session can
+ * still be moved forward). Kept as its own named function for the same
+ * future-divergence reason as canCancel/canMarkNoShow.
+ */
+export function canReschedule(session: FDSession): boolean {
   return session.status === 'scheduled' || session.status === 'confirmed'
 }
 
