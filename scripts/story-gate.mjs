@@ -41,7 +41,13 @@ function run(label, cmd, args) {
 
 const TENANT_SENSITIVE_PATTERNS = [
   /\/repository\.ts$/,
-  /\/actions\/.*\.ts$/,
+  // Matches actions/foo.ts (top-level, the common case in this repo — every
+  // server action lives directly under actions/) AND nested foo/actions/bar.ts.
+  // The original /\/actions\/.*\.ts$/ required a leading "/" before "actions"
+  // and so never matched a top-level actions/*.ts path — found while running
+  // this gate for real during Sprint 2 US-057, when it silently skipped
+  // actions/schedulingActions.ts changes touching tenant-scoped queries.
+  /^actions\/.*\.ts$|\/actions\/.*\.ts$/,
   /backfill/i,
   /reconcile/i,
   /Repository\.ts$/,
@@ -49,11 +55,18 @@ const TENANT_SENSITIVE_PATTERNS = [
 
 function checkTenantIsolationCoverage() {
   console.log('\n─── Tenant-isolation coverage heuristic ───────────────────────')
-  const diff = spawnSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' })
-  const staged = (diff.stdout || '').split('\n').filter(Boolean)
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { encoding: 'utf8' })
-  const untrackedFiles = (untracked.stdout || '').split('\n').filter(Boolean)
-  const changed = [...new Set([...staged, ...untrackedFiles])]
+  // Bug found during Sprint 2 (US-057): this originally checked only staged
+  // changes + untracked files, which silently misses the normal workflow of
+  // "modify tracked files, run the gate, stage+commit afterward" — i.e. every
+  // story tonight up to this point ran with this heuristic effectively blind.
+  // Now also includes plain unstaged modifications to already-tracked files.
+  const staged = (spawnSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' }).stdout || '')
+    .split('\n').filter(Boolean)
+  const unstaged = (spawnSync('git', ['diff', '--name-only'], { encoding: 'utf8' }).stdout || '')
+    .split('\n').filter(Boolean)
+  const untrackedFiles = (spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { encoding: 'utf8' }).stdout || '')
+    .split('\n').filter(Boolean)
+  const changed = [...new Set([...staged, ...unstaged, ...untrackedFiles])]
 
   const sensitiveChanged = changed.filter(
     f => !f.includes('.test.') && TENANT_SENSITIVE_PATTERNS.some(p => p.test(f)),
