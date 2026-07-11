@@ -15,6 +15,14 @@ export default defineConfig({
       'server-only': fileURLToPath(new URL('./test/stubs/server-only.ts', import.meta.url)),
     },
   },
+  // tsconfig sets `jsx: "preserve"` for Next.js's own build; Vite's transform
+  // never consumes that, so `.tsx` imports fail without an explicit JSX
+  // transform here. Vite 8 / vitest 4 use the oxc transformer (not esbuild), so
+  // this must be set under `oxc`. The `automatic` runtime uses react/jsx-runtime
+  // (React 18) so component-level tests can import `.tsx` files. Node env by
+  // default; a test that renders can opt into jsdom with
+  // `// @vitest-environment jsdom`.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     environment: 'node',
     include: ['**/*.test.{ts,tsx}'],
