@@ -1,5 +1,37 @@
 'use server'
 
+/**
+ * ─── ORPHANED / INTENTIONALLY UNWIRED — read before touching this file ───────
+ *
+ * completeSession, cancelSession, and noShowSession below call into
+ * lib/erpnext/client.ts's session functions, which are unconditional stubs
+ * (the PT Session DocType does not exist in this ERP instance — see that
+ * file's "PT Session stubs" test block). Every call fails: getSessionById
+ * always throws 404, and the mutation functions always throw 503. Their
+ * trainer-ownership gates are real and tested, but there is nothing live on
+ * the other side of them.
+ *
+ * No component or route in this repo imports completeSession/cancelSession/
+ * noShowSession from this file (confirmed by repo-wide grep, Sprint 1
+ * follow-up, 2026-07-11) — lib/business-data/index.ts re-exports only
+ * bookSession/fetchSessions from here. Live session completion goes through
+ * actions/schedulingActions.ts + lib/scheduling/sessionCompletionService.ts
+ * (the FD Session path) instead, which has no cancel/no-show/reschedule
+ * transition of its own yet.
+ *
+ * This is deliberately left unwired, not forgotten — building the real
+ * ERP/FD-Session-backed no-show and cancel/reschedule flows is US-017
+ * (No-Show Session Outcome) and US-039 (Session Cancel / Reschedule Outcome)
+ * respectively (see docs/execution/FINAL_DOC_PACK_TRACEABILITY_MAP.md), not
+ * scheduled yet as of this comment. See
+ * actions/sessions.test.ts's "fail safe, never a false success" tests and
+ * lib/erpnext/client.test.ts's "PT Session stubs" tests — both lock in
+ * today's fail-closed behavior. If you're picking up US-017/US-039: either
+ * rewire these three functions against FD Session, or delete them and their
+ * dead ERP-layer counterparts — don't leave a half-fixed state where the
+ * ownership gate works but the mutation still silently does nothing.
+ */
+
 import {
   cancelSession as erpCancelSession,
   createSession,
