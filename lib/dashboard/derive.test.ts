@@ -5,6 +5,7 @@ import {
   getMoneySnapshot,
   getUpcoming,
   getAttentionItems,
+  getUnresolvedSessions,
 } from './derive'
 import type { Session, Invoice } from '@/types'
 
@@ -479,5 +480,95 @@ describe('getAttentionItems', () => {
     expect(overflow.type).toBe('invoice_overflow')
     expect(overflow.label).toContain('+1')
     expect(overflow.href).toBe('/dashboard/invoices')
+  })
+})
+
+// ─── getUnresolvedSessions (US-057) ────────────────────────────────────────────
+
+describe('getUnresolvedSessions', () => {
+  it('returns empty array when there are no sessions', () => {
+    expect(getUnresolvedSessions([], TODAY)).toEqual([])
+  })
+
+  it('includes a past scheduled session', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY)
+    expect(result).toHaveLength(1)
+    expect(result[0].session.id).toBe('S1')
+  })
+
+  it('excludes a future scheduled session', () => {
+    const s = makeSession({ id: 'S1', date: FUTURE, status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a completed session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'completed' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a cancelled session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'cancelled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a missed (no-show) session even if in the past', () => {
+    const s = makeSession({ id: 'S1', date: PAST, status: 'missed' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a today session scheduled later than nowTime', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '18:00', status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY, '09:00')).toEqual([])
+  })
+
+  it('includes a today session scheduled earlier than nowTime', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY, '09:00')
+    expect(result).toHaveLength(1)
+  })
+
+  it('excludes a today session when nowTime is omitted (cannot determine if it has passed)', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY)).toEqual([])
+  })
+
+  it('excludes a today session with no time even when nowTime is passed', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, status: 'scheduled' })
+    expect(getUnresolvedSessions([s], TODAY, '23:59')).toEqual([])
+  })
+
+  it('sorts oldest-first', () => {
+    const sessions = [
+      makeSession({ id: 'S-recent', date: '2024-06-05', status: 'scheduled' }),
+      makeSession({ id: 'S-oldest', date: '2024-06-01', status: 'scheduled' }),
+      makeSession({ id: 'S-mid',    date: '2024-06-03', status: 'scheduled' }),
+    ]
+    const result = getUnresolvedSessions(sessions, TODAY)
+    expect(result.map(r => r.session.id)).toEqual(['S-oldest', 'S-mid', 'S-recent'])
+  })
+
+  it('computes daysOverdue relative to today', () => {
+    const s = makeSession({ id: 'S1', date: '2024-06-01', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY)
+    expect(result[0].daysOverdue).toBe(7) // 2024-06-08 - 2024-06-01
+  })
+
+  it('a today, past-time session has daysOverdue 0', () => {
+    const s = makeSession({ id: 'S1', date: TODAY, time: '08:00', status: 'scheduled' })
+    const result = getUnresolvedSessions([s], TODAY, '09:00')
+    expect(result[0].daysOverdue).toBe(0)
+  })
+
+  it('mixed batch: only unresolved sessions are returned, others excluded', () => {
+    const sessions = [
+      makeSession({ id: 'S-unresolved-1', date: PAST, status: 'scheduled' }),
+      makeSession({ id: 'S-completed',    date: PAST, status: 'completed' }),
+      makeSession({ id: 'S-future',       date: FUTURE, status: 'scheduled' }),
+      makeSession({ id: 'S-unresolved-2', date: '2024-06-03', status: 'scheduled' }),
+      makeSession({ id: 'S-cancelled',    date: PAST, status: 'cancelled' }),
+    ]
+    const result = getUnresolvedSessions(sessions, TODAY)
+    expect(result.map(r => r.session.id)).toEqual(['S-unresolved-1', 'S-unresolved-2'])
   })
 })

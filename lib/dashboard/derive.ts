@@ -228,3 +228,49 @@ export function getAttentionItems(invoices: Invoice[], today?: string): Attentio
 
   return items
 }
+
+// ─── Unresolved sessions (US-057) ──────────────────────────────────────────────
+
+/**
+ * A past session whose outcome was never recorded — still `'scheduled'`
+ * (covers both FD Session `'scheduled'` and `'confirmed'`, which
+ * lib/dashboard/fdSessionAdapter.ts's mapFDStatus both map to `'scheduled'`;
+ * either way the trainer never marked what actually happened) with a start
+ * time strictly before `now`.
+ */
+export interface UnresolvedSessionItem {
+  session:     Session
+  /** Days elapsed since the session's date (0 = today, still in the past by time). */
+  daysOverdue: number
+}
+
+/**
+ * Returns past sessions with no recorded outcome, oldest first (most overdue
+ * surfaces first — mirrors sortByAge's oldest-first convention for overdue
+ * invoices).
+ *
+ * `nowTime` (HH:mm) is optional, same contract as getNextUp: when provided, a
+ * session dated today whose `time` is before `nowTime` counts as unresolved;
+ * a session with no `time` is never excluded by the time check (its start
+ * can't be determined, so date-only comparison applies).
+ */
+export function getUnresolvedSessions(
+  sessions: Session[],
+  today: string,
+  nowTime?: string,
+): UnresolvedSessionItem[] {
+  const unresolved = sessions.filter(s => {
+    if (s.status !== 'scheduled') return false
+    if (s.date > today) return false
+    if (s.date < today) return true
+    // s.date === today
+    if (!nowTime || !s.time) return false
+    return s.time < nowTime
+  })
+
+  return unresolved
+    .map(session => ({ session, daysOverdue: daysSinceDue(today, session.date) }))
+    .sort((a, b) =>
+      a.session.date.localeCompare(b.session.date) || (a.session.time ?? '').localeCompare(b.session.time ?? ''),
+    )
+}

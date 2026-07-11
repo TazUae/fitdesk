@@ -20,7 +20,8 @@ import { DateTime } from 'luxon'
 import { db } from '@/lib/db'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTenantContext } from '@/lib/tenant/context'
-import { ClientRepository } from '@/lib/clients/repository'
+import { ClientRepository, type TenantCtx } from '@/lib/clients/repository'
+import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
 import { buildBookingPlan } from '@/lib/scheduling/engine'
 import {
   findSessionsInRange,
@@ -44,7 +45,12 @@ import {
   SessionRateNotConfiguredError,
   VersionConflictError,
   ImmutableSessionError,
+  type CompletionDeps,
 } from '@/lib/scheduling/sessionCompletionService'
+import {
+  previewSessionCompletion,
+  type SessionCompletionPreview,
+} from '@/lib/scheduling/sessionCompletionPreview'
 import {
   findInvoiceBySession,
   createInvoice,
@@ -266,6 +272,44 @@ export async function bookPlanAction(
 }
 
 /**
+ * Builds the CompletionDeps object completeSession() needs, scoped to one
+ * resolved tenant/user. Shared by completeSessionAction and
+ * batchCompleteSessionsAction so both go through the exact same billing
+ * dispatch — one definition of "how a session completes", not two that could
+ * drift apart.
+ */
+function buildCompletionDeps(tenantCtx: TenantCtx, userId: string | null): CompletionDeps {
+  return {
+    findSessionById,
+    updateSession,
+    resolveBillingMode: async (clientId) => {
+      const client = await new ClientRepository(db).findClientByErpId(tenantCtx, clientId)
+      return client?.billingMode ?? null
+    },
+    consumeForSession: async ({ sessionId, erpCustomerId }) => {
+      const client = await new ClientRepository(db).findClientByErpId(tenantCtx, erpCustomerId)
+      if (!client) {
+        throw new BillingNotConfiguredError(erpCustomerId)
+      }
+      const svc = new PackageConsumptionService(db)
+      const res = await svc.consumeSession(tenantCtx, {
+        sessionId,
+        clientIndexId:    client.id,
+        erpCustomerId:    client.erpCustomerId,
+        consumedByUserId: userId,
+      })
+      return { outcome: res.outcome }
+    },
+    // Pay-per-session invoice deps (C7C)
+    findInvoiceBySession,
+    buildSessionInvoicePayload,
+    createInvoice,
+    submitSalesInvoice,
+    getPostingDate: () => new Date().toISOString().slice(0, 10),
+  }
+}
+
+/**
  * Mark an FD Session as completed.
  *
  * Dispatch:
@@ -298,34 +342,7 @@ export async function completeSessionAction(
 
   try {
     const result = await completeSession(
-      {
-        findSessionById,
-        updateSession,
-        resolveBillingMode: async (clientId) => {
-          const client = await new ClientRepository(db).findClientByErpId(tenantCtx, clientId)
-          return client?.billingMode ?? null
-        },
-        consumeForSession: async ({ sessionId, erpCustomerId }) => {
-          const client = await new ClientRepository(db).findClientByErpId(tenantCtx, erpCustomerId)
-          if (!client) {
-            throw new BillingNotConfiguredError(erpCustomerId)
-          }
-          const svc = new PackageConsumptionService(db)
-          const res = await svc.consumeSession(tenantCtx, {
-            sessionId,
-            clientIndexId:    client.id,
-            erpCustomerId:    client.erpCustomerId,
-            consumedByUserId: ctx.userId ?? null,
-          })
-          return { outcome: res.outcome }
-        },
-        // Pay-per-session invoice deps (C7C)
-        findInvoiceBySession,
-        buildSessionInvoicePayload,
-        createInvoice,
-        submitSalesInvoice,
-        getPostingDate: () => new Date().toISOString().slice(0, 10),
-      },
+      buildCompletionDeps(tenantCtx, ctx.userId ?? null),
       id,
       expectedVersion,
     )
@@ -333,4 +350,142 @@ export async function completeSessionAction(
   } catch (err) {
     return mapError(err)
   }
+}
+
+// ─── US-057 — Unresolved Sessions Batch Resolution ─────────────────────────────
+
+export interface UnresolvedSessionPreviewItem {
+  id:      string
+  preview: SessionCompletionPreview
+}
+
+/**
+ * Read-only preview of what completing each given session would do —
+ * billing mode, and for package mode the client's total balance across all
+ * active purchases, for pay-per-session the session's own rate. No mutation.
+ * Used by the batch-resolve UI to show financial consequences before the
+ * trainer confirms (US-057 acceptance criterion).
+ *
+ * One session failing to preview (e.g. a stale/unknown id) is reported per
+ * item via the `preview` field's absence — this function does not abort the
+ * whole batch for one bad id, matching batchCompleteSessionsAction's own
+ * per-item isolation.
+ */
+export async function previewBatchCompletionAction(
+  sessionIds: string[],
+): Promise<SchedulingResult<UnresolvedSessionPreviewItem[]>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, code: 'ERR', message: 'Workspace not provisioned' }
+  }
+  const tenantCtx = { tenantId: ctx.tenantId }
+
+  try {
+    const clientRepo = new ClientRepository(db)
+    const ledgerRepo = new PackageLedgerRepository(db)
+
+    const items: UnresolvedSessionPreviewItem[] = []
+    for (const id of sessionIds) {
+      const session = await findSessionById(id)
+      const client  = await clientRepo.findClientByErpId(tenantCtx, session.clientId)
+      const billingMode = client?.billingMode ?? null
+
+      let totalPackageBalance = 0
+      // Skip the balance lookup entirely for trial sessions — trial wins over
+      // billing mode in previewSessionCompletion (mirrors completeSession's own
+      // dispatch order), so the balance would never be used. Avoids an
+      // unnecessary DB round-trip for every trial session in a batch.
+      if (!session.isTrialSession && billingMode === 'package' && client) {
+        const balances = await ledgerRepo.deriveBalancesByClient(tenantCtx, client.id)
+        totalPackageBalance = Object.values(balances).reduce((sum, b) => sum + b, 0)
+      }
+
+      items.push({
+        id,
+        preview: previewSessionCompletion({
+          isTrialSession:         session.isTrialSession,
+          billingMode,
+          rate:                   session.rate,
+          currency:               'USD', // FDSession carries no currency field; matches the app-wide USD default (e.g. lib/whish.ts's generatePaymentLink).
+          sessionConsumedPackage: session.sessionConsumedPackage,
+          totalPackageBalance,
+        }),
+      })
+    }
+    return { success: true, data: items }
+  } catch (err) {
+    return mapError(err)
+  }
+}
+
+export interface BatchCompletionItemResult {
+  id:      string
+  success: boolean
+  data?:   FDSession
+  code?:   SchedulingErrorCode
+  message?: string
+}
+
+/**
+ * Complete one or more sessions in a single call (US-057 "batch resolve").
+ *
+ * Resolves auth/tenant once, then calls the SAME completeSession() used by
+ * completeSessionAction sequentially per item — not Promise.all. Sequential
+ * matters for two reasons: it keeps writes to the same client's package
+ * ledger from racing each other, and it is what makes the duplicate-id
+ * guarantee below hold deterministically (each call re-reads fresh session
+ * state via findSessionById before mutating).
+ *
+ * Duplicate-prevention: if the same session id appears more than once in
+ * `items` (accidental double-submit, or a bug in the caller), only the FIRST
+ * occurrence can succeed — completeSession() re-fetches the session at the
+ * top of every call, so by the time the second occurrence runs, the session
+ * is already 'completed' and MUTABLE_STATUSES no longer includes it, so it
+ * fails closed with ImmutableSessionError (or VersionConflictError, if the
+ * caller passed the same now-stale expectedVersion for both). Either way:
+ * never a second package consumption, never a second invoice. The same
+ * guarantee holds across two separate calls to this action with the same
+ * items (e.g. a retried submit) — proven in
+ * actions/schedulingActions.test.ts's duplicate-prevention block.
+ *
+ * One item failing (any reason) does not abort the rest of the batch —
+ * results are collected per item so the UI can show exactly which sessions
+ * resolved and which need another look.
+ */
+export async function batchCompleteSessionsAction(
+  items: Array<{ id: string; expectedVersion: number }>,
+): Promise<SchedulingResult<BatchCompletionItemResult[]>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    return { success: false, code: 'AUTH', message: resolved.error }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    return { success: false, code: 'ERR', message: 'Workspace not provisioned' }
+  }
+  const tenantCtx = { tenantId: ctx.tenantId }
+  const deps = buildCompletionDeps(tenantCtx, ctx.userId ?? null)
+
+  const results: BatchCompletionItemResult[] = []
+  for (const item of items) {
+    try {
+      const data = await completeSession(deps, item.id, item.expectedVersion)
+      results.push({ id: item.id, success: true, data })
+    } catch (err) {
+      // completeSession() only ever throws, so mapError() always returns its
+      // failure branch here — narrow explicitly rather than relying on that
+      // invariant silently.
+      const mapped = mapError<FDSession>(err)
+      if (mapped.success) continue // unreachable; satisfies the type checker
+      results.push({ id: item.id, success: false, code: mapped.code, message: mapped.message })
+    }
+  }
+
+  return { success: true, data: results }
 }
