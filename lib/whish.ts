@@ -9,8 +9,27 @@
  *   - Generating a payment link ≠ confirming payment. ERPNext is only updated
  *     when the trainer explicitly calls recordPayment() in actions/invoices.ts.
  *   - Every payment action produces a PaymentAuditEvent for traceability.
+ *   - Whish (the one "external/live payment provider call") is gated by the
+ *     externalPaymentsAllowed flag — see whishAdapter below. Manual providers
+ *     (cash, bank transfer) never call anything external and are
+ *     intentionally not gated by it.
+ *
+ * NOTE on the gate's shape: isExternalPaymentsAllowed() (lib/pilot.ts) is
+ * NOT imported here, even though this file is server-only in intent — this
+ * file's types/constants (PaymentProvider, PAYMENT_PROVIDERS) are in practice
+ * imported directly by components/modules/InvoicesView.tsx, a client
+ * component, to build the payment-method <select>. lib/pilot.ts has an
+ * `import 'server-only'` guard; importing it here would make Next.js reject
+ * the whole client bundle at build time (confirmed: this broke `next build`
+ * during Sprint 1 follow-up work). The caller (actions/invoices.ts, a real
+ * 'use server' file) computes the flag and passes it in instead — dependency
+ * injection, not a module-level import, exactly like PackageAssignmentService
+ * injects its ERP adapter rather than importing the ERP client directly.
  *
  * ─── NEVER import this file in a client component. ──────────────────────────
+ * (Pre-existing violation: InvoicesView.tsx already does, for
+ * PAYMENT_PROVIDERS/PaymentProvider only — no secret-bearing code path.
+ * Not fixed here; out of scope for this change.)
  */
 
 // ─── Core types ───────────────────────────────────────────────────────────────
@@ -22,6 +41,13 @@ export interface GenerateLinkParams {
   amount:     number
   currency:   string
   clientName: string
+  /**
+   * Server-resolved value of isExternalPaymentsAllowed() (lib/pilot.ts).
+   * Required so whishAdapter can gate on it without this file importing a
+   * server-only module — see the file header. Ignored by manual providers
+   * (cash, bank transfer), which never call anything external.
+   */
+  externalPaymentsAllowed: boolean
 }
 
 export interface PaymentLinkResult {
@@ -88,7 +114,23 @@ const whishAdapter: PaymentProviderAdapter = {
   label:        'Whish',
   supportsLink: true,
 
-  async generateLink({ invoiceId, amount, currency, clientName }) {
+  async generateLink({ invoiceId, amount, currency, clientName, externalPaymentsAllowed }) {
+    // Safety gate for the one external/live payment provider call in this
+    // file — checked before config presence so a disallowed environment gets
+    // the clearer "not enabled" message rather than "not configured".
+    // Must stay unset/false unless external payments have been explicitly
+    // approved (see .env.example, PILOT_ALLOW_EXTERNAL_PAYMENTS — the caller
+    // resolves this via isExternalPaymentsAllowed() and passes it in; see the
+    // file header for why it isn't imported directly here). This check must
+    // never be removed without a corresponding product-owner decision — see
+    // lib/whish.test.ts's "isExternalPaymentsAllowed gate" tests.
+    if (!externalPaymentsAllowed) {
+      return {
+        success: false,
+        error:   'External payments are not enabled for this workspace.',
+      }
+    }
+
     const base     = process.env.WHISH_API_URL
     const key      = process.env.WHISH_API_KEY
     const merchant = process.env.WHISH_MERCHANT_ID
@@ -154,8 +196,12 @@ export function getPaymentAdapter(provider: PaymentProvider): PaymentProviderAda
 /**
  * Generate a shareable payment link.
  *
- * - Whish: returns a URL the trainer can copy/share with the client.
- * - Cash / bank transfer: returns { success: true } with no url.
+ * - Whish: returns a URL the trainer can copy/share with the client. Gated by
+ *   externalPaymentsAllowed — the caller (actions/invoices.ts) resolves this
+ *   from isExternalPaymentsAllowed() (lib/pilot.ts) server-side; see the file
+ *   header for why lib/pilot.ts isn't imported directly in this file.
+ * - Cash / bank transfer: returns { success: true } with no url — unaffected
+ *   by externalPaymentsAllowed, since neither calls anything external.
  *
  * IMPORTANT: calling this does NOT mark the invoice as paid. The trainer must
  * explicitly call recordPayment() after the client confirms payment.
@@ -166,9 +212,10 @@ export async function generatePaymentLink(
   invoiceId:  string,
   provider:   PaymentProvider = 'whish',
   currency    = 'USD',
+  externalPaymentsAllowed = false,
 ): Promise<PaymentLinkResult> {
   const adapter = getPaymentAdapter(provider)
-  return adapter.generateLink({ invoiceId, amount, currency, clientName })
+  return adapter.generateLink({ invoiceId, amount, currency, clientName, externalPaymentsAllowed })
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
+import { isExternalPaymentsAllowed } from '@/lib/pilot'
 import {
   generatePaymentLink,
   logPaymentEvent,
@@ -101,6 +102,7 @@ export async function getPaymentLink(opts: {
       opts.invoiceId,
       opts.provider,
       opts.currency ?? 'USD',
+      isExternalPaymentsAllowed(),
     )
 
     if (!result.success) {
