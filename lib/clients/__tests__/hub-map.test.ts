@@ -153,6 +153,23 @@ describe('mapToClientHubOverview', () => {
     expect(result.recentNotes[0].createdAtUtc).toBe(NOW)
   })
 
+  it('note summary text is null for non-note event types (US-053)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [baseEvent])
+    expect(result.recentNotes[0].text).toBeNull()
+  })
+
+  it('note summary text is populated for client.note events (US-053)', () => {
+    const noteEvent: ClientEvent = { ...baseEvent, id: 'evt-note-1', type: 'client.note', payloadJson: { text: 'Great progress this week' } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [noteEvent])
+    expect(result.recentNotes[0].text).toBe('Great progress this week')
+  })
+
+  it('note summary text is null for a client.note event with a non-string payload text (defensive)', () => {
+    const malformedNoteEvent: ClientEvent = { ...baseEvent, id: 'evt-note-2', type: 'client.note', payloadJson: { text: 123 } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [malformedNoteEvent])
+    expect(result.recentNotes[0].text).toBeNull()
+  })
+
   it('caps recentNotes at 10 even when more events are provided', () => {
     const manyEvents: ClientEvent[] = Array.from({ length: 15 }, (_, i) => ({
       ...baseEvent,

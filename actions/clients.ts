@@ -576,6 +576,44 @@ export async function createMissingNextSessionSignalAction(
 }
 
 /**
+ * Add a trainer-authored free-text note to a client's timeline (US-053).
+ *
+ * Fast, tenant-scoped, append-only — writes a single client_event row and
+ * nothing else. Never triggers WhatsApp, ERP, invoices, payments, or any
+ * action-intent suggestion; "notes can later support suggestions" is a data
+ * shape decision (notes live in the same client_event table other signal
+ * code already reads), not something this action itself does.
+ */
+export async function addClientNoteAction(
+  clientIndexId: string,
+  text: string,
+): Promise<ActionResult<{ eventId: string }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const trimmed = text.trim()
+  if (!trimmed) return { success: false, error: 'Note cannot be empty.' }
+  if (trimmed.length > 500) return { success: false, error: 'Note is too long (500 characters max).' }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const event = await repo.addClientNote({ tenantId: ctx.tenantId }, clientIndexId, trimmed)
+    if (!event) return { success: false, error: 'Client profile not found.' }
+
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(event.erpCustomerId ?? '')}`)
+    return { success: true, data: { eventId: event.id } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to add note.',
+    }
+  }
+}
+
+/**
  * Soft-delete: marks the client Inactive in ERPNext.
  * ERPNext data is never deleted — this preserves the audit trail for sessions
  * and invoices while hiding the client from active lists.

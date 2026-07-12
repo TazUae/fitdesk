@@ -347,6 +347,11 @@ export type ClientNoteSummary = {
   id: string
   type: string
   createdAtUtc: string
+  /**
+   * Trainer-authored free text (US-053), populated only for `type: 'client.note'`
+   * events. Null for every other event type — those remain label-only in the UI.
+   */
+  text: string | null
 }
 
 /** Compact package session balance derived from the local ledger — shown in the Client Hub Packages card. */

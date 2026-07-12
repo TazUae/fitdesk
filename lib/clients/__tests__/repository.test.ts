@@ -856,6 +856,52 @@ describe('createMissingNextSessionCandidate ("US-038" per the batch label)', () 
   })
 })
 
+describe('addClientNote (US-053)', () => {
+  it('writes a client.note client_event with the given text', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'Doing great this week')
+
+    expect(event).not.toBeNull()
+    expect(event!.type).toBe('client.note')
+    expect(event!.payloadJson).toEqual({ text: 'Doing great this week' })
+    expect(event!.clientIndexId).toBe(created.clientIndex.id)
+    expect(event!.erpCustomerId).toBe(created.clientIndex.erpCustomerId)
+  })
+
+  it('the written note appears via listEvents', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'Second note')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.note' && e.payloadJson.text === 'Second note')).toBe(true)
+  })
+
+  it('returns null for a non-existent clientIndexId', async () => {
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, 'nonexistent-id', 'text')
+    expect(event).toBeNull()
+  })
+
+  it('tenant isolation: tenant A cannot add a note to tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'sneaky note')
+
+    expect(event).toBeNull()
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.note')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.addClientNote({ tenantId: '' }, 'some-id', 'text'),
+    ).rejects.toThrow()
+  })
+})
+
 describe('setClientNextSessionAtUtc', () => {
   it('updates nextSessionAtUtc and updatedAtUtc only', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)

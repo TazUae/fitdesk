@@ -72,6 +72,7 @@ export function mapToClientHubOverview(
       id:           e.id,
       type:         e.type,
       createdAtUtc: e.createdAtUtc,
+      text:         e.type === 'client.note' && typeof e.payloadJson.text === 'string' ? e.payloadJson.text : null,
     }))
 
   return {

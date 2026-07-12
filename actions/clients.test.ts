@@ -78,7 +78,7 @@ vi.mock('@/lib/scheduling/sessionRepository', () => ({
   findSessionsForClient: vi.fn(),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction, addClientNoteAction } from '@/actions/clients'
 import * as evolution from '@/lib/evolution'
 import * as schedulingRepo from '@/lib/scheduling/sessionRepository'
 import type { FDSession } from '@/types/scheduling'
@@ -1690,6 +1690,89 @@ describe('createMissingNextSessionSignalAction ("US-038" per the batch label)', 
     vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
 
     const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('addClientNoteAction (US-053)', () => {
+  async function seedClient(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  it('writes a client.note event with the trimmed text', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, '  Great session today  ')
+
+    expect(result.success).toBe(true)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(1)
+  })
+
+  it('rejects an empty (or whitespace-only) note', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, '   ')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('rejects a note longer than 500 characters', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, 'x'.repeat(501))
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('returns success:false for a non-existent clientIndexId', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addClientNoteAction('nonexistent-id', 'some note')
+
+    expect(result.success).toBe(false)
+  })
+
+  it('tenant isolation: tenant A cannot add a note to tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addClientNoteAction(clientIndexId, 'sneaky note')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('does not send any WhatsApp message, invoice, or payment', async () => {
+    const clientIndexId = await seedClient()
+
+    await addClientNoteAction(clientIndexId, 'A note')
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await addClientNoteAction(clientIndexId, 'some note')
 
     expect(result.success).toBe(false)
   })

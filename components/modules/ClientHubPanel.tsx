@@ -16,7 +16,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
-import { completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
+import { addClientNoteAction, completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import type { ClientHubOverview } from '@/types/clients'
@@ -198,6 +198,8 @@ export function ClientHubPanel({
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [isNotePending, startNoteTransition] = useTransition()
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -217,6 +219,21 @@ export function ClientHubPanel({
         toast.error(result.error ?? 'Could not dismiss.')
         return
       }
+      router.refresh()
+    })
+  }
+
+  function handleAddNote() {
+    const text = noteDraft.trim()
+    if (!text) return
+
+    startNoteTransition(async () => {
+      const result = await addClientNoteAction(client.clientIndexId, text)
+      if (!result.success) {
+        toast.error(result.error ?? 'Could not add note.')
+        return
+      }
+      setNoteDraft('')
       router.refresh()
     })
   }
@@ -454,29 +471,59 @@ export function ClientHubPanel({
       </div>
 
       {/* ── Recent activity ───────────────────────────────────────────────────── */}
-      {recentNotes.length > 0 && (
-        <div
-          className="rounded-2xl border p-4 space-y-3"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-            <SectionHeader>Recent activity</SectionHeader>
-          </div>
+      <div
+        className="rounded-2xl border p-4 space-y-3"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+          <SectionHeader>Recent activity</SectionHeader>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={noteDraft}
+            onChange={e => setNoteDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !isNotePending) handleAddNote()
+            }}
+            placeholder="Add a quick note…"
+            maxLength={500}
+            disabled={isNotePending}
+            className="flex-1 rounded-xl border px-3 py-2 text-sm disabled:opacity-50"
+            style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)', color: 'var(--fd-text)' }}
+          />
+          <button
+            type="button"
+            onClick={handleAddNote}
+            disabled={isNotePending || !noteDraft.trim()}
+            className="shrink-0 rounded-xl px-3 py-2 text-xs font-semibold transition-opacity disabled:opacity-50"
+            style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
+          >
+            {isNotePending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add'}
+          </button>
+        </div>
+
+        {recentNotes.length > 0 ? (
           <div className="space-y-2">
             {recentNotes.map(note => (
-              <div key={note.id} className="flex items-center justify-between text-sm">
-                <span style={{ color: 'var(--fd-text)' }}>
-                  {formatEventType(note.type)}
+              <div key={note.id} className="flex items-center justify-between text-sm gap-3">
+                <span className="min-w-0 truncate" style={{ color: 'var(--fd-text)' }}>
+                  {note.text ?? formatEventType(note.type)}
                 </span>
-                <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                <span className="text-xs shrink-0" style={{ color: 'var(--fd-muted)' }}>
                   {formatDate(note.createdAtUtc)}
                 </span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+            No activity yet.
+          </p>
+        )}
+      </div>
 
       {/* ── Placeholders ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">

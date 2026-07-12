@@ -661,6 +661,38 @@ export class ClientRepository {
     }
   }
 
+  /**
+   * Add a trainer-authored free-text note (US-053).
+   *
+   * Fail-closed ownership check: verifies clientIndexId belongs to the caller's
+   * tenant before writing (returns null otherwise), then delegates to the
+   * generic insertClientEvent writer — no new table, just a client_event row
+   * with type 'client.note'. Append-only: no edit/delete path exists.
+   */
+  async addClientNote(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    text: string,
+  ): Promise<ClientEvent | null> {
+    const tenantId = assertTenantId(ctx)
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(and(eq(schema.clientIndex.tenantId, tenantId), eq(schema.clientIndex.id, clientIndexId)))
+      .limit(1)
+    const clientRow = clientRows[0]
+    if (!clientRow) return null
+
+    return this.insertClientEvent({
+      tenantId,
+      clientIndexId:   clientRow.id,
+      erpCustomerId:   clientRow.erpCustomerId,
+      type:            'client.note',
+      payloadJson:     { text },
+      createdByUserId: null,
+    })
+  }
+
   // ── Write: backfill upsert ────────────────────────────────────────────────
 
   /**
