@@ -56,7 +56,7 @@ vi.mock('@/lib/clients/ai-parse', () => ({
   })),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction } from '@/actions/clients'
 import * as erp from '@/lib/business-data/erp-adapter'
 import * as erpNext from '@/lib/erpnext/client'
 import * as aiParse from '@/lib/clients/ai-parse'
@@ -71,7 +71,7 @@ const CLIENT_TABLES_DDL = [
   `CREATE TABLE IF NOT EXISTS "client_index" (
     "id" TEXT NOT NULL PRIMARY KEY, "tenant_id" TEXT NOT NULL, "erp_customer_id" TEXT NOT NULL,
     "full_name" TEXT NOT NULL, "phone_e164" TEXT NOT NULL,
-    "whatsapp_enabled" INTEGER NOT NULL DEFAULT 0, "status" TEXT NOT NULL DEFAULT 'active',
+    "whatsapp_enabled" INTEGER NOT NULL DEFAULT 0, "whatsapp_consent_state" TEXT NOT NULL DEFAULT 'unknown', "status" TEXT NOT NULL DEFAULT 'active',
     "primary_goal_label" TEXT, "primary_goal_id" TEXT, "safety_state" TEXT NOT NULL DEFAULT 'clear',
     "onboarding_state" TEXT NOT NULL DEFAULT 'not_started', "billing_mode" TEXT NOT NULL DEFAULT 'unset',
     "payment_summary" TEXT NOT NULL DEFAULT 'unset', "next_session_at_utc" TEXT, "last_activity_at_utc" TEXT,
@@ -1159,5 +1159,79 @@ describe('syncClientBillingMode', () => {
 
     expect(result.success).toBe(false)
     expect(erpNext.getCustomerBillingMode).not.toHaveBeenCalled()
+  })
+})
+
+describe('setWhatsAppConsentAction (US-059)', () => {
+  async function seedClient(payload: Parameters<typeof addClient>[0] = PAYLOAD): Promise<void> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addClient(payload)
+    expect(result.success).toBe(true)
+  }
+
+  it('a newly added client defaults to unknown consent', async () => {
+    await seedClient()
+    const { rows } = await dbClient.execute(
+      `SELECT whatsapp_consent_state FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    expect(rows[0].whatsapp_consent_state).toBe('unknown')
+  })
+
+  it('opts a client in — writes state and an audit event, sends no WhatsApp message', async () => {
+    await seedClient()
+
+    const result = await setWhatsAppConsentAction('CUST-100', 'opted_in')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.whatsappConsentState).toBe('opted_in')
+
+    const { rows } = await dbClient.execute(
+      `SELECT whatsapp_consent_state FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    expect(rows[0].whatsapp_consent_state).toBe('opted_in')
+    expect(await count('client_event', `type = 'client.whatsapp_consent_changed'`)).toBe(1)
+  })
+
+  it('opts a client out — writes state and an audit event', async () => {
+    await seedClient()
+
+    const result = await setWhatsAppConsentAction('CUST-100', 'opted_out')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.whatsappConsentState).toBe('opted_out')
+    expect(await count('client_event', `type = 'client.whatsapp_consent_changed'`)).toBe(1)
+  })
+
+  it('returns success:false for an unknown erpCustomerId — fails closed', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await setWhatsAppConsentAction('CUST-DOES-NOT-EXIST', 'opted_in')
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false when not authenticated — never mutates', async () => {
+    await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await setWhatsAppConsentAction('CUST-100', 'opted_in')
+
+    expect(result.success).toBe(false)
+    const { rows } = await dbClient.execute(
+      `SELECT whatsapp_consent_state FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    expect(rows[0].whatsapp_consent_state).toBe('unknown')
+  })
+
+  it('returns success:false when tenant context is unavailable — never mutates', async () => {
+    await seedClient()
+    vi.mocked(getTenantContext).mockResolvedValueOnce(null)
+
+    const result = await setWhatsAppConsentAction('CUST-100', 'opted_in')
+
+    expect(result.success).toBe(false)
+    const { rows } = await dbClient.execute(
+      `SELECT whatsapp_consent_state FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    expect(rows[0].whatsapp_consent_state).toBe('unknown')
   })
 })

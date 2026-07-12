@@ -141,6 +141,12 @@ export const clientIndex = sqliteTable(
     fullName:                 text('full_name').notNull(),
     phoneE164:                text('phone_e164').notNull(),
     whatsappEnabled:          integer('whatsapp_enabled', { mode: 'boolean' }).notNull().default(false),
+    // US-059 — consent for WhatsApp reminder/automated workflows. Values:
+    // 'unknown' (default) | 'opted_in' | 'opted_out'. Enum enforced at the
+    // application layer, consistent with this table's other enum-like text
+    // columns (billing_mode, safety_state, onboarding_state — none have a
+    // SQL CHECK constraint either).
+    whatsappConsentState:     text('whatsapp_consent_state').notNull().default('unknown'),
     status:                   text('status').notNull().default('active'),
 
     primaryGoalLabel:         text('primary_goal_label'),

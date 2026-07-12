@@ -252,6 +252,11 @@ async function cppColumnExists(columnName) {
   return rows.some(r => r.name === columnName)
 }
 
+async function clientIndexColumnExists(columnName) {
+  const { rows } = await client.execute(`PRAGMA table_info("client_index")`)
+  return rows.some(r => r.name === columnName)
+}
+
 if (!(await columnExists('is_primary'))) {
   try {
     await client.execute(
@@ -310,6 +315,27 @@ try {
 } catch (err) {
   console.error('[app-migration] CREATE INDEX client_package_purchase_tenant_idempotency_uq failed:', err.message)
   process.exit(1)
+}
+
+// ── US-059 — client_index.whatsapp_consent_state (additive column) ─────────
+//
+// Consent states: 'unknown' (default) | 'opted_in' | 'opted_out'.
+// DEFAULT 'unknown' populates every existing row automatically — 'unknown'
+// is the CORRECT value for a row with no consent recorded yet, not an
+// approximation, so no separate backfill statement is needed.
+
+if (!(await clientIndexColumnExists('whatsapp_consent_state'))) {
+  try {
+    await client.execute(
+      `ALTER TABLE "client_index" ADD COLUMN "whatsapp_consent_state" TEXT NOT NULL DEFAULT 'unknown'`
+    )
+    console.log('✓ client_index.whatsapp_consent_state column added')
+  } catch (err) {
+    console.error('[app-migration] ALTER client_index (whatsapp_consent_state) failed:', err.message)
+    process.exit(1)
+  }
+} else {
+  console.log('✓ client_index.whatsapp_consent_state already present')
 }
 
 // Backfill: mark existing client_goal rows as primary when goal_id matches

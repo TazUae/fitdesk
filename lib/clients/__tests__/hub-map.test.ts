@@ -19,6 +19,7 @@ const baseIndex: ClientIndex = {
   fullName:                  'Sara Ahmad',
   phoneE164:                 '+96170000001',
   whatsappEnabled:           true,
+  whatsappConsentState:      'unknown',
   status:                    'active',
   primaryGoalLabel:          'Fat loss',
   primaryGoalId:             'fat_loss',

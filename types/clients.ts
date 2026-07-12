@@ -26,6 +26,15 @@ export type BillingMode = 'package' | 'pay_per_session' | 'unset'
 
 export type PaymentSummary = 'paid' | 'to_collect' | 'overdue' | 'unset'
 
+/**
+ * WhatsApp consent state (US-059). Default is 'unknown' — never treated as
+ * permission to send automated messages. 'opted_out' blocks all future
+ * WhatsApp delivery/reminder eligibility with no override. Only 'opted_in'
+ * is eligible for automated/reminder-candidate workflows (see
+ * lib/clients/consent.ts's canSendAutomatedWhatsApp).
+ */
+export type WhatsAppConsentState = 'unknown' | 'opted_in' | 'opted_out'
+
 // ─── Goal literals ────────────────────────────────────────────────────────────
 
 /** Confidence level for a field value — from AI parse, trainer input, or unknown. */
@@ -124,6 +133,7 @@ export type ClientIndex = {
   fullName: string
   phoneE164: string
   whatsappEnabled: boolean
+  whatsappConsentState: WhatsAppConsentState
   status: ClientIndexStatus
 
   primaryGoalLabel: string | null

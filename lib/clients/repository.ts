@@ -40,6 +40,7 @@ import type {
   PaymentSummary,
   SafetyState,
   SelectedGoalDraft,
+  WhatsAppConsentState,
 } from '@/types/clients'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ function hydrateClientIndex(row: RawClientIndex): ClientIndex {
     fullName:                  row.fullName,
     phoneE164:                 row.phoneE164,
     whatsappEnabled:           row.whatsappEnabled,
+    whatsappConsentState:      row.whatsappConsentState as WhatsAppConsentState,
     status:                    row.status as ClientIndexStatus,
     primaryGoalLabel:          row.primaryGoalLabel,
     primaryGoalId:             row.primaryGoalId,
@@ -565,6 +567,7 @@ export class ClientRepository {
       fullName:                  draft.fullName,
       phoneE164:                 draft.phoneE164,
       whatsappEnabled:           draft.whatsappEnabled,
+      whatsappConsentState:      'unknown',
       status:                    'active',
       primaryGoalLabel:          draft.primaryGoalLabel,
       primaryGoalId:             draft.primaryGoalId,
@@ -707,6 +710,89 @@ export class ClientRepository {
   }
 
   /**
+   * Set the client's WhatsApp consent state (US-059).
+   *
+   * Unlike setBillingModeIfUnset, this is not a one-way transition — a
+   * trainer may change a client's consent in either direction (e.g. opted_in
+   * -> opted_out after a client asks to stop). Every actual change is
+   * written in the same transaction as its client_event audit row. Setting
+   * the same state the row already has is a no-op (no event written) rather
+   * than fabricating an audit entry for a non-change.
+   *
+   * Returns null when no client_index row exists for this tenant+erpCustomerId
+   * (fail closed — no row is created here).
+   */
+  async setWhatsAppConsent(
+    ctx: TenantCtx,
+    erpCustomerId: string,
+    newState: WhatsAppConsentState,
+  ): Promise<ClientIndex | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    let result: ClientIndex | null = null
+
+    await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.clientIndex)
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+          ),
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) return
+
+      const previousState = row.whatsappConsentState as WhatsAppConsentState
+
+      if (previousState === newState) {
+        result = hydrateClientIndex(row)
+        return
+      }
+
+      await tx
+        .update(schema.clientIndex)
+        .set({
+          whatsappConsentState: newState,
+          updatedAtUtc:         now,
+        })
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+          ),
+        )
+
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId:   row.id,
+        erpCustomerId:   row.erpCustomerId,
+        type:            'client.whatsapp_consent_changed',
+        payloadJson:     JSON.stringify({
+          previousState,
+          newState,
+          source: 'trainer_manual',
+        }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+
+      result = hydrateClientIndex({
+        ...row,
+        whatsappConsentState: newState,
+        updatedAtUtc:         now,
+      })
+    })
+
+    return result
+  }
+
+  /**
    * Project the client's next-session timestamp (Phase 5B).
    *
    * Tenant- and client-scoped: the guard read and the UPDATE both filter on
@@ -788,6 +874,7 @@ export class ClientRepository {
       fullName:                  draft.fullName,
       phoneE164:                 draft.phoneE164,
       whatsappEnabled:           draft.whatsappEnabled,
+      whatsappConsentState:      'unknown',
       status:                    'active',
       primaryGoalLabel:          draft.primaryGoalLabel,
       primaryGoalId:             draft.primaryGoalId,
