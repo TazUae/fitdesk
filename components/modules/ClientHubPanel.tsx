@@ -10,13 +10,13 @@ import {
   Clock,
   Goal,
   Loader2,
-  MessageCircle,
   Package,
   Shield,
   Sparkles,
+  TrendingUp,
   X,
 } from 'lucide-react'
-import { completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
+import { addClientNoteAction, addProgressEntryAction, completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import type { ClientHubOverview } from '@/types/clients'
@@ -25,13 +25,14 @@ import type { ActionIntentType } from '@/types/clients'
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
 const INTENT_LABELS: Record<ActionIntentType, string> = {
-  send_whatsapp_welcome:      'Send WhatsApp welcome',
-  send_intake_form:           'Send intake form',
-  book_first_session:         'Book first session',
-  setup_billing:              'Set up billing',
-  create_program:             'Create program',
-  review_safety_note:         'Review safety note',
+  send_whatsapp_welcome:       'Send WhatsApp welcome',
+  send_intake_form:            'Send intake form',
+  book_first_session:          'Book first session',
+  setup_billing:               'Set up billing',
+  create_program:              'Create program',
+  review_safety_note:          'Review safety note',
   whatsapp_reminder_candidate: 'WhatsApp reminder suggested',
+  missing_next_session:       'No upcoming session — book one',
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -41,6 +42,7 @@ const EVENT_LABELS: Record<string, string> = {
   'duplicate.override':        'Added despite duplicate warning',
   'action_intent.completed':   'Action completed',
   'action_intent.dismissed':   'Action dismissed',
+  'client.progress':           'Progress entry added',
 }
 
 function formatEventType(type: string): string {
@@ -193,10 +195,15 @@ export function ClientHubPanel({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const { client, goals, pendingActions, recentNotes, placeholders } = overview
+  const { client, goals, pendingActions, recentNotes, progressEntries, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [isNotePending, startNoteTransition] = useTransition()
+  const [progressDraft, setProgressDraft] = useState('')
+  const [progressGoalId, setProgressGoalId] = useState('')
+  const [isProgressPending, startProgressTransition] = useTransition()
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -216,6 +223,45 @@ export function ClientHubPanel({
         toast.error(result.error ?? 'Could not dismiss.')
         return
       }
+      router.refresh()
+    })
+  }
+
+  function handleAddNote() {
+    const text = noteDraft.trim()
+    if (!text) return
+
+    startNoteTransition(async () => {
+      const result = await addClientNoteAction(client.clientIndexId, text)
+      if (!result.success) {
+        toast.error(result.error ?? 'Could not add note.')
+        return
+      }
+      setNoteDraft('')
+      router.refresh()
+    })
+  }
+
+  function handleAddProgress() {
+    const text = progressDraft.trim()
+    if (!text) return
+
+    startProgressTransition(async () => {
+      const result = await addProgressEntryAction(client.clientIndexId, text, progressGoalId || null)
+      if (!result.success) {
+        toast.error(result.error ?? 'Could not add progress entry.')
+        return
+      }
+      if (result.data.outcome !== 'created') {
+        toast.error(
+          result.data.outcome === 'invalid_goal_link'
+            ? 'That goal is no longer linked to this client.'
+            : 'Client profile not found.',
+        )
+        return
+      }
+      setProgressDraft('')
+      setProgressGoalId('')
       router.refresh()
     })
   }
@@ -453,60 +499,147 @@ export function ClientHubPanel({
       </div>
 
       {/* ── Recent activity ───────────────────────────────────────────────────── */}
-      {recentNotes.length > 0 && (
-        <div
-          className="rounded-2xl border p-4 space-y-3"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-            <SectionHeader>Recent activity</SectionHeader>
-          </div>
+      <div
+        className="rounded-2xl border p-4 space-y-3"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+          <SectionHeader>Recent activity</SectionHeader>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={noteDraft}
+            onChange={e => setNoteDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !isNotePending) handleAddNote()
+            }}
+            placeholder="Add a quick note…"
+            maxLength={500}
+            disabled={isNotePending}
+            className="flex-1 rounded-xl border px-3 py-2 text-sm disabled:opacity-50"
+            style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)', color: 'var(--fd-text)' }}
+          />
+          <button
+            type="button"
+            onClick={handleAddNote}
+            disabled={isNotePending || !noteDraft.trim()}
+            className="shrink-0 rounded-xl px-3 py-2 text-xs font-semibold transition-opacity disabled:opacity-50"
+            style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
+          >
+            {isNotePending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add'}
+          </button>
+        </div>
+
+        {recentNotes.length > 0 ? (
           <div className="space-y-2">
             {recentNotes.map(note => (
-              <div key={note.id} className="flex items-center justify-between text-sm">
-                <span style={{ color: 'var(--fd-text)' }}>
-                  {formatEventType(note.type)}
+              <div key={note.id} className="flex items-center justify-between text-sm gap-3">
+                <span className="min-w-0 truncate" style={{ color: 'var(--fd-text)' }}>
+                  {note.text ?? formatEventType(note.type)}
                 </span>
-                <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                <span className="text-xs shrink-0" style={{ color: 'var(--fd-muted)' }}>
                   {formatDate(note.createdAtUtc)}
                 </span>
               </div>
             ))}
           </div>
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+            No activity yet.
+          </p>
+        )}
+      </div>
+
+      {/* ── Progress (US-052) ───────────────────────────────────────────────── */}
+      <div
+        className="rounded-2xl border p-4 space-y-3"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+          <SectionHeader>Progress</SectionHeader>
         </div>
-      )}
+
+        <div className="space-y-2">
+          <textarea
+            value={progressDraft}
+            onChange={e => setProgressDraft(e.target.value)}
+            placeholder="Log a progress update…"
+            maxLength={500}
+            rows={2}
+            disabled={isProgressPending}
+            className="w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-50"
+            style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)', color: 'var(--fd-text)' }}
+          />
+          <div className="flex gap-2">
+            {goals.length > 0 && (
+              <select
+                value={progressGoalId}
+                onChange={e => setProgressGoalId(e.target.value)}
+                disabled={isProgressPending}
+                className="flex-1 rounded-xl border px-3 py-2 text-xs disabled:opacity-50"
+                style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)', color: 'var(--fd-text)' }}
+              >
+                <option value="">No goal link</option>
+                {goals.map(g => (
+                  <option key={g.id} value={g.goalId}>
+                    {g.primaryGoalLabel ?? g.goalId}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={handleAddProgress}
+              disabled={isProgressPending || !progressDraft.trim()}
+              className="shrink-0 rounded-xl px-3 py-2 text-xs font-semibold transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}
+            >
+              {isProgressPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add'}
+            </button>
+          </div>
+        </div>
+
+        {progressEntries.length > 0 ? (
+          <div className="space-y-2">
+            {progressEntries.map(entry => (
+              <div key={entry.id} className="text-sm">
+                <p style={{ color: 'var(--fd-text)' }}>{entry.text}</p>
+                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--fd-muted)' }}>
+                  <span>{formatDate(entry.createdAtUtc)}</span>
+                  {entry.goalId && (
+                    <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: 'var(--fd-card)' }}>
+                      {goals.find(g => g.goalId === entry.goalId)?.primaryGoalLabel ?? entry.goalId}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+            No progress entries yet.
+          </p>
+        )}
+      </div>
 
       {/* ── Placeholders ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
-        <div
-          className="rounded-2xl border p-4 space-y-1"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <div className="flex items-center gap-1.5">
-            <Shield className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-            <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Program
-            </p>
-          </div>
-          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {placeholders.trainingProgram.label}
+      <div
+        className="rounded-2xl border p-4 space-y-1"
+        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-1.5">
+          <Shield className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+          <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
+            Program
           </p>
         </div>
-        <div
-          className="rounded-2xl border p-4 space-y-1"
-          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-        >
-          <div className="flex items-center gap-1.5">
-            <MessageCircle className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-            <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Progress
-            </p>
-          </div>
-          <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-            {placeholders.progress.label}
-          </p>
-        </div>
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          {placeholders.trainingProgram.label}
+        </p>
       </div>
 
       {/* Assign Package sheet — mounted here so it can access the client context */}

@@ -104,12 +104,13 @@ describe('mapToClientHubOverview', () => {
     expect(result.client.lastActivityAtUtc).toBe(NOW)
   })
 
-  it('returns empty goals, pendingActions, and recentNotes for empty inputs', () => {
+  it('returns empty goals, pendingActions, recentNotes, and progressEntries for empty inputs', () => {
     const result = mapToClientHubOverview(baseIndex, [], [], [])
 
     expect(result.goals).toEqual([])
     expect(result.pendingActions).toEqual([])
     expect(result.recentNotes).toEqual([])
+    expect(result.progressEntries).toEqual([])
   })
 
   it('maps a goal summary with primaryGoalLabel when goalId matches index.primaryGoalId', () => {
@@ -151,6 +152,66 @@ describe('mapToClientHubOverview', () => {
     expect(result.recentNotes[0].id).toBe('evt-1')
     expect(result.recentNotes[0].type).toBe('client.created')
     expect(result.recentNotes[0].createdAtUtc).toBe(NOW)
+  })
+
+  it('note summary text is null for non-note event types (US-053)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [baseEvent])
+    expect(result.recentNotes[0].text).toBeNull()
+  })
+
+  it('note summary text is populated for client.note events (US-053)', () => {
+    const noteEvent: ClientEvent = { ...baseEvent, id: 'evt-note-1', type: 'client.note', payloadJson: { text: 'Great progress this week' } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [noteEvent])
+    expect(result.recentNotes[0].text).toBe('Great progress this week')
+  })
+
+  it('note summary text is null for a client.note event with a non-string payload text (defensive)', () => {
+    const malformedNoteEvent: ClientEvent = { ...baseEvent, id: 'evt-note-2', type: 'client.note', payloadJson: { text: 123 } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [malformedNoteEvent])
+    expect(result.recentNotes[0].text).toBeNull()
+  })
+
+  it('maps a client.progress event into progressEntries with text and goalId (US-052)', () => {
+    const progressEvent: ClientEvent = { ...baseEvent, id: 'evt-progress-1', type: 'client.progress', payloadJson: { text: 'Lost 2kg', goalId: 'fat_loss' } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [progressEvent])
+
+    expect(result.progressEntries).toHaveLength(1)
+    expect(result.progressEntries[0].text).toBe('Lost 2kg')
+    expect(result.progressEntries[0].goalId).toBe('fat_loss')
+  })
+
+  it('progressEntries goalId is null when the entry has no goal link', () => {
+    const progressEvent: ClientEvent = { ...baseEvent, id: 'evt-progress-2', type: 'client.progress', payloadJson: { text: 'Feeling stronger', goalId: null } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [progressEvent])
+
+    expect(result.progressEntries[0].goalId).toBeNull()
+  })
+
+  it('non-progress events are excluded from progressEntries', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [baseEvent])
+    expect(result.progressEntries).toEqual([])
+  })
+
+  it('a client.progress event still appears in recentNotes (generic timeline) but with text: null there', () => {
+    const progressEvent: ClientEvent = { ...baseEvent, id: 'evt-progress-3', type: 'client.progress', payloadJson: { text: 'Lost 2kg', goalId: null } }
+    const result = mapToClientHubOverview(baseIndex, [], [], [progressEvent])
+
+    expect(result.recentNotes).toHaveLength(1)
+    expect(result.recentNotes[0].type).toBe('client.progress')
+    expect(result.recentNotes[0].text).toBeNull()
+  })
+
+  it('caps progressEntries at 10 even when more matching events are provided', () => {
+    const manyEvents: ClientEvent[] = Array.from({ length: 15 }, (_, i) => ({
+      ...baseEvent,
+      id:           `evt-progress-${i}`,
+      type:         'client.progress',
+      payloadJson:  { text: `entry ${i}`, goalId: null },
+      createdAtUtc: new Date(Date.now() - i * 1000).toISOString(),
+    }))
+
+    const result = mapToClientHubOverview(baseIndex, [], [], manyEvents)
+    expect(result.progressEntries).toHaveLength(10)
   })
 
   it('caps recentNotes at 10 even when more events are provided', () => {

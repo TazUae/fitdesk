@@ -110,6 +110,15 @@ export type ActionIntentType =
    * lib/clients/repository.ts's createWhatsAppReminderCandidate.
    */
   | 'whatsapp_reminder_candidate'
+  /**
+   * A suggestion to book the client's next session — never an auto-booking.
+   * Only created for an active client with prior session history and no
+   * currently-scheduled future session (see
+   * lib/scheduling/attendance.ts's hasSessionHistory/hasUpcomingSession).
+   * Completing this intent means the trainer booked a session elsewhere;
+   * dismissing means they reviewed and declined for now.
+   */
+  | 'missing_next_session'
 
 export type ClientActionIntentStatus =
   | 'pending'
@@ -303,6 +312,17 @@ export type ReminderCandidateResult =
   | { outcome: 'blocked'; reason: 'opted_out' | 'consent_unknown' }
   | { outcome: 'client_not_found' }
 
+/**
+ * Result of attempting to create a missing-next-session action intent.
+ * `already_pending` (not a duplicate create) is returned when one is already
+ * outstanding for this client — see
+ * ClientRepository.createMissingNextSessionCandidate.
+ */
+export type MissingNextSessionCandidateResult =
+  | { outcome: 'created'; intent: ClientActionIntent }
+  | { outcome: 'already_pending'; intent: ClientActionIntent }
+  | { outcome: 'client_not_found' }
+
 // ─── Summary types (for Client Hub and Directory) ─────────────────────────────
 
 export type ClientGoalSummary = {
@@ -327,7 +347,36 @@ export type ClientNoteSummary = {
   id: string
   type: string
   createdAtUtc: string
+  /**
+   * Trainer-authored free text (US-053), populated only for `type: 'client.note'`
+   * events. Null for every other event type — those remain label-only in the UI.
+   */
+  text: string | null
 }
+
+/**
+ * Trainer-authored progress entry (US-052), optionally linked to one of the
+ * client's own goals. goalId is a canonical IntakeGoalId string when linked,
+ * validated server-side against the client's own client_goal rows — see
+ * ClientRepository.addProgressEntry.
+ */
+export type ClientProgressEntrySummary = {
+  id: string
+  text: string
+  goalId: string | null
+  createdAtUtc: string
+}
+
+/**
+ * Result of attempting to add a progress entry (US-052).
+ * `invalid_goal_link` is returned when a goalId is provided but does not
+ * match any of the client's own goal rows — fails closed rather than
+ * silently linking to an unrelated/cross-tenant goal.
+ */
+export type AddProgressEntryResult =
+  | { outcome: 'created'; event: ClientEvent }
+  | { outcome: 'client_not_found' }
+  | { outcome: 'invalid_goal_link' }
 
 /** Compact package session balance derived from the local ledger — shown in the Client Hub Packages card. */
 export type ClientPackageBalanceSummary = {
@@ -356,6 +405,7 @@ export type ClientHubOverview = {
   goals: ClientGoalSummary[]
   pendingActions: ClientActionIntentSummary[]
   recentNotes: ClientNoteSummary[]
+  progressEntries: ClientProgressEntrySummary[]
   packageBalance: ClientPackageBalanceSummary | null
   placeholders: {
     trainingProgram: { status: 'not_started' | 'available_later'; label: string }

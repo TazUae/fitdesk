@@ -56,7 +56,32 @@ vi.mock('@/lib/clients/ai-parse', () => ({
   })),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction } from '@/actions/clients'
+// US-048 — deliverWhatsAppReminderAction pulls in sendMessage (actions/messages.ts),
+// which transitively imports these. Mocked here the same way messages.test.ts does,
+// so no real Evolution call is ever reachable from this test file.
+vi.mock('@/lib/evolution', () => ({
+  sendWhatsAppMessage: vi.fn(),
+  normalizePhone: (phone: string) => phone.replace(/\D/g, ''),
+}))
+vi.mock('@/lib/pilot', () => ({
+  isPilotMode:    () => false,
+  matchAllowlist: () => ({ allowed: true }),
+}))
+vi.mock('@/lib/log', () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
+// "US-038" (per the batch label) — createMissingNextSessionSignalAction reads
+// live FD Sessions via findSessionsForClient. Mocked so tests control the
+// exact session list without a real ERP fetch.
+vi.mock('@/lib/scheduling/sessionRepository', () => ({
+  findSessionsForClient: vi.fn(),
+}))
+
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction, addClientNoteAction, addProgressEntryAction } from '@/actions/clients'
+import * as evolution from '@/lib/evolution'
+import * as schedulingRepo from '@/lib/scheduling/sessionRepository'
+import type { FDSession } from '@/types/scheduling'
 
 const CLIENTS_ACTION_SRC = readFileSync(join(__dirname, 'clients.ts'), 'utf-8')
 import * as erp from '@/lib/business-data/erp-adapter'
@@ -101,6 +126,11 @@ const CLIENT_TABLES_DDL = [
     "id" TEXT NOT NULL PRIMARY KEY, "tenant_id" TEXT NOT NULL, "client_index_id" TEXT, "erp_customer_id" TEXT,
     "type" TEXT NOT NULL, "payload_json" TEXT NOT NULL DEFAULT '{}', "created_by_user_id" TEXT,
     "created_at_utc" TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "message_log" (
+    "id" TEXT NOT NULL PRIMARY KEY, "trainer_id" TEXT NOT NULL, "client_id" TEXT NOT NULL,
+    "message_type" TEXT NOT NULL, "body" TEXT NOT NULL, "status" TEXT NOT NULL,
+    "error_detail" TEXT, "sent_at" TEXT NOT NULL, "evolution_message_id" TEXT
   )`,
 ]
 
@@ -1096,6 +1126,27 @@ describe('dismissClientAction', () => {
     const result = await dismissClientAction('ghost-id')
     expect(result.success).toBe(false)
   })
+
+  it('US-047: applies uniformly to a whatsapp_reminder_candidate (US-050) — a trainer declining a suggested reminder', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+    const created = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+    if (!created.success || created.data.outcome !== 'created') throw new Error('expected created')
+
+    const result = await dismissClientAction(created.data.intent.id)
+
+    expect(result.success).toBe(true)
+    const { rows: intentRows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${created.data.intent.id}'`,
+    )
+    expect(intentRows[0].status).toBe('dismissed')
+  })
 })
 
 
@@ -1325,18 +1376,562 @@ describe('createWhatsAppReminderCandidateAction (US-050)', () => {
   })
 })
 
-// ─── Source invariants — no WhatsApp send capability in actions/clients.ts ─────
+describe('deliverWhatsAppReminderAction (US-048)', () => {
+  async function seedOptedInCandidate(): Promise<{ intentId: string; clientIndexId: string }> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
 
-describe('actions/clients.ts source — reminder candidates never send WhatsApp (US-050)', () => {
-  it('does not import or call any WhatsApp/Evolution send function', () => {
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+    const created = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+    if (!created.success || created.data.outcome !== 'created') throw new Error('expected created')
+
+    return { intentId: created.data.intent.id, clientIndexId }
+  }
+
+  beforeEach(() => {
+    vi.mocked(evolution.sendWhatsAppMessage).mockReset()
+  })
+
+  it('opted_in allows explicit trainer-approved delivery — uses the existing sendMessage abstraction only', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    vi.mocked(evolution.sendWhatsAppMessage).mockResolvedValue({ success: true, messageId: 'evo-msg-1' })
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'Your package is running low — want to renew?')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.delivered).toBe(true)
+    expect(evolution.sendWhatsAppMessage).toHaveBeenCalledOnce()
+    expect(await count('message_log', `message_type = 'reminder' AND status = 'sent'`)).toBe(1)
+  })
+
+  it('successful delivery completes the candidate only after send success', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    vi.mocked(evolution.sendWhatsAppMessage).mockResolvedValue({ success: true, messageId: 'evo-msg-1' })
+
+    await deliverWhatsAppReminderAction(intentId, 'Your package is running low — want to renew?')
+
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('completed')
+  })
+
+  it('failed send leaves the candidate pending/retryable — does not complete or dismiss it', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    vi.mocked(evolution.sendWhatsAppMessage).mockResolvedValue({ success: false, error: 'Evolution timeout' })
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'Your package is running low — want to renew?')
+
+    expect(result.success).toBe(false)
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('pending')
+  })
+
+  it('opted_out blocks delivery — never calls sendMessage/sendWhatsAppMessage', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    await setWhatsAppConsentAction('CUST-100', 'opted_out')
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'Your package is running low — want to renew?')
+
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('pending')
+  })
+
+  it('unknown consent blocks delivery — re-verified at send time, not just trusted from candidate creation', async () => {
+    // A candidate can only be created while opted_in (US-050), but consent can
+    // change again before the trainer clicks send — this proves the send path
+    // re-checks live consent rather than trusting the state at creation time.
+    const { intentId } = await seedOptedInCandidate()
+    await setWhatsAppConsentAction('CUST-100', 'unknown')
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'test body')
+
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    const { rows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${intentId}'`,
+    )
+    expect(rows[0].status).toBe('pending')
+  })
+
+  it('rejects delivery for a non-existent intent id', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await deliverWhatsAppReminderAction('nonexistent-intent-id', 'test body')
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects delivery for an intent that is not a whatsapp_reminder_candidate', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    // addClient seeds default intents (send_whatsapp_welcome, etc.) — grab one of those.
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_action_intent WHERE type = 'send_whatsapp_welcome' LIMIT 1`,
+    )
+    const otherIntentId = rows[0].id as string
+
+    const result = await deliverWhatsAppReminderAction(otherIntentId, 'test body')
+
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects delivery for an already-completed candidate — no double-send', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    vi.mocked(evolution.sendWhatsAppMessage).mockResolvedValue({ success: true, messageId: 'evo-msg-1' })
+    await deliverWhatsAppReminderAction(intentId, 'first send')
+    vi.mocked(evolution.sendWhatsAppMessage).mockClear()
+
+    const second = await deliverWhatsAppReminderAction(intentId, 'second send attempt')
+
+    expect(second.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('US-047: rejects delivery for an already-dismissed candidate — a trainer declining a suggestion is exactly as final as completing one', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    const dismissed = await dismissClientAction(intentId)
+    expect(dismissed.success).toBe(true)
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'attempted send after dismissal')
+
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('tenant isolation: tenant A cannot deliver a reminder for tenant B\'s candidate', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+    const created = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+    if (!created.success || created.data.outcome !== 'created') throw new Error('expected created')
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await deliverWhatsAppReminderAction(created.data.intent.id, 'test body')
+
+    expect(result.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not call any invoice, payment, or package-consumption function', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    vi.mocked(evolution.sendWhatsAppMessage).mockResolvedValue({ success: true, messageId: 'evo-msg-1' })
+
+    await deliverWhatsAppReminderAction(intentId, 'test body')
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('createMissingNextSessionSignalAction ("US-038" per the batch label)', () => {
+  function fdSession(overrides: Partial<FDSession> = {}): FDSession {
+    return {
+      id:                     'fds-001',
+      tenantId:               '',
+      trainerId:              'trainer-1',
+      clientId:               'CUST-100',
+      clientName:             'Test Client',
+      seriesId:               null,
+      startAt:                new Date('2026-01-05T09:00:00Z'),
+      endAt:                  new Date('2026-01-05T10:00:00Z'),
+      durationMinutes:        60,
+      timezone:               'UTC',
+      status:                 'completed',
+      occurrenceKey:          null,
+      occurrenceIndex:        null,
+      isOverride:             false,
+      rate:                   100,
+      sessionType:            null,
+      notes:                  null,
+      invoiceId:              null,
+      version:                1,
+      isTrialSession:         false,
+      sessionConsumedPackage: false,
+      ...overrides,
+    }
+  }
+
+  async function seedClient(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  beforeEach(() => {
+    vi.mocked(schedulingRepo.findSessionsForClient).mockReset()
+  })
+
+  it('a client with session history and no upcoming session gets a pending action intent', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('created')
+    expect(await count('client_action_intent', `type = 'missing_next_session' AND status = 'pending'`)).toBe(1)
+  })
+
+  it('a client with a future scheduled session does not get a signal — not_needed', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'scheduled', startAt: new Date(Date.now() + 7 * 86_400_000) }),
+    ])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'not_needed', reason: 'has_upcoming_session' })
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(0)
+  })
+
+  it('a brand-new client with zero session history does not get a signal — that is Add Client\'s job, not this one\'s', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'not_needed', reason: 'no_session_history' })
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(0)
+  })
+
+  it('duplicate prevention: calling it twice for the same client only ever creates one pending intent', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+    const second = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(second.success).toBe(true)
+    if (second.success) expect(second.data.outcome).toBe('already_pending')
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(1)
+  })
+
+  it('never auto-books — does not call bookSession/createSession/any booking function', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+
+  it('does not send any WhatsApp message', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not create or submit an invoice, or record a payment', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('tenant isolation: tenant A cannot create a signal for tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('addClientNoteAction (US-053)', () => {
+  async function seedClient(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  it('writes a client.note event with the trimmed text', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, '  Great session today  ')
+
+    expect(result.success).toBe(true)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(1)
+  })
+
+  it('rejects an empty (or whitespace-only) note', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, '   ')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('rejects a note longer than 500 characters', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await addClientNoteAction(clientIndexId, 'x'.repeat(501))
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('returns success:false for a non-existent clientIndexId', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addClientNoteAction('nonexistent-id', 'some note')
+
+    expect(result.success).toBe(false)
+  })
+
+  it('tenant isolation: tenant A cannot add a note to tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addClientNoteAction(clientIndexId, 'sneaky note')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.note'`)).toBe(0)
+  })
+
+  it('does not send any WhatsApp message, invoice, or payment', async () => {
+    const clientIndexId = await seedClient()
+
+    await addClientNoteAction(clientIndexId, 'A note')
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await addClientNoteAction(clientIndexId, 'some note')
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('addProgressEntryAction (US-052)', () => {
+  async function seedClientWithGoal(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  it('writes a client.progress event with no goal link', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, '  Ran 5k without stopping  ')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('created')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(1)
+  })
+
+  it('links to the client\'s own goal when goalId is a valid IntakeGoalId the client actually has', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    // Canonical IntakeGoalId values use hyphens (lib/goals/taxonomy.ts) — 'fat-loss', not
+    // the module-level PAYLOAD's underscore 'fat_loss' (which is stored as-is but is not
+    // itself a recognized canonical id, so isIntakeGoalId would reject it).
+    await addClient({ ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' })
+    const { rows } = await dbClient.execute(`SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`)
+    const clientIndexId = rows[0].id as string
+    expect(await count('client_goal', `goal_id = 'fat-loss'`)).toBe(1)
+
+    const result = await addProgressEntryAction(clientIndexId, 'Down a dress size', 'fat-loss')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.event.payloadJson).toEqual({ text: 'Down a dress size', goalId: 'fat-loss' })
+    } else {
+      throw new Error('expected created')
+    }
+  })
+
+  it('returns invalid_goal_link when goalId is a real IntakeGoalId but not one of this client\'s goals', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'text', 'mobility')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('invalid_goal_link')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('silently drops a goalId that is not a known IntakeGoalId at all — stored as no link, not an error', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'text', 'not-a-real-goal-id')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.event.payloadJson).toEqual({ text: 'text', goalId: null })
+    } else {
+      throw new Error('expected created')
+    }
+  })
+
+  it('rejects an empty (or whitespace-only) progress entry', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, '   ')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('rejects a progress entry longer than 500 characters', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'x'.repeat(501))
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('returns outcome client_not_found for a non-existent clientIndexId (consistent with the sibling US-050/US-038 actions)', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addProgressEntryAction('nonexistent-id', 'some entry')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('client_not_found')
+  })
+
+  it('tenant isolation: tenant A cannot add a progress entry to tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addProgressEntryAction(clientIndexId, 'sneaky entry')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('client_not_found')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('does not send any WhatsApp message, invoice, or payment', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    await addProgressEntryAction(clientIndexId, 'An entry')
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClientWithGoal()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await addProgressEntryAction(clientIndexId, 'some entry')
+
+    expect(result.success).toBe(false)
+  })
+})
+
+// ─── Source invariants — WhatsApp send boundary in actions/clients.ts ─────────
+//
+// Candidate CREATION (US-050) never sends. Candidate DELIVERY (US-048) does
+// eventually send — but only by calling the existing sendMessage() action
+// (actions/messages.ts), never by importing lib/evolution or Evolution API
+// concepts directly. Both properties are checked separately below so this
+// suite stays accurate as the file's responsibilities grow.
+
+describe('actions/clients.ts source — no direct Evolution import; delivery goes through sendMessage only', () => {
+  it('does not import lib/evolution or call sendWhatsAppMessage directly — only via sendMessage', () => {
     expect(CLIENTS_ACTION_SRC).not.toContain('sendWhatsAppMessage')
     expect(CLIENTS_ACTION_SRC).not.toContain('lib/evolution')
   })
 
-  it('does not write to message_log', () => {
+  it('delivers only by importing and calling the existing sendMessage action', () => {
+    expect(CLIENTS_ACTION_SRC).toContain("from '@/actions/messages'")
+    expect(CLIENTS_ACTION_SRC).toContain('sendMessage(')
+  })
+
+  it('does not write to message_log directly — sendMessage already owns that audit write', () => {
     // Checks actual usage, not prose — this file's own doc comments describe
-    // what createWhatsAppReminderCandidateAction does NOT do, which legitimately
-    // mentions "message_log" descriptively without ever importing/inserting into it.
+    // what createWhatsAppReminderCandidateAction/deliverWhatsAppReminderAction
+    // do NOT do, which legitimately mentions "message_log" descriptively
+    // without ever importing/inserting into it directly.
     expect(CLIENTS_ACTION_SRC).not.toContain('schema.messageLog')
     expect(CLIENTS_ACTION_SRC).not.toContain("from '@/lib/db/schema'")
   })

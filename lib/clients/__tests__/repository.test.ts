@@ -639,6 +639,40 @@ describe('setWhatsAppConsent', () => {
   })
 })
 
+describe('findActionIntentById (US-048)', () => {
+  it('returns the intent when it exists in this tenant', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    const anyIntent = pending[0]
+
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, anyIntent.id)
+    expect(found?.id).toBe(anyIntent.id)
+  })
+
+  it('returns null for a non-existent intent id', async () => {
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, 'nonexistent-id')
+    expect(found).toBeNull()
+  })
+
+  it('tenant isolation: returns null for an intent belonging to another tenant', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    const anyIntent = pending[0]
+
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, anyIntent.id)
+    expect(found).toBeNull()
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.findActionIntentById({ tenantId: '' }, 'some-id'),
+    ).rejects.toThrow()
+  })
+})
+
 describe('createWhatsAppReminderCandidate (US-050)', () => {
   it('blocks and creates no intent for opted_out — no override', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
@@ -756,6 +790,186 @@ describe('createWhatsAppReminderCandidate (US-050)', () => {
   it('throws when tenantId is blank — fails closed before any query', async () => {
     await expect(
       repo.createWhatsAppReminderCandidate({ tenantId: '' }, 'some-id', 'reason'),
+    ).rejects.toThrow()
+  })
+})
+
+describe('createMissingNextSessionCandidate ("US-038" per the batch label)', () => {
+  it('creates a pending missing_next_session intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.intent.type).toBe('missing_next_session')
+    expect(result.intent.status).toBe('pending')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some(a => a.type === 'missing_next_session')).toBe(true)
+  })
+
+  it('duplicate prevention: a second call for the same client returns already_pending, not a second intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    const second = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(second.outcome).toBe('already_pending')
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.filter(a => a.type === 'missing_next_session')).toHaveLength(1)
+  })
+
+  it('a new candidate can be created again after the prior one is completed or dismissed', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const first = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+    if (first.outcome !== 'created') throw new Error('expected created')
+    await repo.completeActionIntent({ tenantId: TENANT_A }, first.intent.id)
+
+    const second = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(second.outcome).toBe('created')
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, 'nonexistent-id')
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot create a candidate for tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(pending.some(a => a.type === 'missing_next_session')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.createMissingNextSessionCandidate({ tenantId: '' }, 'some-id'),
+    ).rejects.toThrow()
+  })
+})
+
+describe('addClientNote (US-053)', () => {
+  it('writes a client.note client_event with the given text', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'Doing great this week')
+
+    expect(event).not.toBeNull()
+    expect(event!.type).toBe('client.note')
+    expect(event!.payloadJson).toEqual({ text: 'Doing great this week' })
+    expect(event!.clientIndexId).toBe(created.clientIndex.id)
+    expect(event!.erpCustomerId).toBe(created.clientIndex.erpCustomerId)
+  })
+
+  it('the written note appears via listEvents', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'Second note')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.note' && e.payloadJson.text === 'Second note')).toBe(true)
+  })
+
+  it('returns null for a non-existent clientIndexId', async () => {
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, 'nonexistent-id', 'text')
+    expect(event).toBeNull()
+  })
+
+  it('tenant isolation: tenant A cannot add a note to tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const event = await repo.addClientNote({ tenantId: TENANT_A }, created.clientIndex.id, 'sneaky note')
+
+    expect(event).toBeNull()
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.note')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.addClientNote({ tenantId: '' }, 'some-id', 'text'),
+    ).rejects.toThrow()
+  })
+})
+
+describe('addProgressEntry (US-052)', () => {
+  it('writes a client.progress client_event with no goal link', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'Lost 2kg this month', null)
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.event.type).toBe('client.progress')
+    expect(result.event.payloadJson).toEqual({ text: 'Lost 2kg this month', goalId: null })
+  })
+
+  it('links to one of the client\'s own goals when goalId matches', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals[0].goalId).toBe('goal-wl')
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'Hit a new PR', 'goal-wl')
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.event.payloadJson).toEqual({ text: 'Hit a new PR', goalId: 'goal-wl' })
+  })
+
+  it('returns invalid_goal_link when goalId does not match any of the client\'s own goals', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'text', 'some-other-goal')
+
+    expect(result).toEqual({ outcome: 'invalid_goal_link' })
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.progress')).toBe(false)
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, 'nonexistent-id', 'text', null)
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot add a progress entry to tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'sneaky entry', null)
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.progress')).toBe(false)
+  })
+
+  it('tenant isolation: cannot link to another tenant\'s goal even if the goalId string matches', async () => {
+    const createdB = await repo.createClientRow({ tenantId: TENANT_B }, { ...baseDraft, tenantId: TENANT_B })
+    const createdA = await repo.createClientRow(
+      { tenantId: TENANT_A },
+      { ...baseDraft, erpCustomerId: ERP_ID_2, goalId: null, isPrimary: undefined },
+    )
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, createdA.clientIndex.id, 'text', 'goal-wl')
+
+    expect(result).toEqual({ outcome: 'invalid_goal_link' })
+    expect(createdB.clientIndex.id).not.toBe(createdA.clientIndex.id)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.addProgressEntry({ tenantId: '' }, 'some-id', 'text', null),
     ).rejects.toThrow()
   })
 })

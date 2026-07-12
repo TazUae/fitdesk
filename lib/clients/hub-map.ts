@@ -19,10 +19,12 @@ import type {
   ClientIndex,
   ClientNoteSummary,
   ClientPackageBalanceSummary,
+  ClientProgressEntrySummary,
 } from '@/types/clients'
 import type { PackagePurchaseWithBalance } from '@/types/billing'
 
 const MAX_RECENT_NOTES = 10
+const MAX_PROGRESS_ENTRIES = 10
 
 /**
  * Derives a compact package balance summary from active purchases that have a
@@ -72,6 +74,17 @@ export function mapToClientHubOverview(
       id:           e.id,
       type:         e.type,
       createdAtUtc: e.createdAtUtc,
+      text:         e.type === 'client.note' && typeof e.payloadJson.text === 'string' ? e.payloadJson.text : null,
+    }))
+
+  const progressEntries: ClientProgressEntrySummary[] = events
+    .filter(e => e.type === 'client.progress')
+    .slice(0, MAX_PROGRESS_ENTRIES)
+    .map(e => ({
+      id:           e.id,
+      text:         typeof e.payloadJson.text === 'string' ? e.payloadJson.text : '',
+      goalId:       typeof e.payloadJson.goalId === 'string' ? e.payloadJson.goalId : null,
+      createdAtUtc: e.createdAtUtc,
     }))
 
   return {
@@ -93,6 +106,7 @@ export function mapToClientHubOverview(
     goals:          goalSummaries,
     pendingActions: actionSummaries,
     recentNotes:    noteSummaries,
+    progressEntries,
     packageBalance: derivePackageBalance(purchases),
     placeholders: {
       trainingProgram: { status: 'not_started', label: 'Training program coming soon' },

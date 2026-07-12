@@ -24,6 +24,7 @@ import type {
   ActionIntentPriority,
   ActionIntentSource,
   ActionIntentType,
+  AddProgressEntryResult,
   BillingMode,
   ClientActionIntent,
   ClientActionIntentStatus,
@@ -37,6 +38,7 @@ import type {
   GoalSource,
   GoalStatus,
   GoalUrgency,
+  MissingNextSessionCandidateResult,
   OnboardingState,
   PaymentSummary,
   ReminderCandidateResult,
@@ -279,6 +281,31 @@ export class ClientRepository {
   }
 
   // ── Action intents ───────────────────────────────────────────────────────
+
+  /**
+   * Read a single action intent by id, tenant-scoped. Read-only — no status
+   * transition. completeActionIntent/dismissActionIntent already do this
+   * lookup internally but don't expose it; callers that need to inspect an
+   * intent (e.g. verify its type/status) before deciding whether to act on
+   * it (US-048) need this exposed separately.
+   */
+  async findActionIntentById(
+    ctx: TenantCtx,
+    intentId: string,
+  ): Promise<ClientActionIntent | null> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select()
+      .from(schema.clientActionIntent)
+      .where(
+        and(
+          eq(schema.clientActionIntent.tenantId, tenantId),
+          eq(schema.clientActionIntent.id, intentId),
+        ),
+      )
+      .limit(1)
+    return rows[0] ? hydrateClientActionIntent(rows[0]) : null
+  }
 
   async listPendingActions(
     ctx: TenantCtx,
@@ -635,6 +662,89 @@ export class ClientRepository {
     }
   }
 
+  /**
+   * Add a trainer-authored free-text note (US-053).
+   *
+   * Fail-closed ownership check: verifies clientIndexId belongs to the caller's
+   * tenant before writing (returns null otherwise), then delegates to the
+   * generic insertClientEvent writer — no new table, just a client_event row
+   * with type 'client.note'. Append-only: no edit/delete path exists.
+   */
+  async addClientNote(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    text: string,
+  ): Promise<ClientEvent | null> {
+    const tenantId = assertTenantId(ctx)
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(and(eq(schema.clientIndex.tenantId, tenantId), eq(schema.clientIndex.id, clientIndexId)))
+      .limit(1)
+    const clientRow = clientRows[0]
+    if (!clientRow) return null
+
+    return this.insertClientEvent({
+      tenantId,
+      clientIndexId:   clientRow.id,
+      erpCustomerId:   clientRow.erpCustomerId,
+      type:            'client.note',
+      payloadJson:     { text },
+      createdByUserId: null,
+    })
+  }
+
+  /**
+   * Add a trainer-authored progress entry, optionally linked to one of the
+   * client's own goals (US-052).
+   *
+   * Same reuse pattern as addClientNote — a client_event row with type
+   * 'client.progress', no new table. When goalId is provided it is verified
+   * against the client's own client_goal rows before the link is stored
+   * (fails closed to invalid_goal_link rather than storing an unrelated or
+   * cross-tenant goal reference).
+   */
+  async addProgressEntry(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    text: string,
+    goalId: string | null,
+  ): Promise<AddProgressEntryResult> {
+    const tenantId = assertTenantId(ctx)
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(and(eq(schema.clientIndex.tenantId, tenantId), eq(schema.clientIndex.id, clientIndexId)))
+      .limit(1)
+    const clientRow = clientRows[0]
+    if (!clientRow) return { outcome: 'client_not_found' }
+
+    if (goalId) {
+      const goalRows = await this.db
+        .select()
+        .from(schema.clientGoal)
+        .where(
+          and(
+            eq(schema.clientGoal.tenantId, tenantId),
+            eq(schema.clientGoal.clientIndexId, clientIndexId),
+            eq(schema.clientGoal.goalId, goalId),
+          ),
+        )
+        .limit(1)
+      if (!goalRows[0]) return { outcome: 'invalid_goal_link' }
+    }
+
+    const event = await this.insertClientEvent({
+      tenantId,
+      clientIndexId:   clientRow.id,
+      erpCustomerId:   clientRow.erpCustomerId,
+      type:            'client.progress',
+      payloadJson:     { text, goalId },
+      createdByUserId: null,
+    })
+    return { outcome: 'created', event }
+  }
+
   // ── Write: backfill upsert ────────────────────────────────────────────────
 
   /**
@@ -881,6 +991,91 @@ export class ClientRepository {
         priority:       'normal',
         source:         'system',
         reason,
+        dueAtUtc:       null,
+        completedAtUtc: null,
+        dismissedAtUtc: null,
+        expiresAtUtc:   null,
+        createdAtUtc:   now,
+        updatedAtUtc:   now,
+      },
+    }
+  }
+
+  /**
+   * Create a "missing next session" action intent (labeled "US-038" by the
+   * batch that requested it; canonical US-038 is "Client Pulse" — this
+   * matches US-003/US-027's "missing next sessions where data exists"
+   * criterion instead; see docs/execution/us-038-missing-next-session-plan.md).
+   *
+   * This method is duplicate-prevention only — it does NOT decide whether a
+   * next-session signal is warranted. The caller (action layer) must fetch
+   * the client's FD Sessions and apply hasSessionHistory/hasUpcomingSession
+   * (lib/scheduling/attendance.ts) BEFORE calling this. If a pending
+   * `missing_next_session` intent already exists for this client, that
+   * existing intent is returned (`already_pending`) instead of creating a
+   * second one.
+   *
+   * Never auto-books anything — this only ever creates a reviewable
+   * suggestion the trainer must act on via the existing
+   * completeActionIntent/dismissActionIntent lifecycle.
+   */
+  async createMissingNextSessionCandidate(
+    ctx: TenantCtx,
+    clientIndexId: string,
+  ): Promise<MissingNextSessionCandidateResult> {
+    const tenantId = assertTenantId(ctx)
+
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+      .limit(1)
+
+    const clientRow = clientRows[0]
+    if (!clientRow) return { outcome: 'client_not_found' }
+
+    const existingPending = await this.listPendingActions(ctx, clientIndexId)
+    const alreadyPending = existingPending.find(a => a.type === 'missing_next_session')
+    if (alreadyPending) return { outcome: 'already_pending', intent: alreadyPending }
+
+    const now = new Date().toISOString()
+    const intentId = crypto.randomUUID()
+
+    await this.db.insert(schema.clientActionIntent).values({
+      id:             intentId,
+      tenantId,
+      clientIndexId:  clientRow.id,
+      erpCustomerId:  clientRow.erpCustomerId,
+      type:           'missing_next_session',
+      status:         'pending',
+      priority:       'normal',
+      source:         'system',
+      reason:         'No upcoming session booked',
+      dueAtUtc:       null,
+      completedAtUtc: null,
+      dismissedAtUtc: null,
+      expiresAtUtc:   null,
+      createdAtUtc:   now,
+      updatedAtUtc:   now,
+    })
+
+    return {
+      outcome: 'created',
+      intent: {
+        id:             intentId,
+        tenantId,
+        clientIndexId:  clientRow.id,
+        erpCustomerId:  clientRow.erpCustomerId,
+        type:           'missing_next_session',
+        status:         'pending',
+        priority:       'normal',
+        source:         'system',
+        reason:         'No upcoming session booked',
         dueAtUtc:       null,
         completedAtUtc: null,
         dismissedAtUtc: null,
