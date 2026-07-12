@@ -216,6 +216,7 @@ function PaymentHistoryWarning({
 function StatementRowCard({
   row,
   showLedgerFooter,
+  currency,
 }: {
   row: ClientStatementRow
   /**
@@ -225,6 +226,13 @@ function StatementRowCard({
    * Outstanding breakdown above it. Statement math itself is unchanged.
    */
   showLedgerFooter: boolean
+  /**
+   * Display currency for this row's amounts — always the statement's
+   * invoice-derived currency (`summary.currency`), never Payment.currency:
+   * ERPNext's Payment Entry doctype has no queryable `currency` field, so
+   * payment rows never carry a reliable currency of their own.
+   */
+  currency: string
 }) {
   return (
     <div
@@ -252,19 +260,19 @@ function StatementRowCard({
           <div>
             <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Total</p>
             <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
-              {fmtMoney(row.invoiceTotal)}
+              {fmtMoney(row.invoiceTotal, currency)}
             </p>
           </div>
           <div>
             <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Applied</p>
             <p className="text-xs font-semibold" style={{ color: 'var(--fd-green)' }}>
-              {fmtMoney(row.applied ?? 0)}
+              {fmtMoney(row.applied ?? 0, currency)}
             </p>
           </div>
           <div>
             <p className="text-[10px]" style={{ color: 'var(--fd-muted)' }}>Outstanding</p>
             <p className="text-xs font-semibold" style={{ color: 'var(--fd-red)' }}>
-              {fmtMoney(row.outstanding ?? 0)}
+              {fmtMoney(row.outstanding ?? 0, currency)}
             </p>
           </div>
         </div>
@@ -274,17 +282,17 @@ function StatementRowCard({
         <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--fd-border)' }}>
           <div className="flex items-center gap-3 text-xs">
             {row.debit > 0 && (
-              <span style={{ color: 'var(--fd-red)' }}>Debit {fmtMoney(row.debit)}</span>
+              <span style={{ color: 'var(--fd-red)' }}>Debit {fmtMoney(row.debit, currency)}</span>
             )}
             {row.credit > 0 && (
-              <span style={{ color: 'var(--fd-green)' }}>Credit {fmtMoney(row.credit)}</span>
+              <span style={{ color: 'var(--fd-green)' }}>Credit {fmtMoney(row.credit, currency)}</span>
             )}
             {row.debit === 0 && row.credit === 0 && (
               <span style={{ color: 'var(--fd-muted)' }}>No effect</span>
             )}
           </div>
           <span className="text-[11px] font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Bal {fmtMoney(row.runningBalance)}
+            Bal {fmtMoney(row.runningBalance, currency)}
           </span>
         </div>
       )}
@@ -301,6 +309,7 @@ function MonthSection({
   collapsed,
   onToggle,
   showLedgerFooter,
+  currency,
 }: {
   monthKey: string
   monthLabel: string
@@ -308,6 +317,7 @@ function MonthSection({
   collapsed: boolean
   onToggle: () => void
   showLedgerFooter: boolean
+  currency: string
 }) {
   const sectionId = `statement-month-${monthKey}`
 
@@ -331,7 +341,7 @@ function MonthSection({
       {!collapsed && (
         <div id={sectionId} className="space-y-2 pt-1">
           {rows.map(row => (
-            <StatementRowCard key={row.id} row={row} showLedgerFooter={showLedgerFooter} />
+            <StatementRowCard key={row.id} row={row} showLedgerFooter={showLedgerFooter} currency={currency} />
           ))}
         </div>
       )}
@@ -529,6 +539,7 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
                         collapsed={collapsedMonths.has(group.monthKey)}
                         onToggle={() => toggleMonth(group.monthKey)}
                         showLedgerFooter={statement.paymentHistoryAvailable}
+                        currency={statement.summary.currency}
                       />
                     ))}
 
