@@ -18,6 +18,7 @@ function makeRow(overrides: Partial<ClientIndex> = {}): ClientIndex {
     fullName:                  'Ali Hassan',
     phoneE164:                 '+96170555999',
     whatsappEnabled:           false,
+    whatsappConsentState:      'unknown',
     status:                    'active',
     primaryGoalLabel:          'Weight loss',
     primaryGoalId:             null,

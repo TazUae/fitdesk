@@ -18,6 +18,7 @@ import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
 import { computeSafetyFlags } from '@/lib/goals/safety'
+import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
 import { isIntakeGoalId } from '@/lib/goals/taxonomy'
 import type {
   ActionIntentPriority,
@@ -38,8 +39,10 @@ import type {
   GoalUrgency,
   OnboardingState,
   PaymentSummary,
+  ReminderCandidateResult,
   SafetyState,
   SelectedGoalDraft,
+  WhatsAppConsentState,
 } from '@/types/clients'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,6 +95,7 @@ function hydrateClientIndex(row: RawClientIndex): ClientIndex {
     fullName:                  row.fullName,
     phoneE164:                 row.phoneE164,
     whatsappEnabled:           row.whatsappEnabled,
+    whatsappConsentState:      row.whatsappConsentState as WhatsAppConsentState,
     status:                    row.status as ClientIndexStatus,
     primaryGoalLabel:          row.primaryGoalLabel,
     primaryGoalId:             row.primaryGoalId,
@@ -565,6 +569,7 @@ export class ClientRepository {
       fullName:                  draft.fullName,
       phoneE164:                 draft.phoneE164,
       whatsappEnabled:           draft.whatsappEnabled,
+      whatsappConsentState:      'unknown',
       status:                    'active',
       primaryGoalLabel:          draft.primaryGoalLabel,
       primaryGoalId:             draft.primaryGoalId,
@@ -707,6 +712,186 @@ export class ClientRepository {
   }
 
   /**
+   * Set the client's WhatsApp consent state (US-059).
+   *
+   * Unlike setBillingModeIfUnset, this is not a one-way transition — a
+   * trainer may change a client's consent in either direction (e.g. opted_in
+   * -> opted_out after a client asks to stop). Every actual change is
+   * written in the same transaction as its client_event audit row. Setting
+   * the same state the row already has is a no-op (no event written) rather
+   * than fabricating an audit entry for a non-change.
+   *
+   * Returns null when no client_index row exists for this tenant+erpCustomerId
+   * (fail closed — no row is created here).
+   */
+  async setWhatsAppConsent(
+    ctx: TenantCtx,
+    erpCustomerId: string,
+    newState: WhatsAppConsentState,
+  ): Promise<ClientIndex | null> {
+    const tenantId = assertTenantId(ctx)
+    const now = new Date().toISOString()
+
+    let result: ClientIndex | null = null
+
+    await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.clientIndex)
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+          ),
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) return
+
+      const previousState = row.whatsappConsentState as WhatsAppConsentState
+
+      if (previousState === newState) {
+        result = hydrateClientIndex(row)
+        return
+      }
+
+      await tx
+        .update(schema.clientIndex)
+        .set({
+          whatsappConsentState: newState,
+          updatedAtUtc:         now,
+        })
+        .where(
+          and(
+            eq(schema.clientIndex.tenantId, tenantId),
+            eq(schema.clientIndex.erpCustomerId, erpCustomerId),
+          ),
+        )
+
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId:   row.id,
+        erpCustomerId:   row.erpCustomerId,
+        type:            'client.whatsapp_consent_changed',
+        payloadJson:     JSON.stringify({
+          previousState,
+          newState,
+          source: 'trainer_manual',
+        }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+
+      result = hydrateClientIndex({
+        ...row,
+        whatsappConsentState: newState,
+        updatedAtUtc:         now,
+      })
+    })
+
+    return result
+  }
+
+  /**
+   * Create a trainer-approved WhatsApp reminder candidate (US-050) —
+   * suggestion/approval infrastructure only, never an automatic send. Never
+   * calls Evolution API, never writes message_log, never sends anything.
+   *
+   * Consent-gated using the same canSendAutomatedWhatsApp predicate US-059
+   * uses everywhere else, so this can never drift from the rest of the
+   * app's consent enforcement:
+   *   - opted_out  -> blocked, no intent created, no override.
+   *   - unknown    -> blocked ("unknown blocks reminder generation" — see
+   *                   CLAUDE.md's WhatsApp Consent States, tier-1 authority).
+   *                   A future "Send Initial Opt-In Request" action is a
+   *                   different intent type, not this one.
+   *   - opted_in   -> a pending client_action_intent row is created for the
+   *                   trainer to review and act on via the EXISTING
+   *                   completeActionIntent/dismissActionIntent lifecycle —
+   *                   no new approval mechanism.
+   *
+   * `reason` is caller-supplied free text (e.g. why this reminder is being
+   * suggested) — this method does not decide WHEN to suggest a reminder,
+   * only whether consent allows creating the candidate. See
+   * docs/execution/us-050-reminder-candidates-plan.md for why no automatic
+   * trigger (e.g. low package balance) is wired in here.
+   */
+  async createWhatsAppReminderCandidate(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    reason: string,
+  ): Promise<ReminderCandidateResult> {
+    const tenantId = assertTenantId(ctx)
+
+    const rows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) return { outcome: 'client_not_found' }
+
+    const consentState = row.whatsappConsentState as WhatsAppConsentState
+
+    if (!canSendAutomatedWhatsApp(consentState)) {
+      return {
+        outcome: 'blocked',
+        reason:  isOptedOut(consentState) ? 'opted_out' : 'consent_unknown',
+      }
+    }
+
+    const now = new Date().toISOString()
+    const intentId = crypto.randomUUID()
+
+    await this.db.insert(schema.clientActionIntent).values({
+      id:             intentId,
+      tenantId,
+      clientIndexId:  row.id,
+      erpCustomerId:  row.erpCustomerId,
+      type:           'whatsapp_reminder_candidate',
+      status:         'pending',
+      priority:       'normal',
+      source:         'system',
+      reason,
+      dueAtUtc:       null,
+      completedAtUtc: null,
+      dismissedAtUtc: null,
+      expiresAtUtc:   null,
+      createdAtUtc:   now,
+      updatedAtUtc:   now,
+    })
+
+    return {
+      outcome: 'created',
+      intent: {
+        id:             intentId,
+        tenantId,
+        clientIndexId:  row.id,
+        erpCustomerId:  row.erpCustomerId,
+        type:           'whatsapp_reminder_candidate',
+        status:         'pending',
+        priority:       'normal',
+        source:         'system',
+        reason,
+        dueAtUtc:       null,
+        completedAtUtc: null,
+        dismissedAtUtc: null,
+        expiresAtUtc:   null,
+        createdAtUtc:   now,
+        updatedAtUtc:   now,
+      },
+    }
+  }
+
+  /**
    * Project the client's next-session timestamp (Phase 5B).
    *
    * Tenant- and client-scoped: the guard read and the UPDATE both filter on
@@ -788,6 +973,7 @@ export class ClientRepository {
       fullName:                  draft.fullName,
       phoneE164:                 draft.phoneE164,
       whatsappEnabled:           draft.whatsappEnabled,
+      whatsappConsentState:      'unknown',
       status:                    'active',
       primaryGoalLabel:          draft.primaryGoalLabel,
       primaryGoalId:             draft.primaryGoalId,

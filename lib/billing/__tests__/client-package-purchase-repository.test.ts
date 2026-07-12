@@ -33,6 +33,7 @@ const SETUP_DDL = [
     "full_name"                   TEXT NOT NULL,
     "phone_e164"                  TEXT NOT NULL,
     "whatsapp_enabled"            INTEGER NOT NULL DEFAULT 0,
+    "whatsapp_consent_state"      TEXT NOT NULL DEFAULT 'unknown',
     "status"                      TEXT NOT NULL DEFAULT 'active',
     "primary_goal_label"          TEXT,
     "primary_goal_id"             TEXT,

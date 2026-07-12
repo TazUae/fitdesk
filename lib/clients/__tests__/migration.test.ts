@@ -18,6 +18,7 @@ const CLIENT_DDL = [
     "full_name"                   TEXT NOT NULL,
     "phone_e164"                  TEXT NOT NULL,
     "whatsapp_enabled"            INTEGER NOT NULL DEFAULT 0,
+    "whatsapp_consent_state"      TEXT NOT NULL DEFAULT 'unknown',
     "status"                      TEXT NOT NULL DEFAULT 'active',
     "primary_goal_label"          TEXT,
     "primary_goal_id"             TEXT,
@@ -163,6 +164,16 @@ describe('client management DDL migration', () => {
     const { rows } = await client.execute(`PRAGMA table_info("client_goal")`)
     const columnNames = rows.map((r) => r.name as string)
     expect(columnNames).toContain('trainer_sub_goal_ids_json')
+    client.close()
+  })
+
+  it('client_index table has whatsapp_consent_state column (US-059)', async () => {
+    const client = createClient({ url: ':memory:' })
+    await runDdl(client)
+
+    const { rows } = await client.execute(`PRAGMA table_info("client_index")`)
+    const columnNames = rows.map((r) => r.name as string)
+    expect(columnNames).toContain('whatsapp_consent_state')
     client.close()
   })
 })
@@ -369,6 +380,62 @@ describe('Phase 4.2 additive ALTER migration', () => {
 
     const { rows } = await client.execute(`SELECT is_primary FROM client_goal WHERE id = 'cg-1'`)
     expect(rows[0].is_primary).toBe(1)
+    client.close()
+  })
+})
+
+// ─── US-059 — additive ALTER migration (client_index.whatsapp_consent_state) ──
+
+// Old schema: client_index WITHOUT the US-059 consent column (mirrors the
+// shipped pre-US-059 DDL, minus unrelated columns not needed for this test).
+const OLD_CLIENT_INDEX_DDL = `CREATE TABLE IF NOT EXISTS "client_index" (
+  "id"              TEXT NOT NULL PRIMARY KEY,
+  "tenant_id"       TEXT NOT NULL,
+  "erp_customer_id" TEXT NOT NULL,
+  "full_name"       TEXT NOT NULL,
+  "phone_e164"      TEXT NOT NULL,
+  "whatsapp_enabled" INTEGER NOT NULL DEFAULT 0,
+  "status"          TEXT NOT NULL DEFAULT 'active',
+  "created_at_utc"  TEXT NOT NULL,
+  "updated_at_utc"  TEXT NOT NULL
+)`
+
+describe('US-059 additive ALTER migration', () => {
+  it('adds whatsapp_consent_state column to an old-schema client_index table', async () => {
+    const client = createClient({ url: ':memory:' })
+    await client.execute(OLD_CLIENT_INDEX_DDL)
+
+    await addColumnIfNotExists(client, 'client_index', 'whatsapp_consent_state', `TEXT NOT NULL DEFAULT 'unknown'`)
+
+    const { rows } = await client.execute(`PRAGMA table_info("client_index")`)
+    const names = rows.map((r) => r.name as string)
+    expect(names).toContain('whatsapp_consent_state')
+    client.close()
+  })
+
+  it('is idempotent — adding the column twice does not throw', async () => {
+    const client = createClient({ url: ':memory:' })
+    await client.execute(OLD_CLIENT_INDEX_DDL)
+
+    await addColumnIfNotExists(client, 'client_index', 'whatsapp_consent_state', `TEXT NOT NULL DEFAULT 'unknown'`)
+    await expect(
+      addColumnIfNotExists(client, 'client_index', 'whatsapp_consent_state', `TEXT NOT NULL DEFAULT 'unknown'`),
+    ).resolves.not.toThrow()
+    client.close()
+  })
+
+  it('every existing row defaults to unknown — no separate backfill needed', async () => {
+    const client = createClient({ url: ':memory:' })
+    await client.execute(OLD_CLIENT_INDEX_DDL)
+    await client.execute(
+      `INSERT INTO client_index (id, tenant_id, erp_customer_id, full_name, phone_e164, created_at_utc, updated_at_utc)
+       VALUES ('ci-1', 'tenant-a', 'ERP-1', 'Ali Hassan', '+96170000001', '2026-01-01T00:00:00', '2026-01-01T00:00:00')`,
+    )
+
+    await addColumnIfNotExists(client, 'client_index', 'whatsapp_consent_state', `TEXT NOT NULL DEFAULT 'unknown'`)
+
+    const { rows } = await client.execute(`SELECT whatsapp_consent_state FROM client_index WHERE id = 'ci-1'`)
+    expect(rows[0].whatsapp_consent_state).toBe('unknown')
     client.close()
   })
 })

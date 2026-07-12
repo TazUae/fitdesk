@@ -16,7 +16,7 @@ import { detectConflicts } from '@/lib/goals/conflicts'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
 import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
-import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, SelectedGoalDraft } from '@/types/clients'
+import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -357,6 +357,79 @@ export async function syncClientBillingMode(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to sync billing setup.',
+    }
+  }
+}
+
+/**
+ * Set a client's WhatsApp consent state (US-059).
+ *
+ * Trainer-initiated only — there is no automated consent-flip path anywhere
+ * in this codebase. Every actual change is tenant-scoped and auditable via
+ * ClientRepository.setWhatsAppConsent's client_event write. This action does
+ * not send any WhatsApp message and does not call the Evolution API.
+ */
+export async function setWhatsAppConsentAction(
+  erpCustomerId: string,
+  newState: WhatsAppConsentState,
+): Promise<ActionResult<{ whatsappConsentState: WhatsAppConsentState }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const updated = await repo.setWhatsAppConsent({ tenantId: ctx.tenantId }, erpCustomerId, newState)
+    if (!updated) return { success: false, error: 'Client profile not found.' }
+
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(erpCustomerId)}`)
+
+    return { success: true, data: { whatsappConsentState: updated.whatsappConsentState } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to update WhatsApp consent.',
+    }
+  }
+}
+
+/**
+ * Create a trainer-approved WhatsApp reminder candidate (US-050).
+ *
+ * Suggestion/approval infrastructure only — never sends a WhatsApp message,
+ * never calls the Evolution API, never writes message_log. The trainer acts
+ * on the resulting client_action_intent row via the existing
+ * completeClientAction/dismissClientAction lifecycle.
+ *
+ * Consent-gated (opted_out and unknown are both blocked — see
+ * ClientRepository.createWhatsAppReminderCandidate) — the caller does not
+ * choose whether to gate on consent, this action always does.
+ */
+export async function createWhatsAppReminderCandidateAction(
+  clientIndexId: string,
+  reason: string,
+): Promise<ActionResult<ReminderCandidateResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.createWhatsAppReminderCandidate({ tenantId: ctx.tenantId }, clientIndexId, reason)
+
+    if (result.outcome === 'created') {
+      revalidatePath(`/dashboard/clients/${encodeURIComponent(result.intent.erpCustomerId)}`)
+    }
+
+    return { success: true, data: result }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to create reminder candidate.',
     }
   }
 }

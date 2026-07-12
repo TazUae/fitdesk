@@ -14,7 +14,7 @@ vi.mock('@/lib/scheduling/sessionRepository', () => ({
   findSessionsForClient: vi.fn(),
 }))
 
-import { getClientSessions } from '@/lib/clients/clientSessions'
+import { getClientSessions, getClientAttendanceCounts } from '@/lib/clients/clientSessions'
 import * as sessionRepository from '@/lib/scheduling/sessionRepository'
 import type { FDSession } from '@/types/scheduling'
 
@@ -85,5 +85,60 @@ describe('getClientSessions', () => {
     mockFindSessionsForClient.mockRejectedValueOnce(new Error('ERP unavailable'))
     const result = await getClientSessions('trainer-1', 'CUST-001', 'UTC')
     expect(result).toEqual([])
+  })
+})
+
+// ─── getClientAttendanceCounts (US-049) ────────────────────────────────────────
+
+describe('getClientAttendanceCounts', () => {
+  it('reads from the same tenant/trainer-scoped FD Session repository call', async () => {
+    mockFindSessionsForClient.mockResolvedValue([])
+    await getClientAttendanceCounts('trainer-1', 'CUST-001')
+    expect(sessionRepository.findSessionsForClient).toHaveBeenCalledWith('trainer-1', 'CUST-001')
+  })
+
+  it('preserves trainer/client ownership scoping in the call (tenant isolation)', async () => {
+    mockFindSessionsForClient.mockResolvedValue([])
+    await getClientAttendanceCounts('trainer-2', 'CUST-999')
+    expect(sessionRepository.findSessionsForClient).toHaveBeenCalledWith('trainer-2', 'CUST-999')
+  })
+
+  it('derives counts from the raw FD Session statuses', async () => {
+    mockFindSessionsForClient.mockResolvedValue([
+      fdSession({ id: 'fds-001', status: 'completed' }),
+      fdSession({ id: 'fds-002', status: 'no_show' }),
+      fdSession({ id: 'fds-003', status: 'cancelled' }),
+      fdSession({ id: 'fds-004', status: 'scheduled' }),
+    ])
+    const counts = await getClientAttendanceCounts('trainer-1', 'CUST-001')
+    expect(counts).toEqual({
+      completed: 1, noShow: 1, cancelled: 1, skipped: 0, unresolved: 1, total: 4,
+    })
+  })
+
+  it('returns an all-zero summary (not a throw) when the client has no FD Sessions', async () => {
+    mockFindSessionsForClient.mockResolvedValue([])
+    const counts = await getClientAttendanceCounts('trainer-1', 'CUST-001')
+    expect(counts).toEqual({
+      completed: 0, noShow: 0, cancelled: 0, skipped: 0, unresolved: 0, total: 0,
+    })
+  })
+
+  it('degrades to an all-zero summary instead of throwing when the repository call fails', async () => {
+    mockFindSessionsForClient.mockRejectedValueOnce(new Error('ERP unavailable'))
+    const counts = await getClientAttendanceCounts('trainer-1', 'CUST-001')
+    expect(counts).toEqual({
+      completed: 0, noShow: 0, cancelled: 0, skipped: 0, unresolved: 0, total: 0,
+    })
+  })
+
+  it('does not call any invoice, payment, or package-consumption function — read-only derivation', async () => {
+    // Structural guarantee: getClientAttendanceCounts and getSessionOutcomeCounts
+    // only ever import findSessionsForClient (already mocked above) — there is no
+    // other mocked module this function could reach for a financial side effect.
+    mockFindSessionsForClient.mockResolvedValue([fdSession({ status: 'completed' })])
+    const counts = await getClientAttendanceCounts('trainer-1', 'CUST-001')
+    expect(counts.completed).toBe(1)
+    expect(sessionRepository.findSessionsForClient).toHaveBeenCalledOnce()
   })
 })

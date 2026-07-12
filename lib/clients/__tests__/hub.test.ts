@@ -23,6 +23,7 @@ const CLIENT_TABLES_DDL = [
     "id" TEXT NOT NULL PRIMARY KEY, "tenant_id" TEXT NOT NULL,
     "erp_customer_id" TEXT NOT NULL, "full_name" TEXT NOT NULL,
     "phone_e164" TEXT NOT NULL, "whatsapp_enabled" INTEGER NOT NULL DEFAULT 0,
+    "whatsapp_consent_state" TEXT NOT NULL DEFAULT 'unknown',
     "status" TEXT NOT NULL DEFAULT 'active', "primary_goal_label" TEXT,
     "primary_goal_id" TEXT, "safety_state" TEXT NOT NULL DEFAULT 'clear',
     "onboarding_state" TEXT NOT NULL DEFAULT 'not_started',

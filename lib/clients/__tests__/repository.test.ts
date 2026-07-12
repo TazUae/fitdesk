@@ -27,6 +27,7 @@ const CLIENT_TABLES_DDL = [
     "full_name" TEXT NOT NULL,
     "phone_e164" TEXT NOT NULL,
     "whatsapp_enabled" INTEGER NOT NULL DEFAULT 0,
+    "whatsapp_consent_state" TEXT NOT NULL DEFAULT 'unknown',
     "status" TEXT NOT NULL DEFAULT 'active',
     "primary_goal_label" TEXT,
     "primary_goal_id" TEXT,
@@ -528,6 +529,234 @@ describe('setBillingModeIfUnset', () => {
 
     const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
     expect(events.map((event) => event.type)).not.toContain('client.billing_mode_synced')
+  })
+})
+
+describe('setWhatsAppConsent', () => {
+  it('a newly created client defaults to unknown consent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    expect(created.clientIndex.whatsappConsentState).toBe('unknown')
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    expect(found?.whatsappConsentState).toBe('unknown')
+  })
+
+  it('opt-in writes the state and a client_event audit row', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const updated = await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    expect(updated?.whatsappConsentState).toBe('opted_in')
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    expect(found?.whatsappConsentState).toBe('opted_in')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    const consentEvent = events.find((event) => event.type === 'client.whatsapp_consent_changed')
+    expect(consentEvent).toBeTruthy()
+    expect(consentEvent?.payloadJson).toMatchObject({
+      previousState: 'unknown',
+      newState:      'opted_in',
+      source:        'trainer_manual',
+    })
+  })
+
+  it('opt-out writes the state and a client_event audit row', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const updated = await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_out')
+
+    expect(updated?.whatsappConsentState).toBe('opted_out')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    const consentEvent = events.find((event) => event.type === 'client.whatsapp_consent_changed')
+    expect(consentEvent?.payloadJson).toMatchObject({
+      previousState: 'unknown',
+      newState:      'opted_out',
+    })
+  })
+
+  it('changing consent again (opted_in -> opted_out) records the correct previousState', async () => {
+    await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    const updated = await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_out')
+    expect(updated?.whatsappConsentState).toBe('opted_out')
+
+    const created = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created!.id)
+    const events2 = events.filter((event) => event.type === 'client.whatsapp_consent_changed')
+    expect(events2).toHaveLength(2)
+    // listEvents orders newest-first (see ClientRepository.listEvents) — index 0 is the most recent change.
+    expect(events2[0].payloadJson).toMatchObject({ previousState: 'opted_in', newState: 'opted_out' })
+    expect(events2[1].payloadJson).toMatchObject({ previousState: 'unknown', newState: 'opted_in' })
+  })
+
+  it('setting the same state again is a no-op — no duplicate audit event', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    const consentEvents = events.filter((event) => event.type === 'client.whatsapp_consent_changed')
+    expect(consentEvents).toHaveLength(1)
+  })
+
+  it('returns null for a non-existent erpCustomerId — fails closed, no row created', async () => {
+    const result = await repo.setWhatsAppConsent({ tenantId: TENANT_A }, 'ERP-DOES-NOT-EXIST', 'opted_in')
+    expect(result).toBeNull()
+  })
+
+  it('tenant isolation: tenant A cannot read tenant B consent state (fails closed)', async () => {
+    await repo.createClientRow({ tenantId: TENANT_B }, { ...baseDraft, tenantId: TENANT_B })
+    await repo.setWhatsAppConsent({ tenantId: TENANT_B }, ERP_ID_1, 'opted_in')
+
+    const crossTenantRead = await repo.findClientByErpId({ tenantId: TENANT_A }, ERP_ID_1)
+    expect(crossTenantRead).toBeNull()
+  })
+
+  it('tenant isolation: tenant A cannot mutate tenant B consent state', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+    expect(result).toBeNull()
+
+    const found = await repo.findClientByErpId({ tenantId: TENANT_B }, ERP_ID_1)
+    expect(found?.whatsappConsentState).toBe('unknown')
+
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.map((event) => event.type)).not.toContain('client.whatsapp_consent_changed')
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.setWhatsAppConsent({ tenantId: '' }, ERP_ID_1, 'opted_in'),
+    ).rejects.toThrow()
+  })
+})
+
+describe('createWhatsAppReminderCandidate (US-050)', () => {
+  it('blocks and creates no intent for opted_out — no override', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_out')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'blocked', reason: 'opted_out' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('blocks and creates no intent for unknown consent — never treated as auto-send permission', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    // baseDraft has no consent override — defaults to 'unknown'.
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'blocked', reason: 'consent_unknown' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('creates a pending candidate for opted_in — trainer-approved suggestion, not sent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.intent.type).toBe('whatsapp_reminder_candidate')
+    expect(result.intent.status).toBe('pending')
+    expect(result.intent.reason).toBe('package running low')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    const candidate = pending.find((a) => a.type === 'whatsapp_reminder_candidate')
+    expect(candidate).toBeTruthy()
+    expect(candidate?.status).toBe('pending')
+  })
+
+  it('candidate requires trainer approval — completing it transitions out of pending, same as any other action intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+    if (result.outcome !== 'created') throw new Error('expected created')
+
+    const completed = await repo.completeActionIntent({ tenantId: TENANT_A }, result.intent.id)
+    expect(completed?.status).toBe('completed')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.id === result.intent.id)).toBe(false)
+  })
+
+  it('candidate can be dismissed by the trainer instead of approved', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+    if (result.outcome !== 'created') throw new Error('expected created')
+
+    const dismissed = await repo.dismissActionIntent({ tenantId: TENANT_A }, result.intent.id)
+    expect(dismissed?.status).toBe('dismissed')
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      'nonexistent-client-index-id',
+      'package running low',
+    )
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot create a candidate for tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+    await repo.setWhatsAppConsent({ tenantId: TENANT_B }, ERP_ID_1, 'opted_in')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.createWhatsAppReminderCandidate({ tenantId: '' }, 'some-id', 'reason'),
+    ).rejects.toThrow()
   })
 })
 
