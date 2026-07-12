@@ -5,7 +5,8 @@ import { fmtMonthDayYear } from '@/lib/date'
 import { getClientById, getInvoices } from '@/lib/business-data'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTrainerConfig } from '@/lib/scheduling/trainerConfig'
-import { getClientSessions } from '@/lib/clients/clientSessions'
+import { getClientSessions, getClientAttendanceCounts } from '@/lib/clients/clientSessions'
+import { getSessionOutcomeCounts } from '@/lib/scheduling/attendance'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { formatGoal } from '@/lib/format/goal'
@@ -72,11 +73,12 @@ export default async function ClientDetailPage({ params }: Props) {
   const trainerConfig = trainerId ? await getTrainerConfig(trainerId) : null
   const timezone      = trainerConfig?.timezone ?? 'UTC'
 
-  const [clientResult, sessions, invoicesResult, hub] = await Promise.all([
+  const [clientResult, sessions, invoicesResult, hub, attendanceCounts] = await Promise.all([
     getClientById(clientId),
     trainerId ? getClientSessions(trainerId, clientId, timezone) : Promise.resolve<Session[]>([]),
     getInvoices({ clientId }),
     getClientHubOverview(clientId),
+    trainerId ? getClientAttendanceCounts(trainerId, clientId) : Promise.resolve(getSessionOutcomeCounts([])),
   ])
 
   if (!clientResult.success) {
@@ -262,6 +264,16 @@ export default async function ClientDetailPage({ params }: Props) {
                 </span>
               )}
             </h3>
+
+            {/* Attendance summary (US-049) — additive, read-only; no reschedule count (see
+                lib/scheduling/attendance.ts for why one isn't fabricated). */}
+            {(attendanceCounts.completed > 0 || attendanceCounts.noShow > 0 || attendanceCounts.cancelled > 0) && (
+              <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                {attendanceCounts.completed} completed
+                {attendanceCounts.noShow > 0 && ` · ${attendanceCounts.noShow} no-show`}
+                {attendanceCounts.cancelled > 0 && ` · ${attendanceCounts.cancelled} cancelled`}
+              </p>
+            )}
 
             {sessions.length === 0 ? (
               <div
