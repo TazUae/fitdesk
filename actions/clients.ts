@@ -20,7 +20,7 @@ import { detectConflicts } from '@/lib/goals/conflicts'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
 import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
-import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, MissingNextSessionCandidateResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
+import type { AddClientPrimaryGoal, AddProgressEntryResult, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, MissingNextSessionCandidateResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -609,6 +609,49 @@ export async function addClientNoteAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to add note.',
+    }
+  }
+}
+
+/**
+ * Add a trainer-authored progress entry, optionally linked to one of the
+ * client's own goals (US-052).
+ *
+ * Reuses the same append-only client_event pattern as addClientNoteAction —
+ * no schema change, no WhatsApp/ERP/payment side effects. When goalId is
+ * provided it is validated both here (must be a known IntakeGoalId) and
+ * again in the repository (must belong to this client) before being stored.
+ */
+export async function addProgressEntryAction(
+  clientIndexId: string,
+  text: string,
+  goalId?: string | null,
+): Promise<ActionResult<AddProgressEntryResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  const trimmed = text.trim()
+  if (!trimmed) return { success: false, error: 'Progress entry cannot be empty.' }
+  if (trimmed.length > 500) return { success: false, error: 'Progress entry is too long (500 characters max).' }
+
+  const resolvedGoalId = goalId && isIntakeGoalId(goalId) ? goalId : null
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.addProgressEntry({ tenantId: ctx.tenantId }, clientIndexId, trimmed, resolvedGoalId)
+
+    if (result.outcome === 'created') {
+      revalidatePath(`/dashboard/clients/${encodeURIComponent(result.event.erpCustomerId ?? '')}`)
+    }
+
+    return { success: true, data: result }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to add progress entry.',
     }
   }
 }

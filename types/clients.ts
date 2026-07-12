@@ -354,6 +354,30 @@ export type ClientNoteSummary = {
   text: string | null
 }
 
+/**
+ * Trainer-authored progress entry (US-052), optionally linked to one of the
+ * client's own goals. goalId is a canonical IntakeGoalId string when linked,
+ * validated server-side against the client's own client_goal rows — see
+ * ClientRepository.addProgressEntry.
+ */
+export type ClientProgressEntrySummary = {
+  id: string
+  text: string
+  goalId: string | null
+  createdAtUtc: string
+}
+
+/**
+ * Result of attempting to add a progress entry (US-052).
+ * `invalid_goal_link` is returned when a goalId is provided but does not
+ * match any of the client's own goal rows — fails closed rather than
+ * silently linking to an unrelated/cross-tenant goal.
+ */
+export type AddProgressEntryResult =
+  | { outcome: 'created'; event: ClientEvent }
+  | { outcome: 'client_not_found' }
+  | { outcome: 'invalid_goal_link' }
+
 /** Compact package session balance derived from the local ledger — shown in the Client Hub Packages card. */
 export type ClientPackageBalanceSummary = {
   totalAvailableSessions: number
@@ -381,6 +405,7 @@ export type ClientHubOverview = {
   goals: ClientGoalSummary[]
   pendingActions: ClientActionIntentSummary[]
   recentNotes: ClientNoteSummary[]
+  progressEntries: ClientProgressEntrySummary[]
   packageBalance: ClientPackageBalanceSummary | null
   placeholders: {
     trainingProgram: { status: 'not_started' | 'available_later'; label: string }

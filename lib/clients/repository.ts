@@ -24,6 +24,7 @@ import type {
   ActionIntentPriority,
   ActionIntentSource,
   ActionIntentType,
+  AddProgressEntryResult,
   BillingMode,
   ClientActionIntent,
   ClientActionIntentStatus,
@@ -691,6 +692,57 @@ export class ClientRepository {
       payloadJson:     { text },
       createdByUserId: null,
     })
+  }
+
+  /**
+   * Add a trainer-authored progress entry, optionally linked to one of the
+   * client's own goals (US-052).
+   *
+   * Same reuse pattern as addClientNote — a client_event row with type
+   * 'client.progress', no new table. When goalId is provided it is verified
+   * against the client's own client_goal rows before the link is stored
+   * (fails closed to invalid_goal_link rather than storing an unrelated or
+   * cross-tenant goal reference).
+   */
+  async addProgressEntry(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    text: string,
+    goalId: string | null,
+  ): Promise<AddProgressEntryResult> {
+    const tenantId = assertTenantId(ctx)
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(and(eq(schema.clientIndex.tenantId, tenantId), eq(schema.clientIndex.id, clientIndexId)))
+      .limit(1)
+    const clientRow = clientRows[0]
+    if (!clientRow) return { outcome: 'client_not_found' }
+
+    if (goalId) {
+      const goalRows = await this.db
+        .select()
+        .from(schema.clientGoal)
+        .where(
+          and(
+            eq(schema.clientGoal.tenantId, tenantId),
+            eq(schema.clientGoal.clientIndexId, clientIndexId),
+            eq(schema.clientGoal.goalId, goalId),
+          ),
+        )
+        .limit(1)
+      if (!goalRows[0]) return { outcome: 'invalid_goal_link' }
+    }
+
+    const event = await this.insertClientEvent({
+      tenantId,
+      clientIndexId:   clientRow.id,
+      erpCustomerId:   clientRow.erpCustomerId,
+      type:            'client.progress',
+      payloadJson:     { text, goalId },
+      createdByUserId: null,
+    })
+    return { outcome: 'created', event }
   }
 
   // ── Write: backfill upsert ────────────────────────────────────────────────

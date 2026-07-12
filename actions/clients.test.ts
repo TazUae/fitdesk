@@ -78,7 +78,7 @@ vi.mock('@/lib/scheduling/sessionRepository', () => ({
   findSessionsForClient: vi.fn(),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction, addClientNoteAction } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction, addClientNoteAction, addProgressEntryAction } from '@/actions/clients'
 import * as evolution from '@/lib/evolution'
 import * as schedulingRepo from '@/lib/scheduling/sessionRepository'
 import type { FDSession } from '@/types/scheduling'
@@ -1773,6 +1773,136 @@ describe('addClientNoteAction (US-053)', () => {
     vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
 
     const result = await addClientNoteAction(clientIndexId, 'some note')
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('addProgressEntryAction (US-052)', () => {
+  async function seedClientWithGoal(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  it('writes a client.progress event with no goal link', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, '  Ran 5k without stopping  ')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('created')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(1)
+  })
+
+  it('links to the client\'s own goal when goalId is a valid IntakeGoalId the client actually has', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    // Canonical IntakeGoalId values use hyphens (lib/goals/taxonomy.ts) — 'fat-loss', not
+    // the module-level PAYLOAD's underscore 'fat_loss' (which is stored as-is but is not
+    // itself a recognized canonical id, so isIntakeGoalId would reject it).
+    await addClient({ ...PAYLOAD, custom_fitness_goals: '[{"label":"Fat Loss","value":"fat-loss"}]' })
+    const { rows } = await dbClient.execute(`SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`)
+    const clientIndexId = rows[0].id as string
+    expect(await count('client_goal', `goal_id = 'fat-loss'`)).toBe(1)
+
+    const result = await addProgressEntryAction(clientIndexId, 'Down a dress size', 'fat-loss')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.event.payloadJson).toEqual({ text: 'Down a dress size', goalId: 'fat-loss' })
+    } else {
+      throw new Error('expected created')
+    }
+  })
+
+  it('returns invalid_goal_link when goalId is a real IntakeGoalId but not one of this client\'s goals', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'text', 'mobility')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('invalid_goal_link')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('silently drops a goalId that is not a known IntakeGoalId at all — stored as no link, not an error', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'text', 'not-a-real-goal-id')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.event.payloadJson).toEqual({ text: 'text', goalId: null })
+    } else {
+      throw new Error('expected created')
+    }
+  })
+
+  it('rejects an empty (or whitespace-only) progress entry', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, '   ')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('rejects a progress entry longer than 500 characters', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'x'.repeat(501))
+
+    expect(result.success).toBe(false)
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('returns outcome client_not_found for a non-existent clientIndexId (consistent with the sibling US-050/US-038 actions)', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+
+    const result = await addProgressEntryAction('nonexistent-id', 'some entry')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('client_not_found')
+  })
+
+  it('tenant isolation: tenant A cannot add a progress entry to tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addProgressEntryAction(clientIndexId, 'sneaky entry')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('client_not_found')
+    expect(await count('client_event', `type = 'client.progress'`)).toBe(0)
+  })
+
+  it('does not send any WhatsApp message, invoice, or payment', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    await addProgressEntryAction(clientIndexId, 'An entry')
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClientWithGoal()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await addProgressEntryAction(clientIndexId, 'some entry')
 
     expect(result.success).toBe(false)
   })

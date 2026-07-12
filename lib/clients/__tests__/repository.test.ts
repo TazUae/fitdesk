@@ -902,6 +902,78 @@ describe('addClientNote (US-053)', () => {
   })
 })
 
+describe('addProgressEntry (US-052)', () => {
+  it('writes a client.progress client_event with no goal link', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'Lost 2kg this month', null)
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.event.type).toBe('client.progress')
+    expect(result.event.payloadJson).toEqual({ text: 'Lost 2kg this month', goalId: null })
+  })
+
+  it('links to one of the client\'s own goals when goalId matches', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals[0].goalId).toBe('goal-wl')
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'Hit a new PR', 'goal-wl')
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.event.payloadJson).toEqual({ text: 'Hit a new PR', goalId: 'goal-wl' })
+  })
+
+  it('returns invalid_goal_link when goalId does not match any of the client\'s own goals', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'text', 'some-other-goal')
+
+    expect(result).toEqual({ outcome: 'invalid_goal_link' })
+    const events = await repo.listEvents({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.progress')).toBe(false)
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, 'nonexistent-id', 'text', null)
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot add a progress entry to tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, created.clientIndex.id, 'sneaky entry', null)
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+    const events = await repo.listEvents({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(events.some(e => e.type === 'client.progress')).toBe(false)
+  })
+
+  it('tenant isolation: cannot link to another tenant\'s goal even if the goalId string matches', async () => {
+    const createdB = await repo.createClientRow({ tenantId: TENANT_B }, { ...baseDraft, tenantId: TENANT_B })
+    const createdA = await repo.createClientRow(
+      { tenantId: TENANT_A },
+      { ...baseDraft, erpCustomerId: ERP_ID_2, goalId: null, isPrimary: undefined },
+    )
+
+    const result = await repo.addProgressEntry({ tenantId: TENANT_A }, createdA.clientIndex.id, 'text', 'goal-wl')
+
+    expect(result).toEqual({ outcome: 'invalid_goal_link' })
+    expect(createdB.clientIndex.id).not.toBe(createdA.clientIndex.id)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.addProgressEntry({ tenantId: '' }, 'some-id', 'text', null),
+    ).rejects.toThrow()
+  })
+})
+
 describe('setClientNextSessionAtUtc', () => {
   it('updates nextSessionAtUtc and updatedAtUtc only', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
