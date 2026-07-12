@@ -219,12 +219,15 @@ describe('getPaymentEntry', () => {
 })
 
 // ─── getPaymentsForCustomer ───────────────────────────────────────────────────
-// Regression coverage for two ERPNext 417 fixes: paymentFields() previously
+// Regression coverage for three ERPNext 417 fixes: paymentFields() previously
 // requested received_amount/docstatus/status (unread by normalizePayment and
-// not part of ERPPaymentEntry) while omitting currency/remarks (which
-// normalizePayment does read); it also requested/sorted by `payment_date`,
+// not part of ERPPaymentEntry); it also requested/sorted by `payment_date`,
 // which ERPNext's list-query validator rejects outright ("Field not
-// permitted in query: payment_date") since the real field is `posting_date`.
+// permitted in query: payment_date") since the real field is `posting_date`;
+// and it requested `currency`, which ERPNext rejects the same way ("Field
+// not permitted in query: currency") since Payment Entry has no top-level
+// `currency` field to select in a list query at all. The Statement of
+// Account UI displays currency from invoice/statement context instead.
 
 describe('getPaymentsForCustomer', () => {
   let fetchMock: ReturnType<typeof vi.fn>
@@ -244,14 +247,14 @@ describe('getPaymentsForCustomer', () => {
     return raw === null ? null : JSON.parse(raw)
   }
 
-  it('requests exactly the fields normalizePayment consumes', async () => {
+  it('requests exactly the fields normalizePayment consumes, minus currency', async () => {
     fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
 
     await getPaymentsForCustomer(CLIENT_ID)
 
     const fields = requestedParam('fields') as string[]
     expect([...fields].sort()).toEqual(
-      ['currency', 'mode_of_payment', 'name', 'paid_amount', 'party', 'posting_date', 'reference_no', 'remarks'].sort(),
+      ['mode_of_payment', 'name', 'paid_amount', 'party', 'posting_date', 'reference_no', 'remarks'].sort(),
     )
   })
 
@@ -264,6 +267,15 @@ describe('getPaymentsForCustomer', () => {
     expect(fields).not.toContain('received_amount')
     expect(fields).not.toContain('docstatus')
     expect(fields).not.toContain('status')
+  })
+
+  it('excludes currency — ERPNext rejects it ("Field not permitted in query: currency")', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()]))
+
+    await getPaymentsForCustomer(CLIENT_ID)
+
+    const fields = requestedParam('fields') as string[]
+    expect(fields).not.toContain('currency')
   })
 
   it('requests posting_date and orders by it — payment_date is rejected by ERPNext ("Field not permitted in query")', async () => {
@@ -295,24 +307,24 @@ describe('getPaymentsForCustomer', () => {
     ])
   })
 
-  it('maps currency and remarks from the raw Payment Entry (previously silently dropped)', async () => {
+  it('maps remarks from the raw Payment Entry (previously silently dropped)', async () => {
     fetchMock.mockResolvedValueOnce(erpOk([
-      { ...rawPaymentEntry(), currency: 'LBP', remarks: 'Cash at front desk' },
+      { ...rawPaymentEntry(), remarks: 'Cash at front desk' },
     ]))
 
     const payments = await getPaymentsForCustomer(CLIENT_ID)
 
     expect(payments).toHaveLength(1)
-    expect(payments[0].currency).toBe('LBP')
     expect(payments[0].note).toBe('Cash at front desk')
   })
 
-  it('defaults currency to USD when the raw Payment Entry omits it', async () => {
+  it('builds a payment row without Payment Entry.currency — currency is never requested, so it always defaults to USD', async () => {
     const { currency: _currency, ...withoutCurrency } = rawPaymentEntry()
     fetchMock.mockResolvedValueOnce(erpOk([withoutCurrency]))
 
     const payments = await getPaymentsForCustomer(CLIENT_ID)
 
+    expect(payments).toHaveLength(1)
     expect(payments[0].currency).toBe('USD')
   })
 

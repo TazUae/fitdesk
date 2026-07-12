@@ -328,16 +328,20 @@ function invoiceFields(): string {
 /**
  * Field list for getPaymentsForCustomer. Matches normalizePayment exactly:
  * dropped `received_amount`/`docstatus`/`status` — unread, and not part of
- * ERPPaymentEntry. Added `currency`/`remarks`, which normalizePayment reads
- * but this list previously omitted (payments were silently defaulting to
- * 'USD' and losing remarks). Uses `posting_date`, not `payment_date` — the
- * latter isn't a real Payment Entry field and is rejected by ERPNext's
- * list-query validator ("Field not permitted in query: payment_date"),
- * which was the actual cause of the intermittent 417 on this query.
+ * ERPPaymentEntry. Uses `posting_date`, not `payment_date` — the latter isn't
+ * a real Payment Entry field and is rejected by ERPNext's list-query
+ * validator ("Field not permitted in query: payment_date").
+ *
+ * `currency` is deliberately NOT requested — ERPNext rejects it the same way
+ * ("Field not permitted in query: currency"; this doctype has no top-level
+ * `currency` field to select in a list query). normalizePayment's existing
+ * `raw.currency ?? 'USD'` fallback already handles its absence; the Statement
+ * of Account UI derives the currency it displays from invoice/statement
+ * context, not from Payment.currency.
  */
 function paymentFields(): string {
   return JSON.stringify([
-    'name', 'posting_date', 'paid_amount', 'currency', 'party',
+    'name', 'posting_date', 'paid_amount', 'party',
     'mode_of_payment', 'reference_no', 'remarks',
   ])
 }
