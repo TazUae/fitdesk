@@ -57,6 +57,11 @@ export function mapToClientHubOverview(
     confidence:       g.confidence,
     primaryGoalLabel: g.goalId === index.primaryGoalId ? index.primaryGoalLabel : null,
     status:           g.status,
+    isPrimary:        g.isPrimary,
+    subGoalIds:       g.subGoalIds,
+    trainerSubGoalIds: g.trainerSubGoalIds,
+    notes:            g.notes,
+    safetyFlags:      g.safetyFlags,
   }))
 
   const actionSummaries: ClientActionIntentSummary[] = pendingActions.map(a => ({

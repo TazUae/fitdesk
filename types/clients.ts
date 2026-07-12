@@ -332,6 +332,11 @@ export type ClientGoalSummary = {
   confidence: GoalConfidence
   primaryGoalLabel: string | null
   status: GoalStatus
+  isPrimary: boolean
+  subGoalIds: string[]
+  trainerSubGoalIds: string[]
+  notes: string | null
+  safetyFlags: string[]
 }
 
 export type ClientActionIntentSummary = {
