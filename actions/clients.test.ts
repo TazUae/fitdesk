@@ -1117,6 +1117,27 @@ describe('dismissClientAction', () => {
     const result = await dismissClientAction('ghost-id')
     expect(result.success).toBe(false)
   })
+
+  it('US-047: applies uniformly to a whatsapp_reminder_candidate (US-050) — a trainer declining a suggested reminder', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+    const created = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+    if (!created.success || created.data.outcome !== 'created') throw new Error('expected created')
+
+    const result = await dismissClientAction(created.data.intent.id)
+
+    expect(result.success).toBe(true)
+    const { rows: intentRows } = await dbClient.execute(
+      `SELECT status FROM client_action_intent WHERE id = '${created.data.intent.id}'`,
+    )
+    expect(intentRows[0].status).toBe('dismissed')
+  })
 })
 
 
@@ -1467,6 +1488,17 @@ describe('deliverWhatsAppReminderAction (US-048)', () => {
     const second = await deliverWhatsAppReminderAction(intentId, 'second send attempt')
 
     expect(second.success).toBe(false)
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('US-047: rejects delivery for an already-dismissed candidate — a trainer declining a suggestion is exactly as final as completing one', async () => {
+    const { intentId } = await seedOptedInCandidate()
+    const dismissed = await dismissClientAction(intentId)
+    expect(dismissed.success).toBe(true)
+
+    const result = await deliverWhatsAppReminderAction(intentId, 'attempted send after dismissal')
+
+    expect(result.success).toBe(false)
     expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
   })
 
