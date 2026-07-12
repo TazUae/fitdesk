@@ -280,6 +280,31 @@ export class ClientRepository {
 
   // ── Action intents ───────────────────────────────────────────────────────
 
+  /**
+   * Read a single action intent by id, tenant-scoped. Read-only — no status
+   * transition. completeActionIntent/dismissActionIntent already do this
+   * lookup internally but don't expose it; callers that need to inspect an
+   * intent (e.g. verify its type/status) before deciding whether to act on
+   * it (US-048) need this exposed separately.
+   */
+  async findActionIntentById(
+    ctx: TenantCtx,
+    intentId: string,
+  ): Promise<ClientActionIntent | null> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select()
+      .from(schema.clientActionIntent)
+      .where(
+        and(
+          eq(schema.clientActionIntent.tenantId, tenantId),
+          eq(schema.clientActionIntent.id, intentId),
+        ),
+      )
+      .limit(1)
+    return rows[0] ? hydrateClientActionIntent(rows[0]) : null
+  }
+
   async listPendingActions(
     ctx: TenantCtx,
     clientIndexId: string,

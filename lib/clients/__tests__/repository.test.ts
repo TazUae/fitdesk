@@ -639,6 +639,40 @@ describe('setWhatsAppConsent', () => {
   })
 })
 
+describe('findActionIntentById (US-048)', () => {
+  it('returns the intent when it exists in this tenant', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    const anyIntent = pending[0]
+
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, anyIntent.id)
+    expect(found?.id).toBe(anyIntent.id)
+  })
+
+  it('returns null for a non-existent intent id', async () => {
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, 'nonexistent-id')
+    expect(found).toBeNull()
+  })
+
+  it('tenant isolation: returns null for an intent belonging to another tenant', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    const anyIntent = pending[0]
+
+    const found = await repo.findActionIntentById({ tenantId: TENANT_A }, anyIntent.id)
+    expect(found).toBeNull()
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.findActionIntentById({ tenantId: '' }, 'some-id'),
+    ).rejects.toThrow()
+  })
+})
+
 describe('createWhatsAppReminderCandidate (US-050)', () => {
   it('blocks and creates no intent for opted_out — no override', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)

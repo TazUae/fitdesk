@@ -6,6 +6,8 @@ import { getCustomerBillingMode } from '@/lib/erpnext/client'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
+import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
+import { sendMessage } from '@/actions/messages'
 import { buildClientCreateDraft } from '@/lib/clients/create-draft'
 import { findDuplicatesByPhone } from '@/lib/clients/duplicates'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
@@ -430,6 +432,82 @@ export async function createWhatsAppReminderCandidateAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to create reminder candidate.',
+    }
+  }
+}
+
+/**
+ * Deliver a trainer-approved WhatsApp reminder for an existing candidate (US-048).
+ *
+ * `body` is the message the trainer has reviewed and approved — this action
+ * never generates or auto-sends anything; calling it IS the explicit
+ * trainer-approval step. Reuses sendMessage() (actions/messages.ts) — the
+ * existing, unmodified, already-tested send abstraction — for the actual
+ * Evolution call and message_log audit write. No new send path, no direct
+ * Evolution import here.
+ *
+ * Consent is re-checked at send time (not just trusted from candidate
+ * creation, since consent can change in between): opted_out and unknown both
+ * block delivery, with no override, exactly as at candidate-creation time.
+ *
+ * The candidate's action_intent is completed ONLY after a confirmed send
+ * success — a failed send leaves it pending/retryable, never auto-dismissed.
+ */
+export async function deliverWhatsAppReminderAction(
+  intentId: string,
+  body: string,
+): Promise<ActionResult<{ delivered: boolean; intentId: string }>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+    const tenantCtx = { tenantId: ctx.tenantId }
+
+    const repo = new ClientRepository(db)
+
+    const intent = await repo.findActionIntentById(tenantCtx, intentId)
+    if (!intent) return { success: false, error: 'Reminder candidate not found.' }
+    if (intent.type !== 'whatsapp_reminder_candidate') {
+      return { success: false, error: 'This action is not a WhatsApp reminder candidate.' }
+    }
+    if (intent.status !== 'pending') {
+      return { success: false, error: 'This reminder candidate is no longer pending.' }
+    }
+
+    const client = await repo.findClientById(tenantCtx, intent.clientIndexId)
+    if (!client) return { success: false, error: 'Client profile not found.' }
+
+    if (!canSendAutomatedWhatsApp(client.whatsappConsentState)) {
+      return {
+        success: false,
+        error: isOptedOut(client.whatsappConsentState)
+          ? 'This client has opted out of WhatsApp — cannot send.'
+          : 'This client has not opted in to WhatsApp yet — cannot send.',
+      }
+    }
+
+    const sendResult = await sendMessage({
+      clientId:    client.erpCustomerId,
+      phone:       client.phoneE164,
+      body,
+      messageType: 'reminder',
+    })
+
+    if (!sendResult.success) {
+      // Send failed — leave the candidate pending/retryable. Do not complete/dismiss.
+      return { success: false, error: sendResult.error }
+    }
+
+    // Send confirmed — only now does the candidate resolve.
+    await repo.completeActionIntent(tenantCtx, intentId)
+
+    return { success: true, data: { delivered: true, intentId } }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to deliver WhatsApp reminder.',
     }
   }
 }
