@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Calendar,
   LayoutDashboard,
@@ -63,6 +63,15 @@ interface Props {
 export function DashboardClientShell({ children, banner }: Props) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // Close the account menu whenever the route changes — covers navigation that
+  // doesn't originate from clicking a link inside the menu itself (browser
+  // back/forward, a hard <a href> elsewhere such as ClientWorkspaceOverlay's
+  // "Open full profile" CTA, router.back(), etc.). Opening the menu does not
+  // change pathname, so this never fires on open — only on an actual route change.
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [pathname])
 
   const { data: session } = useSession()
   const userName  = session?.user?.name  ?? ''
