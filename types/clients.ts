@@ -110,6 +110,15 @@ export type ActionIntentType =
    * lib/clients/repository.ts's createWhatsAppReminderCandidate.
    */
   | 'whatsapp_reminder_candidate'
+  /**
+   * A suggestion to book the client's next session — never an auto-booking.
+   * Only created for an active client with prior session history and no
+   * currently-scheduled future session (see
+   * lib/scheduling/attendance.ts's hasSessionHistory/hasUpcomingSession).
+   * Completing this intent means the trainer booked a session elsewhere;
+   * dismissing means they reviewed and declined for now.
+   */
+  | 'missing_next_session'
 
 export type ClientActionIntentStatus =
   | 'pending'
@@ -301,6 +310,17 @@ export type ClientCreateResult = {
 export type ReminderCandidateResult =
   | { outcome: 'created'; intent: ClientActionIntent }
   | { outcome: 'blocked'; reason: 'opted_out' | 'consent_unknown' }
+  | { outcome: 'client_not_found' }
+
+/**
+ * Result of attempting to create a missing-next-session action intent.
+ * `already_pending` (not a duplicate create) is returned when one is already
+ * outstanding for this client — see
+ * ClientRepository.createMissingNextSessionCandidate.
+ */
+export type MissingNextSessionCandidateResult =
+  | { outcome: 'created'; intent: ClientActionIntent }
+  | { outcome: 'already_pending'; intent: ClientActionIntent }
   | { outcome: 'client_not_found' }
 
 // ─── Summary types (for Client Hub and Directory) ─────────────────────────────

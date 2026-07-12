@@ -67,3 +67,33 @@ export function getSessionOutcomeCounts(sessions: FDSession[]): SessionOutcomeCo
 
   return counts
 }
+
+// ─── Missing-next-session predicates ────────────────────────────────────────
+//
+// Labeled "US-038" by the batch that requested this; the canonical backlog's
+// actual US-038 is "Client Pulse" — this feature matches US-003/US-027's
+// "missing next sessions where data exists" acceptance criterion instead.
+// See docs/execution/us-038-missing-next-session-plan.md.
+
+/**
+ * True if the client has ANY FD Session row at all, regardless of status.
+ * Mirrors lib/dashboard/derive.ts's getMissingNextSessionAttentionItems
+ * exactly: a client with zero session history is excluded from this signal
+ * on purpose — that's the Add Client / first-booking loop's job, not this
+ * one's. Reused here, not redefined, so the persisted signal can never
+ * silently drift from the existing dashboard card's product decision.
+ */
+export function hasSessionHistory(sessions: FDSession[]): boolean {
+  return sessions.length > 0
+}
+
+/**
+ * True if the client has at least one scheduled/confirmed session starting
+ * strictly after `now`. Same criteria as getMissingNextSessionAttentionItems's
+ * clientIdsWithFutureSession set.
+ */
+export function hasUpcomingSession(sessions: FDSession[], now: Date = new Date()): boolean {
+  return sessions.some(
+    s => (s.status === 'scheduled' || s.status === 'confirmed') && s.startAt.getTime() > now.getTime(),
+  )
+}

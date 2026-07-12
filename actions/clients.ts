@@ -8,6 +8,8 @@ import { getTenantContext } from '@/lib/tenant/context'
 import { ClientRepository } from '@/lib/clients/repository'
 import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
 import { sendMessage } from '@/actions/messages'
+import { findSessionsForClient } from '@/lib/scheduling/sessionRepository'
+import { hasSessionHistory, hasUpcomingSession } from '@/lib/scheduling/attendance'
 import { buildClientCreateDraft } from '@/lib/clients/create-draft'
 import { findDuplicatesByPhone } from '@/lib/clients/duplicates'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
@@ -18,7 +20,7 @@ import { detectConflicts } from '@/lib/goals/conflicts'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
 import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
-import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
+import type { AddClientPrimaryGoal, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, MissingNextSessionCandidateResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
 import type { CreateClientPayload, UpdateClientPayload } from '@/lib/erpnext/types'
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -508,6 +510,67 @@ export async function deliverWhatsAppReminderAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to deliver WhatsApp reminder.',
+    }
+  }
+}
+
+/**
+ * Create a "missing next session" action-intent signal (labeled "US-038" by
+ * the batch that requested it — canonical US-038 is "Client Pulse"; this
+ * matches US-003/US-027's "missing next sessions where data exists"
+ * criterion instead; see docs/execution/us-038-missing-next-session-plan.md).
+ *
+ * Never auto-books anything — this only ever creates a reviewable suggestion
+ * the trainer must act on (book elsewhere, then complete this intent, or
+ * dismiss it) via the existing completeClientAction/dismissClientAction
+ * lifecycle. Uses a LIVE session query (findSessionsForClient), never the
+ * known-stale client_index.next_session_at_utc projection (never written in
+ * production — see ClientHubPanel.tsx's own comment on why it avoids that
+ * field too).
+ *
+ * `not_needed` covers two cases the caller should treat identically (no
+ * signal warranted): the client has never had a session booked (that's the
+ * Add Client / first-booking loop's job, not this one's), or the client
+ * already has a future scheduled/confirmed session.
+ */
+export async function createMissingNextSessionSignalAction(
+  clientIndexId: string,
+): Promise<ActionResult<
+  | MissingNextSessionCandidateResult
+  | { outcome: 'not_needed'; reason: 'no_session_history' | 'has_upcoming_session' }
+>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+    const tenantCtx = { tenantId: ctx.tenantId }
+
+    const repo = new ClientRepository(db)
+    const client = await repo.findClientById(tenantCtx, clientIndexId)
+    if (!client) return { success: false, error: 'Client profile not found.' }
+
+    const sessions = await findSessionsForClient(resolved.trainerId, client.erpCustomerId)
+
+    if (!hasSessionHistory(sessions)) {
+      return { success: true, data: { outcome: 'not_needed', reason: 'no_session_history' } }
+    }
+    if (hasUpcomingSession(sessions)) {
+      return { success: true, data: { outcome: 'not_needed', reason: 'has_upcoming_session' } }
+    }
+
+    const result = await repo.createMissingNextSessionCandidate(tenantCtx, clientIndexId)
+
+    if (result.outcome === 'created') {
+      revalidatePath(`/dashboard/clients/${encodeURIComponent(result.intent.erpCustomerId)}`)
+    }
+
+    return { success: true, data: result }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to create missing-next-session signal.',
     }
   }
 }

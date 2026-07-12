@@ -37,6 +37,7 @@ import type {
   GoalSource,
   GoalStatus,
   GoalUrgency,
+  MissingNextSessionCandidateResult,
   OnboardingState,
   PaymentSummary,
   ReminderCandidateResult,
@@ -906,6 +907,91 @@ export class ClientRepository {
         priority:       'normal',
         source:         'system',
         reason,
+        dueAtUtc:       null,
+        completedAtUtc: null,
+        dismissedAtUtc: null,
+        expiresAtUtc:   null,
+        createdAtUtc:   now,
+        updatedAtUtc:   now,
+      },
+    }
+  }
+
+  /**
+   * Create a "missing next session" action intent (labeled "US-038" by the
+   * batch that requested it; canonical US-038 is "Client Pulse" — this
+   * matches US-003/US-027's "missing next sessions where data exists"
+   * criterion instead; see docs/execution/us-038-missing-next-session-plan.md).
+   *
+   * This method is duplicate-prevention only — it does NOT decide whether a
+   * next-session signal is warranted. The caller (action layer) must fetch
+   * the client's FD Sessions and apply hasSessionHistory/hasUpcomingSession
+   * (lib/scheduling/attendance.ts) BEFORE calling this. If a pending
+   * `missing_next_session` intent already exists for this client, that
+   * existing intent is returned (`already_pending`) instead of creating a
+   * second one.
+   *
+   * Never auto-books anything — this only ever creates a reviewable
+   * suggestion the trainer must act on via the existing
+   * completeActionIntent/dismissActionIntent lifecycle.
+   */
+  async createMissingNextSessionCandidate(
+    ctx: TenantCtx,
+    clientIndexId: string,
+  ): Promise<MissingNextSessionCandidateResult> {
+    const tenantId = assertTenantId(ctx)
+
+    const clientRows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+      .limit(1)
+
+    const clientRow = clientRows[0]
+    if (!clientRow) return { outcome: 'client_not_found' }
+
+    const existingPending = await this.listPendingActions(ctx, clientIndexId)
+    const alreadyPending = existingPending.find(a => a.type === 'missing_next_session')
+    if (alreadyPending) return { outcome: 'already_pending', intent: alreadyPending }
+
+    const now = new Date().toISOString()
+    const intentId = crypto.randomUUID()
+
+    await this.db.insert(schema.clientActionIntent).values({
+      id:             intentId,
+      tenantId,
+      clientIndexId:  clientRow.id,
+      erpCustomerId:  clientRow.erpCustomerId,
+      type:           'missing_next_session',
+      status:         'pending',
+      priority:       'normal',
+      source:         'system',
+      reason:         'No upcoming session booked',
+      dueAtUtc:       null,
+      completedAtUtc: null,
+      dismissedAtUtc: null,
+      expiresAtUtc:   null,
+      createdAtUtc:   now,
+      updatedAtUtc:   now,
+    })
+
+    return {
+      outcome: 'created',
+      intent: {
+        id:             intentId,
+        tenantId,
+        clientIndexId:  clientRow.id,
+        erpCustomerId:  clientRow.erpCustomerId,
+        type:           'missing_next_session',
+        status:         'pending',
+        priority:       'normal',
+        source:         'system',
+        reason:         'No upcoming session booked',
         dueAtUtc:       null,
         completedAtUtc: null,
         dismissedAtUtc: null,

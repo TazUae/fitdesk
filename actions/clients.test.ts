@@ -71,8 +71,17 @@ vi.mock('@/lib/log', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction } from '@/actions/clients'
+// "US-038" (per the batch label) — createMissingNextSessionSignalAction reads
+// live FD Sessions via findSessionsForClient. Mocked so tests control the
+// exact session list without a real ERP fetch.
+vi.mock('@/lib/scheduling/sessionRepository', () => ({
+  findSessionsForClient: vi.fn(),
+}))
+
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction, deliverWhatsAppReminderAction, createMissingNextSessionSignalAction } from '@/actions/clients'
 import * as evolution from '@/lib/evolution'
+import * as schedulingRepo from '@/lib/scheduling/sessionRepository'
+import type { FDSession } from '@/types/scheduling'
 
 const CLIENTS_ACTION_SRC = readFileSync(join(__dirname, 'clients.ts'), 'utf-8')
 import * as erp from '@/lib/business-data/erp-adapter'
@@ -1530,6 +1539,159 @@ describe('deliverWhatsAppReminderAction (US-048)', () => {
     expect(erp.createInvoice).not.toHaveBeenCalled()
     expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
     expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('createMissingNextSessionSignalAction ("US-038" per the batch label)', () => {
+  function fdSession(overrides: Partial<FDSession> = {}): FDSession {
+    return {
+      id:                     'fds-001',
+      tenantId:               '',
+      trainerId:              'trainer-1',
+      clientId:               'CUST-100',
+      clientName:             'Test Client',
+      seriesId:               null,
+      startAt:                new Date('2026-01-05T09:00:00Z'),
+      endAt:                  new Date('2026-01-05T10:00:00Z'),
+      durationMinutes:        60,
+      timezone:               'UTC',
+      status:                 'completed',
+      occurrenceKey:          null,
+      occurrenceIndex:        null,
+      isOverride:             false,
+      rate:                   100,
+      sessionType:            null,
+      notes:                  null,
+      invoiceId:              null,
+      version:                1,
+      isTrialSession:         false,
+      sessionConsumedPackage: false,
+      ...overrides,
+    }
+  }
+
+  async function seedClient(): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  beforeEach(() => {
+    vi.mocked(schedulingRepo.findSessionsForClient).mockReset()
+  })
+
+  it('a client with session history and no upcoming session gets a pending action intent', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.outcome).toBe('created')
+    expect(await count('client_action_intent', `type = 'missing_next_session' AND status = 'pending'`)).toBe(1)
+  })
+
+  it('a client with a future scheduled session does not get a signal — not_needed', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'scheduled', startAt: new Date(Date.now() + 7 * 86_400_000) }),
+    ])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'not_needed', reason: 'has_upcoming_session' })
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(0)
+  })
+
+  it('a brand-new client with zero session history does not get a signal — that is Add Client\'s job, not this one\'s', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([])
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'not_needed', reason: 'no_session_history' })
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(0)
+  })
+
+  it('duplicate prevention: calling it twice for the same client only ever creates one pending intent', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+    const second = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(second.success).toBe(true)
+    if (second.success) expect(second.data.outcome).toBe('already_pending')
+    expect(await count('client_action_intent', `type = 'missing_next_session'`)).toBe(1)
+  })
+
+  it('never auto-books — does not call bookSession/createSession/any booking function', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(erp.createSession).not.toHaveBeenCalled()
+  })
+
+  it('does not send any WhatsApp message', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(evolution.sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not create or submit an invoice, or record a payment', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(schedulingRepo.findSessionsForClient).mockResolvedValue([
+      fdSession({ status: 'completed', startAt: new Date('2026-01-01T09:00:00Z') }),
+    ])
+
+    await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(erp.createInvoice).not.toHaveBeenCalled()
+    expect(erp.submitSalesInvoice).not.toHaveBeenCalled()
+    expect(erp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('tenant isolation: tenant A cannot create a signal for tenant B\'s client', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(false)
+  })
+
+  it('returns success:false when not authenticated', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await createMissingNextSessionSignalAction(clientIndexId)
+
+    expect(result.success).toBe(false)
   })
 })
 

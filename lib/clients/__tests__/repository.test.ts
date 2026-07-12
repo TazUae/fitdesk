@@ -794,6 +794,68 @@ describe('createWhatsAppReminderCandidate (US-050)', () => {
   })
 })
 
+describe('createMissingNextSessionCandidate ("US-038" per the batch label)', () => {
+  it('creates a pending missing_next_session intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.intent.type).toBe('missing_next_session')
+    expect(result.intent.status).toBe('pending')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some(a => a.type === 'missing_next_session')).toBe(true)
+  })
+
+  it('duplicate prevention: a second call for the same client returns already_pending, not a second intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    const second = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(second.outcome).toBe('already_pending')
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.filter(a => a.type === 'missing_next_session')).toHaveLength(1)
+  })
+
+  it('a new candidate can be created again after the prior one is completed or dismissed', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    const first = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+    if (first.outcome !== 'created') throw new Error('expected created')
+    await repo.completeActionIntent({ tenantId: TENANT_A }, first.intent.id)
+
+    const second = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(second.outcome).toBe('created')
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, 'nonexistent-id')
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot create a candidate for tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+
+    const result = await repo.createMissingNextSessionCandidate({ tenantId: TENANT_A }, created.clientIndex.id)
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(pending.some(a => a.type === 'missing_next_session')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.createMissingNextSessionCandidate({ tenantId: '' }, 'some-id'),
+    ).rejects.toThrow()
+  })
+})
+
 describe('setClientNextSessionAtUtc', () => {
   it('updates nextSessionAtUtc and updatedAtUtc only', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)

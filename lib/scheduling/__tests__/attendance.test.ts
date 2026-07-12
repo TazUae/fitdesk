@@ -4,7 +4,7 @@
  * Pure function — no I/O, no mocks needed.
  */
 import { describe, it, expect } from 'vitest'
-import { getSessionOutcomeCounts } from '@/lib/scheduling/attendance'
+import { getSessionOutcomeCounts, hasSessionHistory, hasUpcomingSession } from '@/lib/scheduling/attendance'
 import type { FDSession, FDSessionStatus } from '@/types/scheduling'
 
 function makeSession(overrides: Partial<FDSession> = {}): FDSession {
@@ -175,5 +175,53 @@ describe('getSessionOutcomeCounts — no side effects', () => {
     const snapshot = JSON.stringify(sessions)
     getSessionOutcomeCounts(sessions)
     expect(JSON.stringify(sessions)).toBe(snapshot)
+  })
+})
+
+// ─── hasSessionHistory / hasUpcomingSession ("US-038" per the batch label) ────
+
+describe('hasSessionHistory', () => {
+  it('returns false for an empty session list — a brand new client', () => {
+    expect(hasSessionHistory([])).toBe(false)
+  })
+
+  it('returns true when any session row exists, regardless of status', () => {
+    expect(hasSessionHistory([makeSession({ status: 'cancelled' })])).toBe(true)
+    expect(hasSessionHistory([makeSession({ status: 'scheduled' })])).toBe(true)
+  })
+})
+
+describe('hasUpcomingSession', () => {
+  const NOW = new Date('2026-06-15T12:00:00Z')
+
+  it('returns false when there are no sessions at all', () => {
+    expect(hasUpcomingSession([], NOW)).toBe(false)
+  })
+
+  it('returns false when all sessions are in the past', () => {
+    const sessions = [makeSession({ status: 'completed', startAt: new Date('2026-06-01T09:00:00Z') })]
+    expect(hasUpcomingSession(sessions, NOW)).toBe(false)
+  })
+
+  it('returns true for a future scheduled session', () => {
+    const sessions = [makeSession({ status: 'scheduled', startAt: new Date('2026-06-20T09:00:00Z') })]
+    expect(hasUpcomingSession(sessions, NOW)).toBe(true)
+  })
+
+  it('returns true for a future confirmed session', () => {
+    const sessions = [makeSession({ status: 'confirmed', startAt: new Date('2026-06-20T09:00:00Z') })]
+    expect(hasUpcomingSession(sessions, NOW)).toBe(true)
+  })
+
+  it('returns false for a future session that is cancelled/completed/no_show/skipped — only scheduled/confirmed count', () => {
+    for (const status of ['cancelled', 'completed', 'no_show', 'skipped'] as const) {
+      const sessions = [makeSession({ status, startAt: new Date('2026-06-20T09:00:00Z') })]
+      expect(hasUpcomingSession(sessions, NOW)).toBe(false)
+    }
+  })
+
+  it('defaults to the real current time when now is omitted', () => {
+    const farFuture = [makeSession({ status: 'scheduled', startAt: new Date(Date.now() + 86_400_000) })]
+    expect(hasUpcomingSession(farFuture)).toBe(true)
   })
 })
