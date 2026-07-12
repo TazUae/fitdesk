@@ -639,6 +639,127 @@ describe('setWhatsAppConsent', () => {
   })
 })
 
+describe('createWhatsAppReminderCandidate (US-050)', () => {
+  it('blocks and creates no intent for opted_out — no override', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_out')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'blocked', reason: 'opted_out' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('blocks and creates no intent for unknown consent — never treated as auto-send permission', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    // baseDraft has no consent override — defaults to 'unknown'.
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'blocked', reason: 'consent_unknown' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('creates a pending candidate for opted_in — trainer-approved suggestion, not sent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.intent.type).toBe('whatsapp_reminder_candidate')
+    expect(result.intent.status).toBe('pending')
+    expect(result.intent.reason).toBe('package running low')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    const candidate = pending.find((a) => a.type === 'whatsapp_reminder_candidate')
+    expect(candidate).toBeTruthy()
+    expect(candidate?.status).toBe('pending')
+  })
+
+  it('candidate requires trainer approval — completing it transitions out of pending, same as any other action intent', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+    if (result.outcome !== 'created') throw new Error('expected created')
+
+    const completed = await repo.completeActionIntent({ tenantId: TENANT_A }, result.intent.id)
+    expect(completed?.status).toBe('completed')
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(pending.some((a) => a.id === result.intent.id)).toBe(false)
+  })
+
+  it('candidate can be dismissed by the trainer instead of approved', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+    await repo.setWhatsAppConsent({ tenantId: TENANT_A }, ERP_ID_1, 'opted_in')
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+    if (result.outcome !== 'created') throw new Error('expected created')
+
+    const dismissed = await repo.dismissActionIntent({ tenantId: TENANT_A }, result.intent.id)
+    expect(dismissed?.status).toBe('dismissed')
+  })
+
+  it('returns client_not_found for a non-existent clientIndexId', async () => {
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      'nonexistent-client-index-id',
+      'package running low',
+    )
+    expect(result).toEqual({ outcome: 'client_not_found' })
+  })
+
+  it('tenant isolation: tenant A cannot create a candidate for tenant B\'s client', async () => {
+    const created = await repo.createClientRow(
+      { tenantId: TENANT_B },
+      { ...baseDraft, tenantId: TENANT_B },
+    )
+    await repo.setWhatsAppConsent({ tenantId: TENANT_B }, ERP_ID_1, 'opted_in')
+
+    const result = await repo.createWhatsAppReminderCandidate(
+      { tenantId: TENANT_A },
+      created.clientIndex.id,
+      'package running low',
+    )
+
+    expect(result).toEqual({ outcome: 'client_not_found' })
+
+    const pending = await repo.listPendingActions({ tenantId: TENANT_B }, created.clientIndex.id)
+    expect(pending.some((a) => a.type === 'whatsapp_reminder_candidate')).toBe(false)
+  })
+
+  it('throws when tenantId is blank — fails closed before any query', async () => {
+    await expect(
+      repo.createWhatsAppReminderCandidate({ tenantId: '' }, 'some-id', 'reason'),
+    ).rejects.toThrow()
+  })
+})
+
 describe('setClientNextSessionAtUtc', () => {
   it('updates nextSessionAtUtc and updatedAtUtc only', async () => {
     const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)

@@ -102,6 +102,14 @@ export type ActionIntentType =
   | 'setup_billing'
   | 'create_program'
   | 'review_safety_note'
+  /**
+   * US-050 — a trainer-approved suggestion to send a WhatsApp reminder.
+   * Suggestion only, never auto-sent: completing this intent means the
+   * trainer reviewed and sent it manually (elsewhere); dismissing means
+   * they declined. Only ever created for opted_in clients — see
+   * lib/clients/repository.ts's createWhatsAppReminderCandidate.
+   */
+  | 'whatsapp_reminder_candidate'
 
 export type ClientActionIntentStatus =
   | 'pending'
@@ -283,6 +291,17 @@ export type ClientCreateResult = {
   actions: ClientActionIntent[]
   event: ClientEvent
 }
+
+/**
+ * Result of attempting to create a WhatsApp reminder candidate (US-050).
+ * Consent-gated — see ClientRepository.createWhatsAppReminderCandidate.
+ * Distinguishes the two block reasons because the UI should say something
+ * different for each ("this client opted out" vs "ask for consent first").
+ */
+export type ReminderCandidateResult =
+  | { outcome: 'created'; intent: ClientActionIntent }
+  | { outcome: 'blocked'; reason: 'opted_out' | 'consent_unknown' }
+  | { outcome: 'client_not_found' }
 
 // ─── Summary types (for Client Hub and Directory) ─────────────────────────────
 

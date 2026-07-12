@@ -25,12 +25,13 @@ import type { ActionIntentType } from '@/types/clients'
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
 const INTENT_LABELS: Record<ActionIntentType, string> = {
-  send_whatsapp_welcome: 'Send WhatsApp welcome',
-  send_intake_form:      'Send intake form',
-  book_first_session:    'Book first session',
-  setup_billing:         'Set up billing',
-  create_program:        'Create program',
-  review_safety_note:    'Review safety note',
+  send_whatsapp_welcome:      'Send WhatsApp welcome',
+  send_intake_form:           'Send intake form',
+  book_first_session:         'Book first session',
+  setup_billing:              'Set up billing',
+  create_program:             'Create program',
+  review_safety_note:         'Review safety note',
+  whatsapp_reminder_candidate: 'WhatsApp reminder suggested',
 }
 
 const EVENT_LABELS: Record<string, string> = {

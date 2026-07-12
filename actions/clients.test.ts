@@ -9,7 +9,7 @@
 
 import { createClient as createLibsqlClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -56,7 +56,9 @@ vi.mock('@/lib/clients/ai-parse', () => ({
   })),
 }))
 
-import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction } from '@/actions/clients'
+import { addClient, completeClientAction, dismissClientAction, findClientDuplicates, parseClientDetails, syncClientBillingMode, setWhatsAppConsentAction, createWhatsAppReminderCandidateAction } from '@/actions/clients'
+
+const CLIENTS_ACTION_SRC = readFileSync(join(__dirname, 'clients.ts'), 'utf-8')
 import * as erp from '@/lib/business-data/erp-adapter'
 import * as erpNext from '@/lib/erpnext/client'
 import * as aiParse from '@/lib/clients/ai-parse'
@@ -1233,5 +1235,116 @@ describe('setWhatsAppConsentAction (US-059)', () => {
       `SELECT whatsapp_consent_state FROM client_index WHERE erp_customer_id = 'CUST-100'`,
     )
     expect(rows[0].whatsapp_consent_state).toBe('unknown')
+  })
+})
+
+describe('createWhatsAppReminderCandidateAction (US-050)', () => {
+  async function seedClient(payload: Parameters<typeof addClient>[0] = PAYLOAD): Promise<string> {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await addClient(payload)
+    expect(result.success).toBe(true)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    return rows[0].id as string
+  }
+
+  it('blocks and creates no candidate for opted_out — no override', async () => {
+    const clientIndexId = await seedClient()
+    await setWhatsAppConsentAction('CUST-100', 'opted_out')
+
+    const result = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'blocked', reason: 'opted_out' })
+    expect(await count('client_action_intent', `type = 'whatsapp_reminder_candidate'`)).toBe(0)
+  })
+
+  it('blocks and creates no candidate for unknown consent — not treated as auto-send permission', async () => {
+    const clientIndexId = await seedClient()
+
+    const result = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'blocked', reason: 'consent_unknown' })
+    expect(await count('client_action_intent', `type = 'whatsapp_reminder_candidate'`)).toBe(0)
+  })
+
+  it('creates a pending candidate for opted_in — a trainer-approved suggestion, never sent', async () => {
+    const clientIndexId = await seedClient()
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+
+    const result = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.intent.status).toBe('pending')
+      expect(result.data.intent.type).toBe('whatsapp_reminder_candidate')
+    } else {
+      throw new Error('expected outcome: created')
+    }
+    expect(await count('client_action_intent', `type = 'whatsapp_reminder_candidate' AND status = 'pending'`)).toBe(1)
+  })
+
+  it('candidate requires trainer approval — completeClientAction transitions it out of pending', async () => {
+    const clientIndexId = await seedClient()
+    await setWhatsAppConsentAction('CUST-100', 'opted_in')
+    const created = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+    if (!created.success || created.data.outcome !== 'created') throw new Error('expected created')
+
+    const completed = await completeClientAction(created.data.intent.id)
+    expect(completed.success).toBe(true)
+    expect(await count('client_action_intent', `type = 'whatsapp_reminder_candidate' AND status = 'pending'`)).toBe(0)
+  })
+
+  it('returns success:false when not authenticated — never creates a candidate', async () => {
+    const clientIndexId = await seedClient()
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as never)
+
+    const result = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+
+    expect(result.success).toBe(false)
+    expect(await count('client_action_intent', `type = 'whatsapp_reminder_candidate'`)).toBe(0)
+  })
+
+  it('tenant isolation: tenant A cannot create a candidate for a client belonging to tenant B', async () => {
+    vi.mocked(erp.createClient).mockResolvedValue(erpClient())
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx('tenant-b'))
+    await addClient(PAYLOAD)
+    const { rows } = await dbClient.execute(
+      `SELECT id FROM client_index WHERE erp_customer_id = 'CUST-100'`,
+    )
+    const clientIndexId = rows[0].id as string
+
+    vi.mocked(getTenantContext).mockResolvedValue(tenantCtx(TENANT_A))
+    const result = await createWhatsAppReminderCandidateAction(clientIndexId, 'package running low')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toEqual({ outcome: 'client_not_found' })
+  })
+})
+
+// ─── Source invariants — no WhatsApp send capability in actions/clients.ts ─────
+
+describe('actions/clients.ts source — reminder candidates never send WhatsApp (US-050)', () => {
+  it('does not import or call any WhatsApp/Evolution send function', () => {
+    expect(CLIENTS_ACTION_SRC).not.toContain('sendWhatsAppMessage')
+    expect(CLIENTS_ACTION_SRC).not.toContain('lib/evolution')
+  })
+
+  it('does not write to message_log', () => {
+    // Checks actual usage, not prose — this file's own doc comments describe
+    // what createWhatsAppReminderCandidateAction does NOT do, which legitimately
+    // mentions "message_log" descriptively without ever importing/inserting into it.
+    expect(CLIENTS_ACTION_SRC).not.toContain('schema.messageLog')
+    expect(CLIENTS_ACTION_SRC).not.toContain("from '@/lib/db/schema'")
+  })
+
+  it('does not create or submit an invoice, and does not consume a package', () => {
+    expect(CLIENTS_ACTION_SRC).not.toContain('createInvoice')
+    expect(CLIENTS_ACTION_SRC).not.toContain('submitSalesInvoice')
+    expect(CLIENTS_ACTION_SRC).not.toContain('consumeForSession')
+    expect(CLIENTS_ACTION_SRC).not.toContain('PackageConsumptionService')
   })
 })

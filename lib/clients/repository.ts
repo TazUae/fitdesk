@@ -18,6 +18,7 @@ import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
 import { computeSafetyFlags } from '@/lib/goals/safety'
+import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
 import { isIntakeGoalId } from '@/lib/goals/taxonomy'
 import type {
   ActionIntentPriority,
@@ -38,6 +39,7 @@ import type {
   GoalUrgency,
   OnboardingState,
   PaymentSummary,
+  ReminderCandidateResult,
   SafetyState,
   SelectedGoalDraft,
   WhatsAppConsentState,
@@ -790,6 +792,103 @@ export class ClientRepository {
     })
 
     return result
+  }
+
+  /**
+   * Create a trainer-approved WhatsApp reminder candidate (US-050) —
+   * suggestion/approval infrastructure only, never an automatic send. Never
+   * calls Evolution API, never writes message_log, never sends anything.
+   *
+   * Consent-gated using the same canSendAutomatedWhatsApp predicate US-059
+   * uses everywhere else, so this can never drift from the rest of the
+   * app's consent enforcement:
+   *   - opted_out  -> blocked, no intent created, no override.
+   *   - unknown    -> blocked ("unknown blocks reminder generation" — see
+   *                   CLAUDE.md's WhatsApp Consent States, tier-1 authority).
+   *                   A future "Send Initial Opt-In Request" action is a
+   *                   different intent type, not this one.
+   *   - opted_in   -> a pending client_action_intent row is created for the
+   *                   trainer to review and act on via the EXISTING
+   *                   completeActionIntent/dismissActionIntent lifecycle —
+   *                   no new approval mechanism.
+   *
+   * `reason` is caller-supplied free text (e.g. why this reminder is being
+   * suggested) — this method does not decide WHEN to suggest a reminder,
+   * only whether consent allows creating the candidate. See
+   * docs/execution/us-050-reminder-candidates-plan.md for why no automatic
+   * trigger (e.g. low package balance) is wired in here.
+   */
+  async createWhatsAppReminderCandidate(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    reason: string,
+  ): Promise<ReminderCandidateResult> {
+    const tenantId = assertTenantId(ctx)
+
+    const rows = await this.db
+      .select()
+      .from(schema.clientIndex)
+      .where(
+        and(
+          eq(schema.clientIndex.tenantId, tenantId),
+          eq(schema.clientIndex.id, clientIndexId),
+        ),
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) return { outcome: 'client_not_found' }
+
+    const consentState = row.whatsappConsentState as WhatsAppConsentState
+
+    if (!canSendAutomatedWhatsApp(consentState)) {
+      return {
+        outcome: 'blocked',
+        reason:  isOptedOut(consentState) ? 'opted_out' : 'consent_unknown',
+      }
+    }
+
+    const now = new Date().toISOString()
+    const intentId = crypto.randomUUID()
+
+    await this.db.insert(schema.clientActionIntent).values({
+      id:             intentId,
+      tenantId,
+      clientIndexId:  row.id,
+      erpCustomerId:  row.erpCustomerId,
+      type:           'whatsapp_reminder_candidate',
+      status:         'pending',
+      priority:       'normal',
+      source:         'system',
+      reason,
+      dueAtUtc:       null,
+      completedAtUtc: null,
+      dismissedAtUtc: null,
+      expiresAtUtc:   null,
+      createdAtUtc:   now,
+      updatedAtUtc:   now,
+    })
+
+    return {
+      outcome: 'created',
+      intent: {
+        id:             intentId,
+        tenantId,
+        clientIndexId:  row.id,
+        erpCustomerId:  row.erpCustomerId,
+        type:           'whatsapp_reminder_candidate',
+        status:         'pending',
+        priority:       'normal',
+        source:         'system',
+        reason,
+        dueAtUtc:       null,
+        completedAtUtc: null,
+        dismissedAtUtc: null,
+        expiresAtUtc:   null,
+        createdAtUtc:   now,
+        updatedAtUtc:   now,
+      },
+    }
   }
 
   /**
