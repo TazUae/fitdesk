@@ -1,11 +1,12 @@
 import type { GoalSection, IntakeGoalId } from '@/lib/goals/taxonomy'
-import type { GoalUrgency } from '@/types/clients'
+import type { GoalUrgency, SelectedGoalDraft } from '@/types/clients'
 
 export interface SelectedGoalConfig {
   goalId:            IntakeGoalId
   primarySubGoalIds: string[]
   trainerSubGoalIds: string[]
   urgency:           GoalUrgency
+  notes:             string | null
 }
 
 export interface GoalSelectionState {
@@ -30,7 +31,7 @@ export function addGoal(state: GoalSelectionState, goalId: IntakeGoalId): GoalSe
     ...state,
     selected: [
       ...state.selected,
-      { goalId, primarySubGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus' },
+      { goalId, primarySubGoalIds: [], trainerSubGoalIds: [], urgency: 'active_focus', notes: null },
     ],
   }
 }
@@ -100,6 +101,22 @@ export function setGoalUrgency(
   }
 }
 
+export function setGoalNotes(
+  state:   GoalSelectionState,
+  goalId:  IntakeGoalId,
+  notes:   string | null,
+): GoalSelectionState {
+  return {
+    ...state,
+    selected: state.selected.map(s => {
+      if (s.goalId !== goalId) return s
+      // Trim and clear whitespace-only strings to null (binding domain rule D8)
+      const trimmed = typeof notes === 'string' ? notes.trim() : null
+      return { ...s, notes: trimmed || null }
+    }),
+  }
+}
+
 // ─── Section-level progressive disclosure (Phase 9C) ──────────────────────────
 //
 // Core goals render eagerly; Specialist and Emerging are collapsed behind an
@@ -118,4 +135,21 @@ export function toggleSectionExpansion(
   section: GoalSection,
 ): SectionExpansionState {
   return { ...state, [section]: !state[section] }
+}
+
+// ─── Mapping to SelectedGoalDraft (Phase 1) ───────────────────────────────────
+//
+// Pure mapper: GoalSelectionState → SelectedGoalDraft[] for server action.
+// Mirrors the GoalWorkspace/selectors.ts toSelectedGoalDrafts contract so both
+// selector paths emit an equivalent SelectedGoalDraft[] (binding domain rule D4).
+
+export function toSelectedGoalDrafts(state: GoalSelectionState): SelectedGoalDraft[] {
+  return state.selected.map(config => ({
+    goalId:             config.goalId,
+    isPrimary:          state.primaryGoalId === config.goalId,
+    urgency:            config.urgency,
+    clientSubGoalIds:   config.primarySubGoalIds,
+    trainerSubGoalIds:  config.trainerSubGoalIds,
+    trainerNotes:       config.notes,
+  }))
 }

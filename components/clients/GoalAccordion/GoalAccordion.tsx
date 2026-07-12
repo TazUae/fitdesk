@@ -12,6 +12,7 @@ import {
   togglePrimarySubGoal,
   toggleTrainerSubGoal,
   setGoalUrgency,
+  setGoalNotes,
   defaultSectionExpansion,
   toggleSectionExpansion,
   type GoalAccordionProps,
@@ -301,6 +302,25 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                         )
                       })}
                     </div>
+                  </div>
+
+                  {/* Per-goal trainer notes (Phase 1) */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
+                      Trainer notes
+                    </label>
+                    <textarea
+                      placeholder="Add optional notes for this goal..."
+                      value={config.notes ?? ''}
+                      onChange={e => onChange(setGoalNotes(value, goal.id, e.target.value || null))}
+                      className="w-full rounded-lg border px-3 py-2 text-xs resize-none font-normal"
+                      style={{
+                        borderColor: 'var(--fd-border)',
+                        backgroundColor: 'var(--fd-surface)',
+                        color: 'var(--fd-text)',
+                      }}
+                      rows={2}
+                    />
                   </div>
 
                 </div>
