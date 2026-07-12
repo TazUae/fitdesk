@@ -1231,3 +1231,196 @@ describe('US-025 createClientRow — server ctx governs tenant (payload cannot c
     expect(await repo.findClientById({ tenantId: TENANT_B }, result.clientIndex.id)).toBeNull()
   })
 })
+
+// ─── Phase 3: replaceClientGoals ──────────────────────────────────────────
+
+describe('replaceClientGoals — atomic transaction, strict validation, archive semantics', () => {
+  it('replaces the complete active goal set and returns erpCustomerId', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, {
+      ...baseDraft,
+      goalId: 'fat-loss',
+    })
+
+    const newGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: true,
+        urgency: 'urgent',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: 'Focus on compound moves',
+        confidence: 'high',
+        source: 'trainer_manual',
+      },
+      {
+        goalId: 'cardio',
+        isPrimary: false,
+        urgency: 'background',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: null,
+        confidence: 'medium',
+        source: 'trainer_manual',
+      },
+    ]
+
+    const result = await repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, newGoals)
+    expect(result.erpCustomerId).toBe(created.clientIndex.erpCustomerId)
+
+    // Verify old goal is archived, new goals are active
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals).toHaveLength(2)
+    expect(goals.map(g => g.goalId)).toEqual(['strength', 'cardio'])
+    expect(goals.find(g => g.goalId === 'strength')?.isPrimary).toBe(true)
+    expect(goals.find(g => g.goalId === 'cardio')?.isPrimary).toBe(false)
+  })
+
+  it('rejects unknown goalId (strict validation)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const invalidGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'nonexistent-goal',
+        isPrimary: true,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: null,
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    await expect(
+      repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, invalidGoals),
+    ).rejects.toThrow('unknown_goal_id')
+  })
+
+  it('rejects omitted trainerNotes property (D8)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const invalidGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: true,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: undefined as any,
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    await expect(
+      repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, invalidGoals),
+    ).rejects.toThrow('missing_trainer_notes_property')
+  })
+
+  it('allows zero active goals (D7)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const result = await repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, [])
+
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals).toHaveLength(0)
+
+    // Verify index primary fields are null
+    const client = await repo.findClientById({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(client?.primaryGoalId).toBeNull()
+    expect(client?.primaryGoalLabel).toBeNull()
+  })
+
+  it('enforces exactly-one-primary when goals nonempty (D7)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const noPrimaryGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: false,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: null,
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    await expect(
+      repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, noPrimaryGoals),
+    ).rejects.toThrow('primary_invariant_violated')
+  })
+
+  it('trims and stores notes; clears blank/null (D8)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const goalsWithNotes: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: true,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: '  Trimmed note  ',
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    await repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, goalsWithNotes)
+
+    const goals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(goals[0].notes).toBe('Trimmed note')
+  })
+
+  it('archives goals absent from desired set', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, {
+      ...baseDraft,
+      goalId: 'fat-loss',
+    })
+
+    // Replace with a different goal
+    const newGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: true,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: null,
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    await repo.replaceClientGoals({ tenantId: TENANT_A }, created.clientIndex.id, newGoals)
+
+    // Verify that old goal is gone from active list and new goals are present
+    const activeGoals = await repo.listGoals({ tenantId: TENANT_A }, created.clientIndex.id)
+    expect(activeGoals.map(g => g.goalId)).toEqual(['strength'])
+    expect(activeGoals[0].goalId).toBe('strength')
+  })
+
+  it('cross-tenant access rejected (fail-closed)', async () => {
+    const created = await repo.createClientRow({ tenantId: TENANT_A }, baseDraft)
+
+    const newGoals: SelectedGoalDraft[] = [
+      {
+        goalId: 'strength',
+        isPrimary: true,
+        urgency: 'active_focus',
+        clientSubGoalIds: [],
+        trainerSubGoalIds: [],
+        trainerNotes: null,
+        confidence: 'unknown',
+        source: 'trainer_manual',
+      },
+    ]
+
+    // TENANT_B tries to modify TENANT_A's client
+    await expect(
+      repo.replaceClientGoals({ tenantId: TENANT_B }, created.clientIndex.id, newGoals),
+    ).rejects.toThrow('client_not_found')
+  })
+})

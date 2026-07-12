@@ -736,3 +736,37 @@ export async function dismissClientAction(
     }
   }
 }
+
+// ─── Phase 3: Goal update action ──────────────────────────────────────────
+
+/**
+ * Replace the complete active goal set for a client.
+ * Strict validation, atomic transaction, trusted revalidation identity (D9).
+ * No ERP call; local-only mutation.
+ */
+export async function updateClientGoalsAction(
+  clientIndexId: string,
+  goals: SelectedGoalDraft[],
+): Promise<ActionResult<void>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.replaceClientGoals(ctx, clientIndexId, goals)
+
+    // Revalidate using the repository-returned tenant-verified erpCustomerId (Decision D9)
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(result.erpCustomerId)}`)
+
+    return { success: true, data: undefined }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update goals.'
+    return {
+      success: false,
+      error: message,
+    }
+  }
+}
