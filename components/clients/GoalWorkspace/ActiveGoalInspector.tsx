@@ -2,6 +2,7 @@
 
 import * as RadioGroup from '@radix-ui/react-radio-group'
 import * as ToggleGroup from '@radix-ui/react-toggle-group'
+import { Check } from 'lucide-react'
 import { GOALS, getSubGoals } from '@/lib/goals/taxonomy'
 import type { IntakeGoalId } from '@/lib/goals/taxonomy'
 import { TrainerNotesTextarea } from './TrainerNotesTextarea'
@@ -20,6 +21,17 @@ const URGENCY_OPTIONS = [
   { value: 'background'   as const, label: 'Background'   },
 ]
 
+// Reserves the check icon's width whether or not it's shown, so toggling
+// selection never shifts surrounding layout.
+function ChipCheck({ selected }: { selected: boolean }) {
+  return (
+    <Check
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 shrink-0 transition-opacity ${selected ? 'opacity-100' : 'opacity-0'}`}
+    />
+  )
+}
+
 interface ActiveGoalInspectorProps {
   goalId:   IntakeGoalId
   state:    GoalWorkspaceState
@@ -36,8 +48,9 @@ export function ActiveGoalInspector({ goalId, state, dispatch }: ActiveGoalInspe
   const trainerSubGoals = getSubGoals(goalId, 'secondary')
 
   const activeChipClass =
-    'rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.96] ' +
-    'data-[state=on]:border-[var(--fd-green)] data-[state=on]:text-[var(--fd-green)] data-[state=on]:bg-[rgba(78,203,160,0.12)]'
+    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.96] ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fd-accent)] ' +
+    'data-[state=on]:border-[var(--fd-green)] data-[state=on]:text-[var(--fd-green)] data-[state=on]:bg-[rgba(78,203,160,0.12)] data-[state=on]:font-semibold'
 
   return (
     <div
@@ -147,16 +160,20 @@ export function ActiveGoalInspector({ goalId, state, dispatch }: ActiveGoalInspe
             aria-label={`Client focus for ${goal.label}`}
             className="flex flex-wrap gap-1.5"
           >
-            {clientSubGoals.map(sg => (
-              <ToggleGroup.Item
-                key={sg.id}
-                value={sg.id}
-                className={activeChipClass}
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)', backgroundColor: 'var(--fd-surface)' }}
-              >
-                {sg.label}
-              </ToggleGroup.Item>
-            ))}
+            {clientSubGoals.map(sg => {
+              const isSelected = data.clientSubGoalIds.includes(sg.id)
+              return (
+                <ToggleGroup.Item
+                  key={sg.id}
+                  value={sg.id}
+                  className={activeChipClass}
+                  style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)', backgroundColor: 'var(--fd-surface)' }}
+                >
+                  <ChipCheck selected={isSelected} />
+                  {sg.label}
+                </ToggleGroup.Item>
+              )
+            })}
           </ToggleGroup.Root>
         </div>
       )}
@@ -174,16 +191,20 @@ export function ActiveGoalInspector({ goalId, state, dispatch }: ActiveGoalInspe
             aria-label={`Trainer assessment for ${goal.label}`}
             className="flex flex-wrap gap-1.5"
           >
-            {trainerSubGoals.map(sg => (
-              <ToggleGroup.Item
-                key={sg.id}
-                value={sg.id}
-                className={activeChipClass}
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)', backgroundColor: 'var(--fd-surface)' }}
-              >
-                {sg.label}
-              </ToggleGroup.Item>
-            ))}
+            {trainerSubGoals.map(sg => {
+              const isSelected = data.trainerSubGoalIds.includes(sg.id)
+              return (
+                <ToggleGroup.Item
+                  key={sg.id}
+                  value={sg.id}
+                  className={activeChipClass}
+                  style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)', backgroundColor: 'var(--fd-surface)' }}
+                >
+                  <ChipCheck selected={isSelected} />
+                  {sg.label}
+                </ToggleGroup.Item>
+              )
+            })}
           </ToggleGroup.Root>
         </div>
       )}
@@ -191,7 +212,7 @@ export function ActiveGoalInspector({ goalId, state, dispatch }: ActiveGoalInspe
       {/* Trainer notes */}
       <div className="space-y-1.5">
         <p className="text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
-          Trainer notes
+          Notes for this goal
           <span className="ml-1 font-normal">(optional)</span>
         </p>
         {/* key resets local draft state when the active goal changes */}

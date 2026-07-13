@@ -643,7 +643,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
             <div className="space-y-1.5">
               <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                Trainer notes
+                General client notes
                 <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
                   (optional)
                 </span>

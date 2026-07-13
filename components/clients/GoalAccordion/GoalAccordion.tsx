@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, ChevronDown, ChevronUp, Star } from 'lucide-react'
+import { X, ChevronDown, ChevronUp, Star, Check } from 'lucide-react'
 import { GOALS, GOAL_SECTIONS, getSubGoals, type IntakeGoalId, type GoalSection } from '@/lib/goals/taxonomy'
 import { detectConflicts, hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
 import { computeSafetyFlags } from '@/lib/goals/safety'
@@ -46,6 +46,20 @@ const inactiveChip = {
   borderColor:     'var(--fd-border)',
   color:           'var(--fd-muted)',
 } as const
+
+// Keyboard focus ring shared by every selectable chip/button in this file.
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fd-accent)]'
+
+// Reserves the check icon's width whether or not it's shown, so toggling
+// selection never shifts surrounding layout.
+function ChipCheck({ selected }: { selected: boolean }) {
+  return (
+    <Check
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 shrink-0 transition-opacity ${selected ? 'opacity-100' : 'opacity-0'}`}
+    />
+  )
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -127,9 +141,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                           onClick={() =>
                             onChange(selected ? removeGoal(value, goal.id) : addGoal(value, goal.id))
                           }
-                          className="flex min-h-[44px] items-start rounded-xl border px-3 py-3 text-left text-xs font-medium transition-all active:scale-[0.97]"
+                          className={`flex min-h-[44px] items-start gap-1.5 rounded-xl border px-3 py-3 text-left text-xs transition-all active:scale-[0.97] ${focusRing} ${selected ? 'font-semibold' : 'font-medium'}`}
                           style={selected ? activeChip : inactiveChip}
                         >
+                          <ChipCheck selected={selected} />
                           <span className="leading-snug">{goal.label}</span>
                         </button>
                       )
@@ -215,9 +230,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                               type="button"
                               aria-pressed={active}
                               onClick={() => onChange(togglePrimarySubGoal(value, goal.id, sg.id))}
-                              className="rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.96]"
+                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-all active:scale-[0.96] ${focusRing} ${active ? 'font-semibold' : 'font-medium'}`}
                               style={active ? activeChip : inactiveChip}
                             >
+                              <ChipCheck selected={active} />
                               {sg.label}
                             </button>
                           )
@@ -256,9 +272,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                                 type="button"
                                 aria-pressed={active}
                                 onClick={() => onChange(toggleTrainerSubGoal(value, goal.id, sg.id))}
-                                className="rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.96]"
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-all active:scale-[0.96] ${focusRing} ${active ? 'font-semibold' : 'font-medium'}`}
                                 style={active ? activeChip : inactiveChip}
                               >
+                                <ChipCheck selected={active} />
                                 {sg.label}
                               </button>
                             )
@@ -273,7 +290,7 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                     type="button"
                     onClick={() => onChange(setPrimaryGoal(value, goal.id))}
                     aria-pressed={isPrimary}
-                    className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-all"
+                    className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${focusRing}`}
                     style={isPrimary ? activeChip : inactiveChip}
                   >
                     <Star className={`h-3.5 w-3.5 shrink-0${isPrimary ? ' fill-current' : ''}`} />
@@ -294,9 +311,10 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                             type="button"
                             aria-pressed={active}
                             onClick={() => onChange(setGoalUrgency(value, goal.id, opt.value))}
-                            className="flex-1 rounded-lg border py-1.5 text-center text-xs font-medium transition-all"
+                            className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-center text-xs transition-all ${focusRing} ${active ? 'font-semibold' : 'font-medium'}`}
                             style={active ? activeChip : inactiveChip}
                           >
+                            <ChipCheck selected={active} />
                             {opt.label}
                           </button>
                         )
@@ -307,7 +325,7 @@ export function GoalAccordion({ value, onChange }: GoalAccordionProps) {
                   {/* Per-goal trainer notes (Phase 1) */}
                   <div>
                     <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
-                      Trainer notes
+                      Notes for this goal
                     </label>
                     <textarea
                       placeholder="Add optional notes for this goal..."
