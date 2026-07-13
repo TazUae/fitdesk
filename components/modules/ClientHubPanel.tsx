@@ -19,6 +19,7 @@ import {
 import { addClientNoteAction, addProgressEntryAction, completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
+import { GoalEditorSheet } from '@/components/clients/GoalEditorSheet'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -198,6 +199,7 @@ export function ClientHubPanel({
   const { client, goals, hasGoalHistory, pendingActions, recentNotes, progressEntries, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
+  const [goalEditorOpen, setGoalEditorOpen]     = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [isNotePending, startNoteTransition] = useTransition()
@@ -390,9 +392,19 @@ export function ClientHubPanel({
           className="rounded-2xl border p-4 space-y-3"
           style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
         >
-          <div className="flex items-center gap-2">
-            <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
-            <SectionHeader>Goals</SectionHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+              <SectionHeader>Goals</SectionHeader>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGoalEditorOpen(true)}
+              className="rounded-lg px-2 py-1 text-xs font-semibold transition-opacity active:opacity-60"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              Edit goals
+            </button>
           </div>
           <div className="space-y-4">
             {goals.map(g => (
@@ -495,15 +507,33 @@ export function ClientHubPanel({
           className="rounded-2xl border p-4 space-y-3"
           style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
         >
-          <div className="flex items-center gap-2">
-            <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
-            <SectionHeader>Goals</SectionHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+              <SectionHeader>Goals</SectionHeader>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGoalEditorOpen(true)}
+              className="rounded-lg px-2 py-1 text-xs font-semibold transition-opacity active:opacity-60"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              Edit goals
+            </button>
           </div>
           <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
             Goals not configured
           </p>
         </div>
       )}
+
+      {/* Phase 4 — reachable goal editor (confirmed-first replace-set) */}
+      <GoalEditorSheet
+        open={goalEditorOpen}
+        clientIndexId={client.clientIndexId}
+        goals={goals}
+        onClose={() => setGoalEditorOpen(false)}
+      />
 
       {/* ── Action queue ─────────────────────────────────────────────────────── */}
       <div

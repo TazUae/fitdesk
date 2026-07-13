@@ -1,12 +1,128 @@
 import { describe, it, expect } from 'vitest'
 import { workspaceReducer } from '@/components/clients/GoalWorkspace/reducer'
-import { INITIAL_WORKSPACE_STATE } from '@/components/clients/GoalWorkspace/state'
+import { INITIAL_WORKSPACE_STATE, workspaceStateFromGoals } from '@/components/clients/GoalWorkspace/state'
 import {
   toSelectedGoalDrafts,
   hasWorkspaceHardConflict,
   getWorkspaceConflicts,
 } from '@/components/clients/GoalWorkspace/selectors'
 import type { GoalWorkspaceState } from '@/components/clients/GoalWorkspace/state'
+import type { ClientGoalSummary } from '@/types/clients'
+
+// ─── Phase 4: Hub editor hydration (workspaceStateFromGoals) ──────────────────
+
+function summary(over: Partial<ClientGoalSummary> & { goalId: string }): ClientGoalSummary {
+  return {
+    id:                over.id ?? `row-${over.goalId}`,
+    goalId:            over.goalId,
+    urgency:           over.urgency ?? 'active_focus',
+    confidence:        over.confidence ?? 'high',
+    primaryGoalLabel:  over.primaryGoalLabel ?? null,
+    status:            over.status ?? 'active',
+    isPrimary:         over.isPrimary ?? false,
+    subGoalIds:        over.subGoalIds ?? [],
+    trainerSubGoalIds: over.trainerSubGoalIds ?? [],
+    notes:             'notes' in over ? (over.notes ?? null) : null,
+    safetyFlags:       over.safetyFlags ?? [],
+  }
+}
+
+describe('workspaceStateFromGoals — Hub editor hydration', () => {
+  it('empty goals → INITIAL-like empty state', () => {
+    const s = workspaceStateFromGoals([])
+    expect(s.selectedGoalIds).toEqual([])
+    expect(s.primaryGoalId).toBeNull()
+    expect(s.activeGoalId).toBeNull()
+  })
+
+  it('loads every field from each goal summary', () => {
+    const s = workspaceStateFromGoals([
+      summary({
+        goalId: 'fat-loss', isPrimary: true, urgency: 'urgent',
+        subGoalIds: ['reduce_total_body_fat'],
+        trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+        notes: 'Careful with knees',
+      }),
+      summary({ goalId: 'cardio', urgency: 'background' }),
+    ])
+    expect(s.selectedGoalIds).toEqual(['fat-loss', 'cardio'])
+    expect(s.primaryGoalId).toBe('fat-loss')
+    expect(s.goalsById['fat-loss']).toEqual({
+      urgency: 'urgent',
+      clientSubGoalIds: ['reduce_total_body_fat'],
+      trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+      trainerNotes: 'Careful with knees',
+    })
+    expect(s.goalsById['cardio']?.urgency).toBe('background')
+    expect(s.goalsById['cardio']?.trainerNotes).toBe('') // null notes → '' for the textarea
+  })
+
+  it('skips non-taxonomy (legacy) goalIds defensively', () => {
+    const s = workspaceStateFromGoals([
+      summary({ goalId: 'goal-wl', isPrimary: true }), // legacy, not an IntakeGoalId
+      summary({ goalId: 'strength' }),
+    ])
+    expect(s.selectedGoalIds).toEqual(['strength'])
+  })
+
+  it('falls back to first goal as primary when none is marked primary', () => {
+    const s = workspaceStateFromGoals([
+      summary({ goalId: 'strength' }),
+      summary({ goalId: 'cardio' }),
+    ])
+    expect(s.primaryGoalId).toBe('strength')
+  })
+})
+
+describe('workspaceReducer — HYDRATE', () => {
+  it('replaces the whole state with the provided seed', () => {
+    const seed = workspaceStateFromGoals([summary({ goalId: 'fat-loss', isPrimary: true })])
+    const next = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'HYDRATE', state: seed })
+    expect(next.selectedGoalIds).toEqual(['fat-loss'])
+    expect(next.primaryGoalId).toBe('fat-loss')
+  })
+
+  it('discards prior edits when re-hydrating', () => {
+    let s = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'ADD_GOAL', goalId: 'muscle' })
+    s = workspaceReducer(s, { type: 'SET_TRAINER_NOTES', goalId: 'muscle', notes: 'unsaved edit' })
+    const seed = workspaceStateFromGoals([summary({ goalId: 'strength', isPrimary: true })])
+    s = workspaceReducer(s, { type: 'HYDRATE', state: seed })
+    expect(s.selectedGoalIds).toEqual(['strength'])
+    expect(s.goalsById['muscle']).toBeUndefined()
+  })
+})
+
+describe('Phase 4 round-trip: hydrate → edit → toSelectedGoalDrafts', () => {
+  it('produces a complete replacement payload after editing', () => {
+    const seed = workspaceStateFromGoals([
+      summary({ goalId: 'fat-loss', isPrimary: true, notes: 'old note' }),
+    ])
+    let s = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'HYDRATE', state: seed })
+    // Trainer edits: change urgency, add a goal, edit notes, change primary.
+    s = workspaceReducer(s, { type: 'SET_URGENCY', goalId: 'fat-loss', urgency: 'urgent' })
+    s = workspaceReducer(s, { type: 'SET_TRAINER_NOTES', goalId: 'fat-loss', notes: 'new note' })
+    s = workspaceReducer(s, { type: 'ADD_GOAL', goalId: 'cardio' })
+    s = workspaceReducer(s, { type: 'SET_PRIMARY', goalId: 'cardio' })
+
+    const drafts = toSelectedGoalDrafts(s)
+    expect(drafts).toHaveLength(2)
+    // Exactly one primary.
+    expect(drafts.filter(d => d.isPrimary)).toHaveLength(1)
+    expect(drafts.find(d => d.isPrimary)?.goalId).toBe('cardio')
+    // Every draft carries trainerNotes (present, string|null) — required by strict validation.
+    drafts.forEach(d => expect(d).toHaveProperty('trainerNotes'))
+    const fatLoss = drafts.find(d => d.goalId === 'fat-loss')!
+    expect(fatLoss.urgency).toBe('urgent')
+    expect(fatLoss.trainerNotes).toBe('new note')
+  })
+
+  it('reducing to zero goals yields an empty replacement set (valid — D7)', () => {
+    const seed = workspaceStateFromGoals([summary({ goalId: 'fat-loss', isPrimary: true })])
+    let s = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'HYDRATE', state: seed })
+    s = workspaceReducer(s, { type: 'REMOVE_GOAL', goalId: 'fat-loss' })
+    expect(toSelectedGoalDrafts(s)).toEqual([])
+  })
+})
 
 // ─── Reducer: ADD_GOAL ────────────────────────────────────────────────────────
 
