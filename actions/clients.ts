@@ -18,6 +18,7 @@ import { db } from '@/lib/db'
 import { sanitizeSelectedGoalDrafts } from '@/lib/clients/create-draft'
 import { detectConflicts } from '@/lib/goals/conflicts'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
+import { checkPrimaryInvariant } from '@/lib/goals/primary-invariant'
 import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
 import type { AddClientPrimaryGoal, AddProgressEntryResult, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, MissingNextSessionCandidateResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
@@ -182,12 +183,13 @@ export async function addClient(
     }]
   }
 
-  // Invariant: when goals are provided, exactly one must be primary.
+  // Invariant: when goals are provided, exactly one must be primary (Decision D7).
+  // Shared helper — identical rule to the update path (repository.replaceClientGoals).
   // Checked before the ERP call so no Customer is created for an invalid payload.
   let goalIds: IntakeGoalId[] = []
   if (resolvedGoals && resolvedGoals.length > 0) {
-    const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
-    if (primaryCount !== 1) {
+    if (checkPrimaryInvariant(resolvedGoals) !== null) {
+      const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
       return {
         success: false,
         error: `Exactly one goal must be marked as primary (got ${primaryCount}).`,

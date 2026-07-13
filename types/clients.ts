@@ -449,7 +449,7 @@ export type ClientParseFields = {
   /** value = normalized E.164 string when parseable; null otherwise. */
   phone:           ParsedField<string>
   whatsappEnabled: ParsedField<boolean>
-  /** Each value must be a canonical GOALS id from components/ui/GoalSelect.tsx. */
+  /** Each value must be a canonical goal id from lib/goals/taxonomy.ts GOALS. */
   goals:           ParsedField<string[]>
   notes:           ParsedField<string>
 }

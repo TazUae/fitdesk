@@ -92,6 +92,18 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "client_goal_tenant_client_idx"
     ON "client_goal" ("tenant_id", "client_index_id")`,
+  // Phase 5 — defense-in-depth partial unique indexes for the goal system.
+  // Additive and idempotent (IF NOT EXISTS). Partial (WHERE status='active') so the
+  // archive model may keep multiple archived rows for the same goal. The repository
+  // remains the primary enforcement; these make an invalid ACTIVE state impossible.
+  // At most one active row per (tenant, client, goal):
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_uniqueness"
+    ON "client_goal" ("tenant_id", "client_index_id", "goal_id")
+    WHERE "status" = 'active'`,
+  // At most one active primary per (tenant, client):
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_primary"
+    ON "client_goal" ("tenant_id", "client_index_id")
+    WHERE "status" = 'active' AND "is_primary" = 1`,
 
   `CREATE TABLE IF NOT EXISTS "client_action_intent" (
     "id"               TEXT NOT NULL PRIMARY KEY,

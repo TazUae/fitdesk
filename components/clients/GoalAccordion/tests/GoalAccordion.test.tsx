@@ -25,6 +25,9 @@ import {
   toSelectedGoalDrafts,
   type GoalSelectionState,
 } from '../types'
+import { workspaceReducer } from '@/components/clients/GoalWorkspace/reducer'
+import { INITIAL_WORKSPACE_STATE } from '@/components/clients/GoalWorkspace/state'
+import { toSelectedGoalDrafts as workspaceToSelectedGoalDrafts } from '@/components/clients/GoalWorkspace/selectors'
 
 // ─── Taxonomy: goal groupings ─────────────────────────────────────────────────
 
@@ -652,5 +655,64 @@ describe('toSelectedGoalDrafts: map GoalSelectionState to SelectedGoalDraft[]', 
       expect(d.trainerNotes === null || typeof d.trainerNotes === 'string').toBe(true)
     })
     expect(drafts.filter(d => d.isPrimary)).toHaveLength(1)
+  })
+})
+
+// ─── Phase 5: feature-flag parity (no functional divergence) ─────────────────
+//
+// After Phase 1, both NEXT_PUBLIC_GOAL_WORKSPACE states emit selectedGoals.
+// These tests prove the two selectors produce EQUIVALENT SelectedGoalDraft[]
+// for the same logical selection, so the flag no longer changes what is
+// persisted — it only chooses which selector UI renders (Decision D4).
+
+describe('Selector parity — GoalAccordion vs GoalWorkspace produce equivalent drafts', () => {
+  function sortByGoal<T extends { goalId: string }>(arr: T[]): T[] {
+    return [...arr].sort((a, b) => a.goalId.localeCompare(b.goalId))
+  }
+
+  it('same selection → equivalent SelectedGoalDraft[] from both selectors', () => {
+    // Accordion path
+    let acc = emptyGoalState()
+    acc = addGoal(acc, 'fat-loss')
+    acc = addGoal(acc, 'cardio')
+    acc = setGoalUrgency(acc, 'fat-loss', 'urgent')
+    acc = togglePrimarySubGoal(acc, 'fat-loss', 'reduce_total_body_fat')
+    acc = toggleTrainerSubGoal(acc, 'fat-loss', 'preserve_skeletal_muscle_mass')
+    acc = setGoalNotes(acc, 'fat-loss', 'Careful with knees')
+    acc = setPrimaryGoal(acc, 'fat-loss')
+    const accDrafts = sortByGoal(toSelectedGoalDrafts(acc))
+
+    // Workspace path — same logical selection
+    let ws = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'ADD_GOAL', goalId: 'fat-loss' })
+    ws = workspaceReducer(ws, { type: 'ADD_GOAL', goalId: 'cardio' })
+    ws = workspaceReducer(ws, { type: 'SET_URGENCY', goalId: 'fat-loss', urgency: 'urgent' })
+    ws = workspaceReducer(ws, { type: 'SET_CLIENT_SUB_GOALS', goalId: 'fat-loss', subGoalIds: ['reduce_total_body_fat'] })
+    ws = workspaceReducer(ws, { type: 'SET_TRAINER_SUB_GOALS', goalId: 'fat-loss', subGoalIds: ['preserve_skeletal_muscle_mass'] })
+    ws = workspaceReducer(ws, { type: 'SET_TRAINER_NOTES', goalId: 'fat-loss', notes: 'Careful with knees' })
+    ws = workspaceReducer(ws, { type: 'SET_PRIMARY', goalId: 'fat-loss' })
+    const wsDrafts = sortByGoal(workspaceToSelectedGoalDrafts(ws))
+
+    expect(accDrafts).toEqual(wsDrafts)
+  })
+
+  it('both selectors mark exactly one primary for the same nonempty selection', () => {
+    let acc = emptyGoalState()
+    acc = addGoal(acc, 'strength')
+    acc = addGoal(acc, 'mobility')
+    acc = setPrimaryGoal(acc, 'mobility')
+
+    let ws = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'ADD_GOAL', goalId: 'strength' })
+    ws = workspaceReducer(ws, { type: 'ADD_GOAL', goalId: 'mobility' })
+    ws = workspaceReducer(ws, { type: 'SET_PRIMARY', goalId: 'mobility' })
+
+    expect(toSelectedGoalDrafts(acc).filter(d => d.isPrimary)).toHaveLength(1)
+    expect(workspaceToSelectedGoalDrafts(ws).filter(d => d.isPrimary)).toHaveLength(1)
+    expect(toSelectedGoalDrafts(acc).find(d => d.isPrimary)?.goalId).toBe('mobility')
+    expect(workspaceToSelectedGoalDrafts(ws).find(d => d.isPrimary)?.goalId).toBe('mobility')
+  })
+
+  it('both selectors emit an empty array for an empty selection', () => {
+    expect(toSelectedGoalDrafts(emptyGoalState())).toEqual([])
+    expect(workspaceToSelectedGoalDrafts(INITIAL_WORKSPACE_STATE)).toEqual([])
   })
 })

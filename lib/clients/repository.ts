@@ -19,6 +19,7 @@ import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
 import { hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
+import { checkPrimaryInvariant } from '@/lib/goals/primary-invariant'
 import { formatGoalLabel } from '@/lib/goals/format'
 import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
 import { isIntakeGoalId, getSubGoals, type IntakeGoalId } from '@/lib/goals/taxonomy'
@@ -1391,9 +1392,9 @@ export class ClientRepository {
         throw new Error('validation_error: hard_conflict_detected')
       }
 
-      // 4. Corrected primary invariant (D7): zero allowed; exactly one when nonempty
-      const primaries = desiredGoals.filter(d => d.isPrimary)
-      if (desiredGoals.length > 0 && primaries.length !== 1) {
+      // 4. Corrected primary invariant (D7): zero allowed; exactly one when nonempty.
+      //    Shared helper — identical rule to the create path (actions/clients.ts).
+      if (checkPrimaryInvariant(desiredGoals) !== null) {
         throw new Error('validation_error: primary_invariant_violated')
       }
 
@@ -1426,29 +1427,32 @@ export class ClientRepository {
         }
       }
 
-      // 7. Update / insert / reactivate goals in the desired set
-      for (const draft of desiredGoals) {
+      // 7. Update / insert / reactivate goals in the desired set.
+      //    Write NON-PRIMARY goals first and the single primary LAST, so at no
+      //    statement boundary do two active rows both have is_primary = 1. This
+      //    keeps the partial unique index (active + is_primary) satisfied even
+      //    during a primary swap (old primary is demoted before the new one is set).
+      const writeDraft = async (draft: SelectedGoalDraft) => {
         const gid = draft.goalId as IntakeGoalId
         const safetyFlagIds = computeSafetyFlags([gid]).map(f => f.id)
         // Note semantics (D8): trim nonempty; blank/whitespace/null → null.
         const notes = draft.trainerNotes?.trim() || null
+        const common = {
+          isPrimary:             draft.isPrimary,
+          urgency:               draft.urgency,
+          subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
+          trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
+          notes,
+          safetyFlagsJson:       JSON.stringify(safetyFlagIds),
+          confidence:            'high' as const,
+          source:                'trainer_manual' as const,
+          updatedAtUtc:          now,
+        }
 
         const existing = activeByGoalId.get(draft.goalId)
         if (existing) {
           // UPDATE in place — preserve createdAtUtc, advance updatedAtUtc.
-          await tx
-            .update(schema.clientGoal)
-            .set({
-              isPrimary:             draft.isPrimary,
-              urgency:               draft.urgency,
-              subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
-              trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
-              notes,
-              safetyFlagsJson:       JSON.stringify(safetyFlagIds),
-              confidence:            'high',
-              source:                'trainer_manual',
-              updatedAtUtc:          now,
-            })
+          await tx.update(schema.clientGoal).set(common)
             .where(eq(schema.clientGoal.id, existing.id))
         } else {
           const archived = existingRows.find(
@@ -1456,43 +1460,25 @@ export class ClientRepository {
           )
           if (archived) {
             // Reactivate the same logical row (preserve createdAtUtc).
-            await tx
-              .update(schema.clientGoal)
-              .set({
-                status:                'active',
-                isPrimary:             draft.isPrimary,
-                urgency:               draft.urgency,
-                subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
-                trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
-                notes,
-                safetyFlagsJson:       JSON.stringify(safetyFlagIds),
-                confidence:            'high',
-                source:                'trainer_manual',
-                updatedAtUtc:          now,
-              })
+            await tx.update(schema.clientGoal).set({ ...common, status: 'active' })
               .where(eq(schema.clientGoal.id, archived.id))
           } else {
             await tx.insert(schema.clientGoal).values({
-              id:                    crypto.randomUUID(),
+              id:            crypto.randomUUID(),
               tenantId,
               clientIndexId,
-              erpCustomerId:         clientIndex.erpCustomerId,
-              goalId:                draft.goalId,
-              isPrimary:             draft.isPrimary,
-              subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
-              trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
-              urgency:               draft.urgency,
-              confidence:            'high',
-              source:                'trainer_manual',
-              safetyFlagsJson:       JSON.stringify(safetyFlagIds),
-              notes,
-              status:                'active',
-              createdAtUtc:          now,
-              updatedAtUtc:          now,
+              erpCustomerId: clientIndex.erpCustomerId,
+              goalId:        draft.goalId,
+              createdAtUtc:  now,
+              status:        'active',
+              ...common,
             })
           }
         }
       }
+
+      for (const draft of desiredGoals.filter(d => !d.isPrimary)) await writeDraft(draft)
+      for (const draft of desiredGoals.filter(d => d.isPrimary))  await writeDraft(draft)
 
       // 8. Update client_index denormalized fields atomically.
       //    Zero active goals → null primary fields (D7).

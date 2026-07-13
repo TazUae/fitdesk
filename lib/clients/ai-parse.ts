@@ -14,20 +14,14 @@
 import 'server-only'
 import { z } from 'zod'
 import { normalizePhoneToE164 } from '@/lib/clients/phone'
+import { GOALS } from '@/lib/goals/taxonomy'
 import type { AiParseState, ClientParseFields, ClientParseResult } from '@/types/clients'
 
 // ─── Canonical goal IDs ───────────────────────────────────────────────────────
-// Keep in sync with lib/goals/taxonomy.ts GOALS array.
-// Drift-guard test: lib/clients/__tests__/ai-parse.test.ts.
+// Derived directly from the single source of truth (lib/goals/taxonomy.ts GOALS)
+// so it can never drift. Drift-guard test: lib/clients/__tests__/ai-parse.test.ts.
 
-export const AI_PARSE_ALLOWED_GOALS = [
-  // Core (8)
-  'fat-loss', 'muscle', 'strength', 'general', 'rehab', 'sports', 'mobility', 'mental',
-  // Specialist (8)
-  'cardio', 'aesthetics', 'aging', 'functional', 'weight-mgmt', 'postnatal', 'youth', 'underweight',
-  // Emerging (3)
-  'glp1', 'longevity', 'neuro',
-] as const satisfies readonly string[]
+export const AI_PARSE_ALLOWED_GOALS: readonly string[] = GOALS.map(g => g.id)
 
 const MAX_INPUT_LENGTH = 2000
 const API_TIMEOUT_MS   = 3000

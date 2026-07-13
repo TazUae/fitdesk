@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // ─── Better Auth tables ───────────────────────────────────────────────────────
@@ -194,7 +195,22 @@ export const clientGoal = sqliteTable('client_goal', {
 
   createdAtUtc:    text('created_at_utc').notNull(),
   updatedAtUtc:    text('updated_at_utc').notNull(),
-})
+}, (t) => [
+  // Defense-in-depth (Phase 5). The repository (replaceClientGoals/createClientRow)
+  // is the primary guarantee; these partial unique indexes make an invalid state
+  // impossible at the storage layer. Partial (WHERE status='active') so the archive
+  // model (D2) may keep multiple archived rows for the same goal.
+  //
+  // At most one ACTIVE row per (tenant, client, goal).
+  uniqueIndex('client_goal_active_uniqueness')
+    .on(t.tenantId, t.clientIndexId, t.goalId)
+    .where(sql`${t.status} = 'active'`),
+  // At most one ACTIVE PRIMARY row per (tenant, client). The repository still
+  // enforces EXACTLY one when the active set is nonempty (D7).
+  uniqueIndex('client_goal_active_primary')
+    .on(t.tenantId, t.clientIndexId)
+    .where(sql`${t.status} = 'active' AND ${t.isPrimary} = 1`),
+])
 
 /**
  * Suggested next action for a client — never auto-executed.

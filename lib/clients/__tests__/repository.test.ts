@@ -67,6 +67,14 @@ const CLIENT_TABLES_DDL = [
     "created_at_utc"            TEXT NOT NULL,
     "updated_at_utc"            TEXT NOT NULL
   )`,
+  // Phase 5 — defense-in-depth partial unique indexes (mirror scripts/migrate-app.mjs).
+  // Exercised by the repository tests so the real reconciliation runs against them.
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_uniqueness"
+    ON "client_goal" ("tenant_id", "client_index_id", "goal_id")
+    WHERE "status" = 'active'`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_primary"
+    ON "client_goal" ("tenant_id", "client_index_id")
+    WHERE "status" = 'active' AND "is_primary" = 1`,
   `CREATE TABLE IF NOT EXISTS "client_action_intent" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "tenant_id" TEXT NOT NULL,
