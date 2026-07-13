@@ -195,7 +195,7 @@ export function ClientHubPanel({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const { client, goals, pendingActions, recentNotes, progressEntries, placeholders } = overview
+  const { client, goals, hasGoalHistory, pendingActions, recentNotes, progressEntries, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
@@ -485,6 +485,23 @@ export function ClientHubPanel({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Local goal history exists but zero active goals → "Goals not configured".
+          Never resurrect stale ERP custom_fitness_goals text here (Decision D3). */}
+      {goals.length === 0 && hasGoalHistory && (
+        <div
+          className="rounded-2xl border p-4 space-y-3"
+          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+        >
+          <div className="flex items-center gap-2">
+            <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+            <SectionHeader>Goals</SectionHeader>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+            Goals not configured
+          </p>
         </div>
       )}
 

@@ -17,10 +17,11 @@ import { and, desc, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
-import { computeSafetyFlags } from '@/lib/goals/safety'
-import { detectConflicts, hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
+import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
+import { hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
+import { formatGoalLabel } from '@/lib/goals/format'
 import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
-import { isIntakeGoalId, GOALS, getSubGoals } from '@/lib/goals/taxonomy'
+import { isIntakeGoalId, getSubGoals, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type {
   ActionIntentPriority,
   ActionIntentSource,
@@ -1334,23 +1335,23 @@ export class ClientRepository {
    * Returns tenant-verified erpCustomerId for route revalidation (Decision D9).
    */
   async replaceClientGoals(
-    ctx: RequestContext,
+    ctx: TenantCtx,
     clientIndexId: string,
     desiredGoals: SelectedGoalDraft[],
   ): Promise<{ erpCustomerId: string }> {
-    assertTenantId(ctx)
+    const tenantId = assertTenantId(ctx)
 
     return this.db.transaction(async (tx) => {
       const now = new Date().toISOString()
 
-      // 1. Load and verify ownership
+      // 1. Load and verify ownership (fail closed on missing/cross-tenant)
       const indexRows = await tx
         .select()
         .from(schema.clientIndex)
         .where(
           and(
             eq(schema.clientIndex.id, clientIndexId),
-            eq(schema.clientIndex.tenantId, ctx.tenantId),
+            eq(schema.clientIndex.tenantId, tenantId),
           ),
         )
         .limit(1)
@@ -1362,18 +1363,21 @@ export class ClientRepository {
       if (desiredGoals.some(d => !isIntakeGoalId(d.goalId))) {
         throw new Error('validation_error: unknown_goal_id')
       }
+      // After this guard every goalId is a canonical IntakeGoalId.
+      const goalIds = desiredGoals.map(d => d.goalId as IntakeGoalId)
 
-      const goalIds = desiredGoals.map(d => d.goalId)
       if (new Set(goalIds).size !== goalIds.length) {
         throw new Error('validation_error: duplicate_goal_id')
       }
 
       for (const draft of desiredGoals) {
-        if (draft.trainerNotes === undefined) {
+        // Omitted trainerNotes property is invalid (D8). `null` is allowed (means "no note").
+        if (!('trainerNotes' in draft) || draft.trainerNotes === undefined) {
           throw new Error('validation_error: missing_trainer_notes_property')
         }
-        const primarySubGoals = getSubGoals(draft.goalId, 'primary').map(s => s.id)
-        const secondarySubGoals = getSubGoals(draft.goalId, 'secondary').map(s => s.id)
+        const gid = draft.goalId as IntakeGoalId
+        const primarySubGoals = getSubGoals(gid, 'primary').map(s => s.id)
+        const secondarySubGoals = getSubGoals(gid, 'secondary').map(s => s.id)
         if (draft.clientSubGoalIds?.some(id => !primarySubGoals.includes(id))) {
           throw new Error('validation_error: unknown_sub_goal_in_primary_layer')
         }
@@ -1404,10 +1408,13 @@ export class ClientRepository {
           .filter(r => r.status === 'active')
           .map(r => [r.goalId, r]),
       )
+      const priorActiveGoalIds = existingRows
+        .filter(r => r.status === 'active')
+        .map(r => r.goalId)
 
-      // 6. Reconcile: archive goals not in desired set
+      // 6. Reconcile: archive active goals not in the desired set (D2 — soft delete)
       for (const row of existingRows) {
-        if (row.status === 'active' && !goalIds.includes(row.goalId)) {
+        if (row.status === 'active' && !goalIds.includes(row.goalId as IntakeGoalId)) {
           await tx
             .update(schema.clientGoal)
             .set({
@@ -1419,109 +1426,105 @@ export class ClientRepository {
         }
       }
 
-      // 7. Update/insert/reactivate goals in desired set
+      // 7. Update / insert / reactivate goals in the desired set
       for (const draft of desiredGoals) {
-        const safetyFlags = computeSafetyFlags([draft.goalId])
+        const gid = draft.goalId as IntakeGoalId
+        const safetyFlagIds = computeSafetyFlags([gid]).map(f => f.id)
+        // Note semantics (D8): trim nonempty; blank/whitespace/null → null.
         const notes = draft.trainerNotes?.trim() || null
 
         const existing = activeByGoalId.get(draft.goalId)
         if (existing) {
-          // UPDATE in place (preserve createdAtUtc)
+          // UPDATE in place — preserve createdAtUtc, advance updatedAtUtc.
           await tx
             .update(schema.clientGoal)
             .set({
-              isPrimary: draft.isPrimary,
-              urgency: draft.urgency,
-              subGoalIds: draft.clientSubGoalIds || [],
-              trainerSubGoalIds: draft.trainerSubGoalIds || [],
+              isPrimary:             draft.isPrimary,
+              urgency:               draft.urgency,
+              subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
+              trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
               notes,
-              safetyFlags,
-              updatedAtUtc: now,
+              safetyFlagsJson:       JSON.stringify(safetyFlagIds),
+              confidence:            'high',
+              source:                'trainer_manual',
+              updatedAtUtc:          now,
             })
             .where(eq(schema.clientGoal.id, existing.id))
         } else {
-          // Check if archived; reactivate or insert new
           const archived = existingRows.find(
             r => r.goalId === draft.goalId && r.status === 'archived',
           )
           if (archived) {
+            // Reactivate the same logical row (preserve createdAtUtc).
             await tx
               .update(schema.clientGoal)
               .set({
-                status: 'active',
-                isPrimary: draft.isPrimary,
-                urgency: draft.urgency,
-                subGoalIds: draft.clientSubGoalIds || [],
-                trainerSubGoalIds: draft.trainerSubGoalIds || [],
+                status:                'active',
+                isPrimary:             draft.isPrimary,
+                urgency:               draft.urgency,
+                subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
+                trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
                 notes,
-                safetyFlags,
-                updatedAtUtc: now,
+                safetyFlagsJson:       JSON.stringify(safetyFlagIds),
+                confidence:            'high',
+                source:                'trainer_manual',
+                updatedAtUtc:          now,
               })
               .where(eq(schema.clientGoal.id, archived.id))
           } else {
             await tx.insert(schema.clientGoal).values({
-              id: crypto.randomUUID(),
-              tenantId: ctx.tenantId,
+              id:                    crypto.randomUUID(),
+              tenantId,
               clientIndexId,
-              erpCustomerId: clientIndex.erpCustomerId,
-              goalId: draft.goalId,
-              isPrimary: draft.isPrimary,
-              subGoalIds: draft.clientSubGoalIds || [],
-              trainerSubGoalIds: draft.trainerSubGoalIds || [],
-              urgency: draft.urgency,
-              confidence: draft.confidence || 'unknown',
-              source: draft.source || 'trainer_manual',
-              safetyFlags,
+              erpCustomerId:         clientIndex.erpCustomerId,
+              goalId:                draft.goalId,
+              isPrimary:             draft.isPrimary,
+              subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
+              trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
+              urgency:               draft.urgency,
+              confidence:            'high',
+              source:                'trainer_manual',
+              safetyFlagsJson:       JSON.stringify(safetyFlagIds),
               notes,
-              status: 'active',
-              createdAtUtc: now,
-              updatedAtUtc: now,
+              status:                'active',
+              createdAtUtc:          now,
+              updatedAtUtc:          now,
             })
           }
         }
       }
 
-      // 8. Update client_index denormalized fields atomically
+      // 8. Update client_index denormalized fields atomically.
+      //    Zero active goals → null primary fields (D7).
       const activePrimary = desiredGoals.find(d => d.isPrimary)
-      const allSafetyFlags = computeSafetyFlags(goalIds)
-      const safetyState = allSafetyFlags.length > 0 ? 'needs_review' : 'clear'
+      const safetyState = deriveSafetyState(computeSafetyFlags(goalIds))
 
       await tx
         .update(schema.clientIndex)
         .set({
-          primaryGoalId: activePrimary?.goalId || null,
-          primaryGoalLabel: activePrimary
-            ? (await this.formatGoalLabel(activePrimary.goalId)) || null
-            : null,
+          primaryGoalId:    activePrimary ? activePrimary.goalId : null,
+          primaryGoalLabel: activePrimary ? formatGoalLabel(activePrimary.goalId as IntakeGoalId) : null,
           safetyState,
-          updatedAtUtc: now,
+          updatedAtUtc:     now,
         })
         .where(eq(schema.clientIndex.id, clientIndexId))
 
-      // 9. Write audit event
+      // 9. Write one tenant-scoped audit event (inside the same transaction).
       await tx.insert(schema.clientEvent).values({
-        id: crypto.randomUUID(),
-        tenantId: ctx.tenantId,
+        id:              crypto.randomUUID(),
+        tenantId,
         clientIndexId,
-        erpCustomerId: clientIndex.erpCustomerId,
-        type: 'client.goals_updated',
-        payloadJson: JSON.stringify({
-          before: {
-            goalIds: existingRows
-              .filter(r => r.status === 'active')
-              .map(r => r.goalId),
-            primary: clientIndex.primaryGoalId,
-          },
-          after: {
-            goalIds,
-            primary: activePrimary?.goalId || null,
-          },
+        erpCustomerId:   clientIndex.erpCustomerId,
+        type:            'client.goals_updated',
+        payloadJson:     JSON.stringify({
+          before: { goalIds: priorActiveGoalIds, primary: clientIndex.primaryGoalId },
+          after:  { goalIds, primary: activePrimary?.goalId ?? null },
         }),
-        createdByUserId: ctx.userId || null,
-        createdAtUtc: now,
+        createdByUserId: null,
+        createdAtUtc:    now,
       })
 
-      // 10. Final invariant assertion before commit
+      // 10. Final invariant assertion before commit.
       const finalActive = await tx
         .select()
         .from(schema.clientGoal)
@@ -1539,17 +1542,34 @@ export class ClientRepository {
       if (finalActive.length === 0 && finalPrimaries.length !== 0) {
         throw new Error('invariant_failed: orphaned_primary')
       }
+      // Defense-in-depth: no duplicate active goalId (repository-level guarantee).
+      const activeIdSet = new Set(finalActive.map(g => g.goalId))
+      if (activeIdSet.size !== finalActive.length) {
+        throw new Error('invariant_failed: duplicate_active_goal')
+      }
 
       return { erpCustomerId: clientIndex.erpCustomerId }
     })
   }
 
-  private async formatGoalLabel(goalId: string): Promise<string | null> {
-    try {
-      const goal = GOALS.find(g => g.id === goalId)
-      return goal?.label || null
-    } catch {
-      return null
-    }
+  /**
+   * True when the client has ANY local goal row (active OR archived) — i.e. the
+   * local Goal System has ever produced a structured projection for this client.
+   * Used to decide ERP `custom_fitness_goals` fallback eligibility (Decision D3):
+   * once any local history exists, local is authoritative and ERP text is never shown.
+   */
+  async hasGoalHistory(ctx: TenantCtx, clientIndexId: string): Promise<boolean> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select({ id: schema.clientGoal.id })
+      .from(schema.clientGoal)
+      .where(
+        and(
+          eq(schema.clientGoal.tenantId, tenantId),
+          eq(schema.clientGoal.clientIndexId, clientIndexId),
+        ),
+      )
+      .limit(1)
+    return rows.length > 0
   }
 }

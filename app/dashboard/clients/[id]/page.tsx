@@ -189,7 +189,11 @@ export default async function ClientDetailPage({ params }: Props) {
                   <span className="truncate">{client.email}</span>
                 </div>
               )}
-              {formatGoal(client.goal) && (
+              {/* ERP custom_fitness_goals is a legacy fallback ONLY for clients that
+                  have never received a local structured goal projection (Decision D3).
+                  Once any local goal history exists (active or archived), the local
+                  Goal System (Client Hub below) is authoritative and this must not show. */}
+              {!hub?.hasGoalHistory && formatGoal(client.goal) && (
                 <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fd-muted)' }}>
                   <Target className="h-3.5 w-3.5 shrink-0" />
                   {formatGoal(client.goal)}

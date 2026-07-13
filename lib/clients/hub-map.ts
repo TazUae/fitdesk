@@ -49,6 +49,7 @@ export function mapToClientHubOverview(
   pendingActions: ClientActionIntent[],
   events:         ClientEvent[],
   purchases:      PackagePurchaseWithBalance[] = [],
+  hasGoalHistory: boolean = goals.length > 0,
 ): ClientHubOverview {
   const goalSummaries: ClientGoalSummary[] = goals.map(g => ({
     id:               g.id,
@@ -109,6 +110,7 @@ export function mapToClientHubOverview(
       lastActivityAtUtc: index.lastActivityAtUtc,
     },
     goals:          goalSummaries,
+    hasGoalHistory,
     pendingActions: actionSummaries,
     recentNotes:    noteSummaries,
     progressEntries,

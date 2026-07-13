@@ -75,8 +75,9 @@ export async function getClientHubOverview(
     if (!clientIndex) return null
 
     const tenantCtx = { tenantId }
-    const [goals, pendingActions, events, rawPurchases, balances] = await Promise.all([
+    const [goals, hasGoalHistory, pendingActions, events, rawPurchases, balances] = await Promise.all([
       repo.listGoals(tenantCtx, clientIndex.id),
+      repo.hasGoalHistory(tenantCtx, clientIndex.id),
       repo.listPendingActions(tenantCtx, clientIndex.id),
       repo.listEvents(tenantCtx, clientIndex.id),
       purchaseRepo.listPurchasesByClient(tenantCtx, clientIndex.id),
@@ -88,7 +89,7 @@ export async function getClientHubOverview(
       remainingBalance: balances[p.id] ?? 0,
     }))
 
-    return mapToClientHubOverview(clientIndex, goals, pendingActions, events, purchases)
+    return mapToClientHubOverview(clientIndex, goals, pendingActions, events, purchases, hasGoalHistory)
   } catch (err) {
     console.error(
       '[getClientHubOverview] local read failed; hub will not render:',

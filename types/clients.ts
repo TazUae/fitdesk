@@ -408,6 +408,13 @@ export type ClientHubOverview = {
     lastActivityAtUtc: string | null
   }
   goals: ClientGoalSummary[]
+  /**
+   * True when the client has ANY local client_goal row (active OR archived) — i.e.
+   * the local Goal System has ever produced a structured projection. Once true, the
+   * local Goal System is authoritative and ERP custom_fitness_goals must NOT be shown
+   * as a fallback, even when zero active goals remain (Decision D3).
+   */
+  hasGoalHistory: boolean
   pendingActions: ClientActionIntentSummary[]
   recentNotes: ClientNoteSummary[]
   progressEntries: ClientProgressEntrySummary[]

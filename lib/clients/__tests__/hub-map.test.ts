@@ -133,6 +133,44 @@ describe('mapToClientHubOverview', () => {
     expect(result.goals[0].goalId).toBe('mobility')
   })
 
+  // ── Phase 2/3: complete goal-field hydration + local-history authority ──
+
+  it('retains every approved goal field (no stripping)', () => {
+    const rich: ClientGoal = {
+      ...baseGoal,
+      isPrimary:         true,
+      subGoalIds:        ['reduce_total_body_fat'],
+      trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+      notes:             'Careful with knees',
+      safetyFlags:       ['injury_risk'],
+    }
+    const result = mapToClientHubOverview(baseIndex, [rich], [], [])
+    const g = result.goals[0]
+    expect(g.isPrimary).toBe(true)
+    expect(g.subGoalIds).toEqual(['reduce_total_body_fat'])
+    expect(g.trainerSubGoalIds).toEqual(['preserve_skeletal_muscle_mass'])
+    expect(g.notes).toBe('Careful with knees')
+    expect(g.safetyFlags).toEqual(['injury_risk'])
+    expect(g.urgency).toBe('active_focus')
+    expect(g.status).toBe('active')
+  })
+
+  it('hasGoalHistory defaults to (goals.length > 0) when not supplied', () => {
+    expect(mapToClientHubOverview(baseIndex, [baseGoal], [], []).hasGoalHistory).toBe(true)
+    expect(mapToClientHubOverview(baseIndex, [], [], []).hasGoalHistory).toBe(false)
+  })
+
+  it('hasGoalHistory can be forced true even with zero active goals (archived-only history — D3)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [], [], true)
+    expect(result.goals).toHaveLength(0)
+    expect(result.hasGoalHistory).toBe(true)
+  })
+
+  it('hasGoalHistory false with zero active goals (never projected — permits ERP fallback)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [], [], false)
+    expect(result.hasGoalHistory).toBe(false)
+  })
+
   it('maps pending actions to ActionIntentSummary shape', () => {
     const result = mapToClientHubOverview(baseIndex, [], [baseIntent], [])
 
@@ -251,6 +289,8 @@ describe('mapToClientHubOverview', () => {
     expect(clientKeys).toContain('primaryGoalLabel')
     expect(clientKeys).toContain('nextSessionAtUtc')
     expect(clientKeys).toContain('lastActivityAtUtc')
+    // Top-level local-history authority marker (D3).
+    expect(result).toHaveProperty('hasGoalHistory')
   })
 
   it('packageBalance is null when no purchases provided (default)', () => {

@@ -756,7 +756,7 @@ export async function updateClientGoalsAction(
     if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
 
     const repo = new ClientRepository(db)
-    const result = await repo.replaceClientGoals(ctx, clientIndexId, goals)
+    const result = await repo.replaceClientGoals({ tenantId: ctx.tenantId }, clientIndexId, goals)
 
     // Revalidate using the repository-returned tenant-verified erpCustomerId (Decision D9)
     revalidatePath(`/dashboard/clients/${encodeURIComponent(result.erpCustomerId)}`)
