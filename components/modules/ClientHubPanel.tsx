@@ -20,6 +20,7 @@ import { addClientNoteAction, addProgressEntryAction, completeClientAction, dism
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import { GoalEditorSheet } from '@/components/clients/GoalEditorSheet'
+import { resolveGoalDisplayLabel, resolveSubGoalDisplayLabel } from '@/lib/goals/display'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -417,7 +418,7 @@ export function ClientHubPanel({
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                      {g.primaryGoalLabel ?? g.goalId.replace(/_/g, ' ')}
+                      {resolveGoalDisplayLabel(g.goalId)}
                     </span>
                     {g.isPrimary && (
                       <span className="inline-block w-fit rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}>
@@ -444,7 +445,7 @@ export function ClientHubPanel({
                     <div className="flex flex-wrap gap-1">
                       {g.subGoalIds.map(id => (
                         <span key={id} className="inline-block rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'var(--fd-surface)', color: 'var(--fd-muted)' }}>
-                          {id.replace(/_/g, ' ')}
+                          {resolveSubGoalDisplayLabel(g.goalId, id)}
                         </span>
                       ))}
                     </div>
@@ -460,7 +461,7 @@ export function ClientHubPanel({
                     <div className="flex flex-wrap gap-1">
                       {g.trainerSubGoalIds.map(id => (
                         <span key={id} className="inline-block rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'var(--fd-surface)', color: 'var(--fd-muted)' }}>
-                          {id.replace(/_/g, ' ')}
+                          {resolveSubGoalDisplayLabel(g.goalId, id)}
                         </span>
                       ))}
                     </div>
@@ -712,7 +713,7 @@ export function ClientHubPanel({
                 <option value="">No goal link</option>
                 {goals.map(g => (
                   <option key={g.id} value={g.goalId}>
-                    {g.primaryGoalLabel ?? g.goalId}
+                    {resolveGoalDisplayLabel(g.goalId)}
                   </option>
                 ))}
               </select>
@@ -738,7 +739,7 @@ export function ClientHubPanel({
                   <span>{formatDate(entry.createdAtUtc)}</span>
                   {entry.goalId && (
                     <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: 'var(--fd-card)' }}>
-                      {goals.find(g => g.goalId === entry.goalId)?.primaryGoalLabel ?? entry.goalId}
+                      {resolveGoalDisplayLabel(entry.goalId)}
                     </span>
                   )}
                 </div>
