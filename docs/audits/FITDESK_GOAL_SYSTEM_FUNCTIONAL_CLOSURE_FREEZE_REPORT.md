@@ -7,7 +7,9 @@
 | **Date** | 2026-07-13 |
 | **Branch** | `fix/goal-system-functional-closure` |
 | **Baseline (main)** | `6b4bf1d` (untouched) |
-| **Final HEAD** | `62477e3` |
+| **Implementation HEAD (Phases 1–5 complete)** | `62477e3` |
+| **Candidate freeze report commit (Phase 6)** | `4b5b193` |
+| **Current branch HEAD** | this docs-only metadata-correction commit (see §10 commit list; content is unchanged from `4b5b193` other than this metadata correction) |
 | **Governing plan** | `docs/plans/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_PLAN.md` (v1.1) |
 | **Baseline audit** | `docs/audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md` |
 
@@ -29,7 +31,7 @@ All automated closure gates pass (full suite, lint, build, isolated index verifi
 | 3 — Transactional updates | `replaceClientGoals` (strict replace-set, archive semantics, atomic, audit) + `updateClientGoalsAction` | `3d592a6`, corrected in `3d9652a` |
 | 4 — Reachable Hub editor | `GoalEditorSheet` (confirmed-first) reusing the GoalWorkspace reducer; edit-page link | `be870bf` |
 | 5 — Integrity & canonicalization | Centralized primary invariant; partial unique indexes (defense-in-depth); AI parse derived from taxonomy; dead selectors removed; flag parity proven | `62477e3` |
-| 6 — Verification & freeze | This report | (pending commit) |
+| 6 — Verification & freeze | This report | `4b5b193` |
 
 **Phase 3 correction note (`3d9652a`):** the initial Phase 3 commit (`3d592a6`) contained defects that vitest did not catch because the test harness does not typecheck — the reconcile loop wrote to non-existent Drizzle properties (`subGoalIds`/`trainerSubGoalIds`/`safetyFlags`) which Drizzle silently dropped, so sub-goals and safety flags would not have persisted. The correction switched to the real JSON columns, fixed the context type, added `hasGoalHistory` (Decision D3), and expanded the test suite to round-trip non-empty sub-goals/safety. This is disclosed here rather than hidden.
 
@@ -133,6 +135,7 @@ Scanned the goal create/update paths (`replaceClientGoals`, `updateClientGoalsAc
 ## 10. Commits (this branch)
 
 ```
+4b5b193 docs(goals): add goal system closure candidate report            (Phase 6)
 62477e3 refactor(goals): enforce canonical goal system invariants        (Phase 5)
 be870bf feat(goals): enable client goal editing from client hub          (Phase 4)
 3d9652a fix(goals): complete transactional goal update guarantees         (Phase 3 correction + D3)
@@ -151,7 +154,7 @@ a2a781d fix(goals): preserve complete goal drafts on client creation      (Phase
 
 ## 12. Handover status
 
-- Branch `fix/goal-system-functional-closure` @ `62477e3` — **ready for product-owner QA**.
+- Branch `fix/goal-system-functional-closure` — implementation complete at `62477e3` (Phases 1–5), candidate freeze report at `4b5b193` (Phase 6) — **ready for product-owner QA**.
 - `main` untouched at `6b4bf1d`; nothing merged, pushed, or deployed.
 - Working tree clean.
 - Modernization remains **blocked** until this report is product-owner-approved, manual QA (§4) passes, and the deployment gates (§5) are cleared (Decision D1).
