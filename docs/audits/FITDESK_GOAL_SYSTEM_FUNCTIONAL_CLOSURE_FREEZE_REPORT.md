@@ -4,24 +4,30 @@
 |---|---|
 | **Product** | FitDesk |
 | **Document** | Goal System Functional Closure — Candidate Freeze Report |
-| **Date** | 2026-07-13 |
+| **Date** | 2026-07-15 |
 | **Branch** | `fix/goal-system-functional-closure` |
 | **Baseline (main)** | `6b4bf1d` (untouched) |
 | **Implementation HEAD (Phases 1–5 complete)** | `62477e3` |
 | **Candidate freeze report commit (Phase 6)** | `4b5b193` |
-| **Current branch HEAD** | this docs-only metadata-correction commit (see §10 commit list; content is unchanged from `4b5b193` other than this metadata correction) |
+| **Metadata-correction commit (Phase 6, cont.)** | `5df3c0b` |
+| **Progress-selector & canonical-label closure (Phase 7)** | `e4d6180`, `19fa07e`, `db3cb07` |
+| **Current branch HEAD (implementation)** | `db3cb07` |
+| **This freeze-report correction commit** | pending — not yet committed (see §13 recommended next sequence, item A) |
 | **Governing plan** | `docs/plans/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_PLAN.md` (v1.1) |
 | **Baseline audit** | `docs/audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md` |
 
 ## Verdict
 
-**PASS — IMPLEMENTATION COMPLETE, READY FOR PRODUCT-OWNER QA**
+**READY TO FREEZE**
 
-All automated closure gates pass (full suite, lint, build, isolated index verification, tenant-isolation and forbidden-side-effect checks). This is **not** a production freeze: browser/manual acceptance QA and the production backup/migration/deployment gates below remain and are the product owner's to execute.
+This means:
+- The Goal System branch is **functionally complete** and eligible for a **documentation freeze** — implementation, automated verification, and live manual/browser QA (product owner, this update) all pass.
+- This **does not authorize an automatic production deployment**. Freezing the branch is a statement about the code and its verification, not a deployment decision.
+- A merge into an auto-deploying `main` branch **remains blocked** until the production schema/migration preflight (§5) is completed and separately approved. See §12 for the explicit release-decision gates.
 
 ---
 
-## 1. Scope delivered (Phases 1–6)
+## 1. Scope delivered (Phases 1–7)
 
 | Phase | Outcome | Commit |
 |---|---|---|
@@ -31,9 +37,14 @@ All automated closure gates pass (full suite, lint, build, isolated index verifi
 | 3 — Transactional updates | `replaceClientGoals` (strict replace-set, archive semantics, atomic, audit) + `updateClientGoalsAction` | `3d592a6`, corrected in `3d9652a` |
 | 4 — Reachable Hub editor | `GoalEditorSheet` (confirmed-first) reusing the GoalWorkspace reducer; edit-page link | `be870bf` |
 | 5 — Integrity & canonicalization | Centralized primary invariant; partial unique indexes (defense-in-depth); AI parse derived from taxonomy; dead selectors removed; flag parity proven | `62477e3` |
-| 6 — Verification & freeze | This report | `4b5b193` |
+| 6 — Verification & freeze (candidate) | Initial candidate freeze report | `4b5b193`, metadata correction `5df3c0b` |
+| 7a — Canonical labels in Client Hub | Goal-card titles, focus/assessment chips, progress goal-link dropdown, and saved progress-entry labels all resolved via shared `resolveGoalDisplayLabel`/`resolveSubGoalDisplayLabel` instead of raw-id/per-row fallback rendering | `e4d6180` |
+| 7b — Selection feedback & notes clarity | Improved chip selected-state feedback (Add Client + Edit Goals); clarified separation between per-goal notes and general client notes | `19fa07e` |
+| 7c — Progress goal-selector preservation | Removed `revalidatePath` from `addProgressEntryAction`; local server-confirmed-event state for Progress/Recent activity — fixes the trainer's explicit goal-link selection (including "No goal link") silently resetting to the primary goal immediately after submitting a progress entry | `db3cb07` |
 
 **Phase 3 correction note (`3d9652a`):** the initial Phase 3 commit (`3d592a6`) contained defects that vitest did not catch because the test harness does not typecheck — the reconcile loop wrote to non-existent Drizzle properties (`subGoalIds`/`trainerSubGoalIds`/`safetyFlags`) which Drizzle silently dropped, so sub-goals and safety flags would not have persisted. The correction switched to the real JSON columns, fixed the context type, added `hasGoalHistory` (Decision D3), and expanded the test suite to round-trip non-empty sub-goals/safety. This is disclosed here rather than hidden.
+
+**Phase 7c root cause (`db3cb07`):** a Server Action response that carries revalidated RSC data (from `revalidatePath`) automatically refreshes the currently active Next.js route and remounts `ClientHubPanel`, resetting its in-progress `progressGoalId` selection to a freshly-computed default — independent of whether the client ever called `router.refresh()` itself. The fix removes `revalidatePath` from this one action only; the caller already updates Progress/Recent activity locally from the action's own server-confirmed returned event. Sibling actions retain `revalidatePath` where their own contracts require it.
 
 ---
 
@@ -41,15 +52,17 @@ All automated closure gates pass (full suite, lint, build, isolated index verifi
 
 | Check | Command | Result |
 |---|---|---|
-| Full unit/integration suite | `npx vitest run` | **4698 passed / 4698**, 152 files, exit 0 |
-| Goal-system targeted group | `npx vitest run lib/goals lib/clients/__tests__/{repository,hub-map,ai-parse}.test.ts components/clients/GoalAccordion lib/db/__tests__/client-goal-indexes.test.ts` | **764 passed / 764**, 20 files |
-| Repository (isolation) | `npx vitest run lib/clients/__tests__/repository.test.ts` | **206 passed / 206** |
-| Isolated index verification | `npx vitest run lib/db/__tests__/client-goal-indexes.test.ts` | **7 passed / 7** |
+| Full unit/integration suite (isolated, authoritative) | `npx vitest run --no-file-parallelism --maxWorkers=1 --exclude ".claude/worktrees/**"` | **2410 passed / 2410**, 79 files, exit 0 |
+| Goal-system + Client Hub targeted group | `npx vitest run lib/goals lib/clients/__tests__/{repository,hub-map,ai-parse,progress-goal-selection}.test.ts components/clients/GoalAccordion lib/db/__tests__/client-goal-indexes.test.ts actions/clients.test.ts` | 1036 passed / 1037, 23/24 files (see reliability note below) |
+| Repository (isolation) | `npx vitest run lib/clients/__tests__/repository.test.ts` | included in full suite, passing |
+| Isolated index verification | `npx vitest run lib/db/__tests__/client-goal-indexes.test.ts` | included in full suite, passing |
 | Lint | `npx next lint` | exit 0 — *No ESLint warnings or errors* |
-| Build | `npx next build` | exit 0 — *Compiled successfully* (22 routes) |
-| Type-check (source) | `npx tsc --noEmit` (source files) | 0 errors in changed source files |
+| Build | `npm run build` | exit 0 — *Compiled successfully* (22 routes, both canonical and intercepted-overlay client routes) |
+| Local Docker health | `docker ps` / `curl /api/health` | `axis-local-fitdesk-1` healthy; `200 OK` |
 
-> Note on `tsc`: pre-existing type errors exist in several **unrelated test files** (e.g. `actions/messages.test.ts`, `actions/schedulingActions.test.ts`, `lib/__tests__/pilot.test.ts`) that predate this branch and were not touched. `next build` (the authoritative gate) compiles clean. A `| tail` pipe initially masked a genuine build failure (duplicate `urgency` key); it was found via `tsc`, fixed, and the build re-run capturing the real exit code (0).
+> **Test-runner reliability note (not a Goal System blocker):** two vitest invocations on this development machine — one full-suite run with `next lint` running concurrently in the background, and one large focused-subset run — each hit a single transient `Worker exited unexpectedly` fork crash, with zero failing assertions in either case (all tests that did run passed). A clean, isolated re-run of the exact same full-suite command immediately afterward passed completely: **79/79 files, 2410/2410 tests, exit code 0, no `.claude/worktrees` paths, no worker crash.** This pattern is consistent with Node/OS fork-resource contention under concurrent background load, not a defect tied to any specific test file or to Goal System code. It is noted here for CI-reliability awareness (avoid running large concurrent vitest invocations on constrained hardware), not as an implementation risk.
+
+> Note on `tsc`: pre-existing type errors exist in several **unrelated test files** (e.g. `actions/messages.test.ts`, `actions/schedulingActions.test.ts`, `lib/__tests__/pilot.test.ts`) that predate this branch and were not touched. `next build` (the authoritative gate) compiles clean.
 
 ### Acceptance matrix — automated coverage
 
@@ -71,37 +84,63 @@ All automated closure gates pass (full suite, lint, build, isolated index verifi
 | Both selector states equivalent persistence | GoalAccordion selector-parity tests |
 | No ERP fallback once local history exists | `hasGoalHistory` tests + hub-map D3 tests |
 | No competing ERP/local display | detail-page gating on `!hub?.hasGoalHistory` (code) + hub-map tests |
+| Canonical goal/sub-goal labels on every display surface | `lib/goals/__tests__/format.test.ts` (shared helper tests) + `hub-map.test.ts` |
+| Progress goal-selector preservation (explicit selection survives submission) | `lib/clients/__tests__/progress-goal-selection.test.ts` + `actions/clients.test.ts` (`revalidatePath` not called) |
 
 ---
 
-## 3. Browser / E2E evidence actually executed
+## 3. Manual / Browser QA — Executed and Confirmed by Product Owner
 
-**None.** No Playwright/Cypress config or `test:e2e` script exists in this repo, and no DOM test environment (jsdom/RTL) is installed. Per the run constraint, **no browser-testing dependency was installed for this run.** The React component *logic* (reducer hydration, draft mapping, parity, confirmed-first control flow inputs) is unit-tested; the rendered DOM was not exercised.
+**This corrects the prior version of this report, which incorrectly stated no browser/E2E QA had been executed.** Claude did not perform this QA — Claude lacked login credentials for the local stack in every session of this engagement. The product owner independently executed live QA in a browser against the rebuilt local Docker image and confirmed the following:
+
+**Goal UX (Commit A):**
+- Selected Add Client chips showed checkmarks and a visually distinct selected state.
+- Edit Goals chips showed checkmarks and a visually distinct selected state.
+- "Notes for this goal" and "General client notes" were visibly separate fields.
+- Goal edits and notes persisted correctly.
+
+**Progress selector (Commit B):**
+- Zero-goal client remained unlinked.
+- One-goal client defaulted to Rehabilitation & Recovery.
+- Multi-goal client initially defaulted to Strength & Power.
+- Explicit "No goal link" remained selected immediately after submission.
+- "Mobility & Flexibility" remained selected immediately after submission.
+- Server-confirmed entries appeared immediately.
+- Unlinked entries displayed without a goal badge.
+- Linked entries displayed the canonical "Mobility & Flexibility" badge.
+- Recent activity updated immediately.
+- Entries remained visible after navigating away and reopening.
+- F5 reset the selector to Strength & Power (correct fresh-load default).
+- This behavior was revalidated after a no-cache Docker build and container force-recreate.
+- The local FitDesk container was healthy throughout.
+
+This QA covers the full Goal UX (Commit A) and Progress selector (Commit B) acceptance scenarios end-to-end in a real browser, superseding the automated-only evidence claimed in the prior version of this report.
 
 ---
 
 ## 4. Manual QA still pending (product owner)
 
-These require a running app / device and were **not** executed here:
+The following were **not** covered by the QA pass recorded in §3 and remain open:
 
-1. **Rendered reload fidelity** — refresh / direct-URL navigation shows the full goal set on the real page (logic is tested; the DOM render is not).
-2. **Confirmed-first UX in the browser** — editor stays open during save, disabled submit while pending, success only after server success, `router.refresh()` pulls new state, failed save keeps the sheet open with input intact.
-3. **Mobile 375px** — `GoalEditorSheet` bottom-sheet layout, scroll, and safe-area padding on a real 375px viewport.
-4. **Accessibility** — dialog focus management, keyboard operability, Escape-to-close under real focus conditions.
-5. **Hard-conflict save block** — the sheet's disabled save + message when a hard conflict is present.
-6. **Full acceptance matrix walkthrough** on both flag states across Add Client (sheet, intercepted, full page) and the Client Hub.
+1. **Confirmed-first save-failure UX** — editor stays open during save, disabled submit while pending, success only after server success, and the sheet stays open with input intact when a save fails server-side. (Logic is unit-tested; this specific failure-path UX was not exercised live.)
+2. **Mobile 375px** — `GoalEditorSheet` bottom-sheet layout, scroll, and safe-area padding on a real 375px viewport.
+3. **Accessibility** — dialog focus management, keyboard operability, Escape-to-close under real focus conditions (the underlying `aria-*` attributes are present in code and were not disproven, but were not exercised with assistive tech or keyboard-only navigation).
+4. **Hard-conflict save block** — the sheet's disabled save + message when a hard conflict is present.
+5. **Full acceptance matrix walkthrough across both flag states** — the QA in §3 was run against one flag configuration; the full matrix across both selector states / flag states has not been separately re-walked.
+
+None of these are Goal System blockers — the underlying logic for each is unit-tested — but they remain open manual-QA items the product owner may choose to close before or after freeze, at their discretion.
 
 ---
 
 ## 5. Production backup / migration / deployment gates still pending
 
-The Phase 5 partial unique indexes were verified **only against isolated temporary libSQL databases**. Before production:
+The Phase 5 partial unique indexes (`lib/db/schema.ts`, `scripts/migrate-app.mjs`, introduced by `62477e3`) were verified **only against isolated temporary libSQL databases**. These are **production deployment gates, not Goal System functional blockers** — the Goal System itself is complete and correct with or without these indexes (the repository layer enforces the same invariants at the application level; the indexes are additive defense-in-depth). Before any production deployment:
 
-1. **Production backup confirmation** — not performed here; **no production backup verification is claimed.**
-2. **Read-only duplicate scan on production data** — scan `(tenant_id, client_index_id, goal_id)` among `status='active'` rows and remediate any pre-existing duplicates **before** the unique indexes are applied (a duplicate would make `CREATE UNIQUE INDEX` fail).
-3. **Migration execution** — run `scripts/migrate-app.mjs` against staging, then production, during deployment. DDL is additive and idempotent (`IF NOT EXISTS`), verified idempotent in the isolated test.
-4. **Rollback** — the indexes are additive; rollback is `DROP INDEX client_goal_active_uniqueness; DROP INDEX client_goal_active_primary;`. The repository enforces the same invariants without them, so dropping the indexes does not corrupt data.
-5. **Deployment approval** — merge to `main` → Dokploy deploy remains a separate, human-approved gate.
+a. **Verified production backup** — not performed here; **no production backup verification is claimed.**
+b. **Read-only duplicate-data scan** — scan `(tenant_id, client_index_id, goal_id)` among `status='active'` rows and remediate any pre-existing duplicates **before** the unique indexes are applied (a duplicate would make `CREATE UNIQUE INDEX` fail).
+c. **Staged migration execution** — run `scripts/migrate-app.mjs` against staging, then production, during a separately-approved deployment. DDL is additive and idempotent (`IF NOT EXISTS`), verified idempotent in the isolated test.
+d. **Rollback procedure** — the indexes are additive; rollback is `DROP INDEX client_goal_active_uniqueness; DROP INDEX client_goal_active_primary;`. The repository enforces the same invariants without them, so dropping the indexes does not corrupt data.
+e. **Deployment approval** — merge to `main` → auto-deploy remains a separate, human-approved gate, distinct from and subsequent to gates a–d.
 
 ---
 
@@ -114,47 +153,76 @@ The Phase 5 partial unique indexes were verified **only against isolated tempora
 
 ## 7. Forbidden-side-effect evidence
 
-Scanned the goal create/update paths (`replaceClientGoals`, `updateClientGoalsAction`, `GoalEditorSheet`, `GoalWorkspace/*`): **no** ERP mutation, invoice, Payment Entry, package consumption, session creation/completion, WhatsApp send, program creation, or network `fetch`. `lib/clients/repository.ts` contains zero `erpnext` references. Goal editing is strictly local; the only external effect is `revalidatePath` on the client route.
+Scanned the goal create/update paths (`replaceClientGoals`, `updateClientGoalsAction`, `GoalEditorSheet`, `GoalWorkspace/*`) and the progress-entry path (`addProgressEntryAction`): **no** ERP mutation, invoice, Payment Entry, package consumption, session creation/completion, WhatsApp send, program creation, or network `fetch`. `lib/clients/repository.ts` contains zero `erpnext` references. Goal editing is strictly local; the only external effect on the goal paths is `revalidatePath` on the client route. `addProgressEntryAction` (Phase 7c) intentionally omits `revalidatePath` — see §1 Phase 7c.
 
 ## 8. Isolated index / migration evidence
 
-`lib/db/__tests__/client-goal-indexes.test.ts` (7 tests, against the actual `@libsql/client`): confirms the engine supports partial `WHERE` unique indexes; the DDL is idempotent; the uniqueness index blocks a duplicate **active** `(tenant, client, goal)` while allowing archived duplicates and active reuse alongside archived history; the primary index blocks a second **active primary** per `(tenant, client)`.
+`lib/db/__tests__/client-goal-indexes.test.ts` (part of the 79-file suite, against the actual `@libsql/client`): confirms the engine supports partial `WHERE` unique indexes; the DDL is idempotent; the uniqueness index blocks a duplicate **active** `(tenant, client, goal)` while allowing archived duplicates and active reuse alongside archived history; the primary index blocks a second **active primary** per `(tenant, client)`.
 
 ---
 
 ## 9. Files changed (by phase)
 
-29 files, **+1643 / −315** since `6b4bf1d`. Highlights:
+Since `6b4bf1d`, through Phase 7 (`db3cb07`). Highlights:
 
 - **Phase 1:** `GoalAccordion/{types,GoalAccordion}.tsx`, `AddClientForm.tsx` (+ tests)
 - **Phase 2:** `types/clients.ts`, `lib/clients/hub-map.ts`, `ClientHubPanel.tsx`, detail/edit pages (+ tests)
 - **Phase 3 (+correction):** `lib/clients/repository.ts`, `actions/clients.ts`, `lib/clients/hub.ts` (+ repository/hub-map tests)
 - **Phase 4:** `components/clients/GoalEditorSheet.tsx` (new), `GoalWorkspace/{state,reducer,index}.ts`, `ClientHubPanel.tsx`, edit page (+ workspace tests)
 - **Phase 5:** `lib/goals/primary-invariant.ts` (new), `lib/db/schema.ts`, `scripts/migrate-app.mjs`, `lib/clients/ai-parse.ts`, deleted `components/ui/GoalSelect.tsx` + `GoalMultiSelect.tsx`, `lib/db/__tests__/client-goal-indexes.test.ts` (new), primary-invariant + parity tests
+- **Phase 7a (`e4d6180`):** `components/modules/ClientHubPanel.tsx`, `lib/goals/display.ts` (new), `lib/goals/__tests__/format.test.ts` (new)
+- **Phase 7b (`19fa07e`):** `components/clients/AddClientForm.tsx`, `components/clients/GoalAccordion/GoalAccordion.tsx`, `components/clients/GoalWorkspace/ActiveGoalInspector.tsx`
+- **Phase 7c (`db3cb07`):** `actions/clients.ts`, `actions/clients.test.ts`, `components/modules/ClientHubPanel.tsx`, `lib/clients/hub-map.ts` (+ tests), `lib/clients/progress-goal-selection.ts` (new, + tests)
 
 ## 10. Commits (this branch)
 
 ```
-4b5b193 docs(goals): add goal system closure candidate report            (Phase 6)
-62477e3 refactor(goals): enforce canonical goal system invariants        (Phase 5)
-be870bf feat(goals): enable client goal editing from client hub          (Phase 4)
-3d9652a fix(goals): complete transactional goal update guarantees         (Phase 3 correction + D3)
-3d592a6 feat(goals): add transactional client goal updates                (Phase 3)
-1b299f0 Revert "docs: add Phase 3-6 implementation roadmap"               (housekeeping)
-8576b84 fix(goals): hydrate complete goal state in client hub            (Phase 2)
-a2a781d fix(goals): preserve complete goal drafts on client creation      (Phase 1)
+db3cb07 fix(clients): preserve progress goal selection                 (Phase 7c)
+19fa07e fix(goals): improve selection feedback and clarify notes       (Phase 7b)
+e4d6180 fix(goals): resolve canonical labels in client hub             (Phase 7a)
+5df3c0b docs(goals): correct closure freeze report metadata            (Phase 6, cont.)
+4b5b193 docs(goals): add goal system closure candidate report          (Phase 6)
+62477e3 refactor(goals): enforce canonical goal system invariants      (Phase 5)
+be870bf feat(goals): enable client goal editing from client hub        (Phase 4)
+3d9652a fix(goals): complete transactional goal update guarantees      (Phase 3 correction + D3)
+3d592a6 feat(goals): add transactional client goal updates             (Phase 3)
+1b299f0 Revert "docs: add Phase 3-6 implementation roadmap"            (housekeeping)
+8576b84 fix(goals): hydrate complete goal state in client hub          (Phase 2)
+a2a781d fix(goals): preserve complete goal drafts on client creation   (Phase 1)
 ```
 
 ## 11. Remaining risks
 
-1. **No browser/DOM test coverage** for the editor — the confirmed-first UX and 375px layout rely on manual QA (§4). *Mitigation: logic is unit-tested; UX follows the existing SignOutConfirmSheet pattern.*
+1. **No live browser/DOM coverage for a subset of manual QA items** (§4) — confirmed-first save-failure UX, 375px mobile layout, assistive-tech accessibility, and hard-conflict save block. *Mitigation: the underlying logic for each is unit-tested; §3's live QA pass already covers the primary Goal UX and Progress selector acceptance scenarios end-to-end.*
 2. **Pre-existing duplicate active rows in production** would block the unique-index migration. *Mitigation: the §5 read-only scan gate must run first; the app has enforced repository-level uniqueness only since this branch, so legacy data could in principle contain duplicates.*
 3. **Legacy never-projected clients** with zero active goals and no local history still show ERP `custom_fitness_goals` text and have no Hub "Edit goals" entry point (only clients with local history do). This is intended fallback behavior, not a regression, but such clients cannot yet open the editor from the Hub.
 4. **Pre-existing unrelated test-file type errors** remain (not introduced here); they do not affect `next build`.
+5. **"Reorder" is not an implemented capability.** No drag/move action exists anywhere in the `GoalWorkspace` reducer (`ADD_GOAL`/`REMOVE_GOAL`/`SET_PRIMARY`/etc. — no `MOVE_GOAL`). Goals currently follow **add-order**: the order goals were selected in, with no explicit UI reorder control. This was never implemented and was never part of this closure's scope — it is **not** a regression and **not** a blocker. Any acceptance wording that implied reorder as a delivered capability is corrected by this report.
+6. **Test-runner concurrency flake** (§2) — noted for CI-reliability awareness only, not a code defect.
 
-## 12. Handover status
+---
 
-- Branch `fix/goal-system-functional-closure` — implementation complete at `62477e3` (Phases 1–5), candidate freeze report at `4b5b193` (Phase 6) — **ready for product-owner QA**.
+## 12. Release Decision
+
+| Gate | Status |
+|---|---|
+| **Branch freeze** | **APPROVED** — Goal System implementation (Phases 1–7) is functionally complete, automated-verified, and live-QA-confirmed by the product owner. |
+| **Controlled merge preparation** | **APPROVED** — *only* when merging does not automatically trigger a production deployment (e.g., a merge target/process without an auto-deploy hook, or a merge gated behind a separate manual deploy step). |
+| **Merge to an auto-deploying production `main` branch** | **BLOCKED** until the production migration preflight (§5, gates a–d) is completed and separately approved. |
+| **Production deployment** | **NOT AUTHORIZED** by this freeze report. This document freezes the branch and its documentation; it is not a deployment approval. |
+| **Deferred Pay-per-Session billing** | Remains **out of scope** for this branch and report. Must be handled on its own separate release-blocking branch. |
+
+## 13. Recommended next sequence
+
+A. Commit this corrected freeze report (documentation-only commit).
+B. Prepare a read-only production migration preflight (no writes, no schema changes performed yet).
+C. Verify production backup and run the read-only duplicate-data scan (§5b).
+D. Approve the migration and rollback procedure (§5c–d) with whoever owns production deployment sign-off.
+E. Only then prepare the controlled merge/deployment gate (§12) — this step is explicitly **not** authorized by this report alone.
+
+## 14. Handover status
+
+- Branch `fix/goal-system-functional-closure` — implementation complete through Phase 7 at `db3cb07` — **READY TO FREEZE** per §Verdict and §12.
 - `main` untouched at `6b4bf1d`; nothing merged, pushed, or deployed.
-- Working tree clean.
-- Modernization remains **blocked** until this report is product-owner-approved, manual QA (§4) passes, and the deployment gates (§5) are cleared (Decision D1).
+- Working tree clean at the time of this report.
+- Production deployment remains **blocked** until the §5 gates are cleared and the §12 release decision's merge/deploy gates are separately approved.
