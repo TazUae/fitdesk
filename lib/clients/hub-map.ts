@@ -23,8 +23,8 @@ import type {
 } from '@/types/clients'
 import type { PackagePurchaseWithBalance } from '@/types/billing'
 
-const MAX_RECENT_NOTES = 10
-const MAX_PROGRESS_ENTRIES = 10
+export const MAX_RECENT_NOTES = 10
+export const MAX_PROGRESS_ENTRIES = 10
 
 /**
  * Derives a compact package balance summary from active purchases that have a
@@ -40,6 +40,42 @@ export function derivePackageBalance(
     totalAvailableSessions: active.reduce((sum, p) => sum + p.remainingBalance, 0),
     activePurchaseCount:    active.length,
     displayTemplateName:    active[0]?.templateSnapshot?.name ?? null,
+  }
+}
+
+/**
+ * Maps a single ClientEvent to its generic "Recent activity" summary shape.
+ * `text` is populated only for `type: 'client.note'` events (US-053) — every
+ * other event type remains label-only in the UI (see EVENT_LABELS in
+ * ClientHubPanel). Pure, no I/O, does not mutate the input event.
+ *
+ * Single-event form of the mapping used inside mapToClientHubOverview — also
+ * reused client-side (ClientHubPanel) to append a server-confirmed event to
+ * the local "Recent activity" list without a full overview refetch.
+ */
+export function mapEventToNoteSummary(e: ClientEvent): ClientNoteSummary {
+  return {
+    id:           e.id,
+    type:         e.type,
+    createdAtUtc: e.createdAtUtc,
+    text:         e.type === 'client.note' && typeof e.payloadJson.text === 'string' ? e.payloadJson.text : null,
+  }
+}
+
+/**
+ * Maps a single `client.progress` ClientEvent to its ClientProgressEntrySummary
+ * shape (US-052). Pure, no I/O, does not mutate the input event. Does not
+ * check `e.type` itself — callers filter for `'client.progress'` events (see
+ * mapToClientHubOverview) or already know the event is a progress entry (see
+ * ClientHubPanel's post-submit append, where the event just came back from
+ * addProgressEntryAction's 'created' outcome).
+ */
+export function mapEventToProgressEntrySummary(e: ClientEvent): ClientProgressEntrySummary {
+  return {
+    id:           e.id,
+    text:         typeof e.payloadJson.text === 'string' ? e.payloadJson.text : '',
+    goalId:       typeof e.payloadJson.goalId === 'string' ? e.payloadJson.goalId : null,
+    createdAtUtc: e.createdAtUtc,
   }
 }
 
@@ -76,22 +112,12 @@ export function mapToClientHubOverview(
 
   const noteSummaries: ClientNoteSummary[] = events
     .slice(0, MAX_RECENT_NOTES)
-    .map(e => ({
-      id:           e.id,
-      type:         e.type,
-      createdAtUtc: e.createdAtUtc,
-      text:         e.type === 'client.note' && typeof e.payloadJson.text === 'string' ? e.payloadJson.text : null,
-    }))
+    .map(mapEventToNoteSummary)
 
   const progressEntries: ClientProgressEntrySummary[] = events
     .filter(e => e.type === 'client.progress')
     .slice(0, MAX_PROGRESS_ENTRIES)
-    .map(e => ({
-      id:           e.id,
-      text:         typeof e.payloadJson.text === 'string' ? e.payloadJson.text : '',
-      goalId:       typeof e.payloadJson.goalId === 'string' ? e.payloadJson.goalId : null,
-      createdAtUtc: e.createdAtUtc,
-    }))
+    .map(mapEventToProgressEntrySummary)
 
   return {
     client: {

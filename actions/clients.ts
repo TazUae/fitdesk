@@ -645,10 +645,12 @@ export async function addProgressEntryAction(
     const repo = new ClientRepository(db)
     const result = await repo.addProgressEntry({ tenantId: ctx.tenantId }, clientIndexId, trimmed, resolvedGoalId)
 
-    if (result.outcome === 'created') {
-      revalidatePath(`/dashboard/clients/${encodeURIComponent(result.event.erpCustomerId ?? '')}`)
-    }
-
+    // No revalidatePath here (unlike sibling actions): a Server Action
+    // response carrying revalidated RSC data auto-refreshes the currently
+    // active route, remounting ClientHubPanel and resetting its in-progress
+    // goal-link selection. The caller already updates Progress/Recent
+    // activity locally from this action's own returned confirmed event —
+    // see ClientHubPanel's handleAddProgress.
     return { success: true, data: result }
   } catch (err) {
     return {

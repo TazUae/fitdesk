@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -21,6 +21,8 @@ import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
 import { GoalEditorSheet } from '@/components/clients/GoalEditorSheet'
 import { resolveGoalDisplayLabel, resolveSubGoalDisplayLabel } from '@/lib/goals/display'
+import { resolveInitialProgressGoalId } from '@/lib/clients/progress-goal-selection'
+import { MAX_PROGRESS_ENTRIES, MAX_RECENT_NOTES, mapEventToNoteSummary, mapEventToProgressEntrySummary } from '@/lib/clients/hub-map'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -197,7 +199,7 @@ export function ClientHubPanel({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const { client, goals, hasGoalHistory, pendingActions, recentNotes, progressEntries, placeholders } = overview
+  const { client, goals, hasGoalHistory, pendingActions, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
   const [goalEditorOpen, setGoalEditorOpen]     = useState(false)
@@ -205,8 +207,25 @@ export function ClientHubPanel({
   const [noteDraft, setNoteDraft] = useState('')
   const [isNotePending, startNoteTransition] = useTransition()
   const [progressDraft, setProgressDraft] = useState('')
-  const [progressGoalId, setProgressGoalId] = useState('')
+  const [progressGoalId, setProgressGoalId] = useState(() => resolveInitialProgressGoalId(goals))
   const [isProgressPending, startProgressTransition] = useTransition()
+
+  // Local, server-confirmed copies of recentNotes/progressEntries. Updated in
+  // place from addProgressEntryAction's own confirmed response so the Progress
+  // and Recent activity cards reflect a successful submission without needing
+  // router.refresh() (which re-renders this panel from fresh server props and
+  // would otherwise reset progressGoalId's selection). Re-synced below whenever
+  // a genuine refresh/remount supplies a new overview from the server.
+  const [recentNotes, setRecentNotes] = useState(overview.recentNotes)
+  const [progressEntries, setProgressEntries] = useState(overview.progressEntries)
+
+  useEffect(() => {
+    setRecentNotes(overview.recentNotes)
+  }, [overview.recentNotes])
+
+  useEffect(() => {
+    setProgressEntries(overview.progressEntries)
+  }, [overview.progressEntries])
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -263,9 +282,23 @@ export function ClientHubPanel({
         )
         return
       }
+
+      // Append the server-confirmed event locally (same mapping the server
+      // uses for a fresh overview) instead of router.refresh() — keeps
+      // progressGoalId's selection untouched and avoids depending on this
+      // panel's host tree (canonical page vs. intercepted overlay) preserving
+      // client state across a refresh-triggered re-render.
+      const event = result.data.event
+      const progressSummary = mapEventToProgressEntrySummary(event)
+      setProgressEntries(prev =>
+        [progressSummary, ...prev.filter(entry => entry.id !== progressSummary.id)].slice(0, MAX_PROGRESS_ENTRIES),
+      )
+      const noteSummary = mapEventToNoteSummary(event)
+      setRecentNotes(prev =>
+        [noteSummary, ...prev.filter(note => note.id !== noteSummary.id)].slice(0, MAX_RECENT_NOTES),
+      )
+
       setProgressDraft('')
-      setProgressGoalId('')
-      router.refresh()
     })
   }
 
