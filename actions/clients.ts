@@ -18,6 +18,7 @@ import { db } from '@/lib/db'
 import { sanitizeSelectedGoalDrafts } from '@/lib/clients/create-draft'
 import { detectConflicts } from '@/lib/goals/conflicts'
 import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
+import { checkPrimaryInvariant } from '@/lib/goals/primary-invariant'
 import { isIntakeGoalId, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type { ActionResult, Client } from '@/types'
 import type { AddClientPrimaryGoal, AddProgressEntryResult, BillingMode, ClientStatedSubGoals, DuplicateClientMatch, ClientParseResult, MissingNextSessionCandidateResult, ReminderCandidateResult, SelectedGoalDraft, WhatsAppConsentState } from '@/types/clients'
@@ -182,12 +183,13 @@ export async function addClient(
     }]
   }
 
-  // Invariant: when goals are provided, exactly one must be primary.
+  // Invariant: when goals are provided, exactly one must be primary (Decision D7).
+  // Shared helper — identical rule to the update path (repository.replaceClientGoals).
   // Checked before the ERP call so no Customer is created for an invalid payload.
   let goalIds: IntakeGoalId[] = []
   if (resolvedGoals && resolvedGoals.length > 0) {
-    const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
-    if (primaryCount !== 1) {
+    if (checkPrimaryInvariant(resolvedGoals) !== null) {
+      const primaryCount = resolvedGoals.filter(g => g.isPrimary).length
       return {
         success: false,
         error: `Exactly one goal must be marked as primary (got ${primaryCount}).`,
@@ -643,10 +645,12 @@ export async function addProgressEntryAction(
     const repo = new ClientRepository(db)
     const result = await repo.addProgressEntry({ tenantId: ctx.tenantId }, clientIndexId, trimmed, resolvedGoalId)
 
-    if (result.outcome === 'created') {
-      revalidatePath(`/dashboard/clients/${encodeURIComponent(result.event.erpCustomerId ?? '')}`)
-    }
-
+    // No revalidatePath here (unlike sibling actions): a Server Action
+    // response carrying revalidated RSC data auto-refreshes the currently
+    // active route, remounting ClientHubPanel and resetting its in-progress
+    // goal-link selection. The caller already updates Progress/Recent
+    // activity locally from this action's own returned confirmed event —
+    // see ClientHubPanel's handleAddProgress.
     return { success: true, data: result }
   } catch (err) {
     return {
@@ -733,6 +737,40 @@ export async function dismissClientAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to dismiss action.',
+    }
+  }
+}
+
+// ─── Phase 3: Goal update action ──────────────────────────────────────────
+
+/**
+ * Replace the complete active goal set for a client.
+ * Strict validation, atomic transaction, trusted revalidation identity (D9).
+ * No ERP call; local-only mutation.
+ */
+export async function updateClientGoalsAction(
+  clientIndexId: string,
+  goals: SelectedGoalDraft[],
+): Promise<ActionResult<void>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) return { success: false, error: resolved.error }
+
+  try {
+    const ctx = await getTenantContext()
+    if (!ctx?.tenantId) return { success: false, error: 'Tenant context not available.' }
+
+    const repo = new ClientRepository(db)
+    const result = await repo.replaceClientGoals({ tenantId: ctx.tenantId }, clientIndexId, goals)
+
+    // Revalidate using the repository-returned tenant-verified erpCustomerId (Decision D9)
+    revalidatePath(`/dashboard/clients/${encodeURIComponent(result.erpCustomerId)}`)
+
+    return { success: true, data: undefined }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update goals.'
+    return {
+      success: false,
+      error: message,
     }
   }
 }

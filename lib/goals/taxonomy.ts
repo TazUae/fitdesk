@@ -400,7 +400,7 @@ export const LEGACY_GOAL_ALIASES: Record<string, IntakeGoalId> = {
 
 // Legacy sub-goal aliases per canonical goal ID.
 // Maps: legacy sub-goal ID → canonical sub-goal ID.
-// Covers all live sub-goals found in components/ui/GoalMultiSelect.tsx.
+// Covers all sub-goals from the legacy 7-goal multi-select taxonomy (now removed).
 export const LEGACY_SUBGOAL_ALIASES: Record<IntakeGoalId, Record<string, string>> = {
   'fat-loss':    {
     weight_loss:    'reduce_total_body_fat',

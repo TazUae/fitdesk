@@ -17,6 +17,7 @@ export type GoalWorkspaceAction =
   | { type: 'OPEN_COMMAND' }
   | { type: 'CLOSE_COMMAND' }
   | { type: 'SET_COMMAND_QUERY'; query: string }
+  | { type: 'HYDRATE'; state: GoalWorkspaceState }
   | { type: 'RESET' }
 
 export function workspaceReducer(
@@ -151,6 +152,9 @@ export function workspaceReducer(
 
     case 'SET_COMMAND_QUERY':
       return { ...state, commandQuery: action.query }
+
+    case 'HYDRATE':
+      return { ...action.state }
 
     case 'RESET':
       return { ...INITIAL_WORKSPACE_STATE }

@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { derivePackageBalance, mapToClientHubOverview } from '@/lib/clients/hub-map'
+import { derivePackageBalance, mapEventToNoteSummary, mapEventToProgressEntrySummary, mapToClientHubOverview } from '@/lib/clients/hub-map'
 import type { ClientActionIntent, ClientEvent, ClientGoal, ClientIndex } from '@/types/clients'
 import type { PackagePurchaseWithBalance } from '@/types/billing'
 import type { PackageTemplateSnapshot } from '@/types/billing'
@@ -133,6 +133,44 @@ describe('mapToClientHubOverview', () => {
     expect(result.goals[0].goalId).toBe('mobility')
   })
 
+  // ── Phase 2/3: complete goal-field hydration + local-history authority ──
+
+  it('retains every approved goal field (no stripping)', () => {
+    const rich: ClientGoal = {
+      ...baseGoal,
+      isPrimary:         true,
+      subGoalIds:        ['reduce_total_body_fat'],
+      trainerSubGoalIds: ['preserve_skeletal_muscle_mass'],
+      notes:             'Careful with knees',
+      safetyFlags:       ['injury_risk'],
+    }
+    const result = mapToClientHubOverview(baseIndex, [rich], [], [])
+    const g = result.goals[0]
+    expect(g.isPrimary).toBe(true)
+    expect(g.subGoalIds).toEqual(['reduce_total_body_fat'])
+    expect(g.trainerSubGoalIds).toEqual(['preserve_skeletal_muscle_mass'])
+    expect(g.notes).toBe('Careful with knees')
+    expect(g.safetyFlags).toEqual(['injury_risk'])
+    expect(g.urgency).toBe('active_focus')
+    expect(g.status).toBe('active')
+  })
+
+  it('hasGoalHistory defaults to (goals.length > 0) when not supplied', () => {
+    expect(mapToClientHubOverview(baseIndex, [baseGoal], [], []).hasGoalHistory).toBe(true)
+    expect(mapToClientHubOverview(baseIndex, [], [], []).hasGoalHistory).toBe(false)
+  })
+
+  it('hasGoalHistory can be forced true even with zero active goals (archived-only history — D3)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [], [], true)
+    expect(result.goals).toHaveLength(0)
+    expect(result.hasGoalHistory).toBe(true)
+  })
+
+  it('hasGoalHistory false with zero active goals (never projected — permits ERP fallback)', () => {
+    const result = mapToClientHubOverview(baseIndex, [], [], [], [], false)
+    expect(result.hasGoalHistory).toBe(false)
+  })
+
   it('maps pending actions to ActionIntentSummary shape', () => {
     const result = mapToClientHubOverview(baseIndex, [], [baseIntent], [])
 
@@ -251,6 +289,8 @@ describe('mapToClientHubOverview', () => {
     expect(clientKeys).toContain('primaryGoalLabel')
     expect(clientKeys).toContain('nextSessionAtUtc')
     expect(clientKeys).toContain('lastActivityAtUtc')
+    // Top-level local-history authority marker (D3).
+    expect(result).toHaveProperty('hasGoalHistory')
   })
 
   it('packageBalance is null when no purchases provided (default)', () => {
@@ -363,5 +403,104 @@ describe('derivePackageBalance', () => {
     expect(result).not.toHaveProperty('erpInvoiceId')
     expect(result).not.toHaveProperty('paymentTotal')
     expect(result).not.toHaveProperty('priceAmount')
+  })
+})
+
+// ─── mapEventToProgressEntrySummary / mapEventToNoteSummary ───────────────────
+//
+// Single-event mappers extracted from mapToClientHubOverview so ClientHubPanel
+// can append a server-confirmed event locally (post-submit) using the exact
+// same production mapping the server uses when building a fresh overview —
+// see components/modules/ClientHubPanel.tsx handleAddProgress.
+
+describe('mapEventToProgressEntrySummary', () => {
+  it('maps a linked progress event (goalId present)', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-linked', type: 'client.progress', payloadJson: { text: 'Lost 2kg', goalId: 'fat_loss' } }
+    const result = mapEventToProgressEntrySummary(event)
+
+    expect(result).toEqual({
+      id:           'evt-linked',
+      text:         'Lost 2kg',
+      goalId:       'fat_loss',
+      createdAtUtc: NOW,
+    })
+  })
+
+  it('maps an unlinked progress event (goalId null)', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-unlinked', type: 'client.progress', payloadJson: { text: 'Feeling stronger', goalId: null } }
+    const result = mapEventToProgressEntrySummary(event)
+
+    expect(result.goalId).toBeNull()
+    expect(result.text).toBe('Feeling stronger')
+  })
+
+  it('defensively falls back to empty text and null goalId for malformed payload values', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-malformed', type: 'client.progress', payloadJson: { text: 42, goalId: 7 } }
+    const result = mapEventToProgressEntrySummary(event)
+
+    expect(result.text).toBe('')
+    expect(result.goalId).toBeNull()
+  })
+
+  it('defensively falls back to empty text and null goalId when payload fields are missing entirely', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-empty-payload', type: 'client.progress', payloadJson: {} }
+    const result = mapEventToProgressEntrySummary(event)
+
+    expect(result.text).toBe('')
+    expect(result.goalId).toBeNull()
+  })
+
+  it('does not mutate the input event', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-immutable', type: 'client.progress', payloadJson: { text: 'Lost 2kg', goalId: 'fat_loss' } }
+    const snapshot = JSON.parse(JSON.stringify(event))
+
+    mapEventToProgressEntrySummary(event)
+
+    expect(event).toEqual(snapshot)
+  })
+})
+
+describe('mapEventToNoteSummary', () => {
+  it('populates text for a client.note event', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-note', type: 'client.note', payloadJson: { text: 'Great progress this week' } }
+    const result = mapEventToNoteSummary(event)
+
+    expect(result).toEqual({
+      id:           'evt-note',
+      type:         'client.note',
+      createdAtUtc: NOW,
+      text:         'Great progress this week',
+    })
+  })
+
+  it('leaves text null for a non-note event type (e.g. client.progress used in Recent activity)', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-progress-as-note', type: 'client.progress', payloadJson: { text: 'Lost 2kg', goalId: null } }
+    const result = mapEventToNoteSummary(event)
+
+    expect(result.type).toBe('client.progress')
+    expect(result.text).toBeNull()
+  })
+
+  it('defensively falls back to null text for a client.note event with a non-string payload text', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-note-malformed', type: 'client.note', payloadJson: { text: 123 } }
+    const result = mapEventToNoteSummary(event)
+
+    expect(result.text).toBeNull()
+  })
+
+  it('defensively falls back to null text for a client.note event with a missing payload text', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-note-empty-payload', type: 'client.note', payloadJson: {} }
+    const result = mapEventToNoteSummary(event)
+
+    expect(result.text).toBeNull()
+  })
+
+  it('does not mutate the input event', () => {
+    const event: ClientEvent = { ...baseEvent, id: 'evt-note-immutable', type: 'client.note', payloadJson: { text: 'Great progress this week' } }
+    const snapshot = JSON.parse(JSON.stringify(event))
+
+    mapEventToNoteSummary(event)
+
+    expect(event).toEqual(snapshot)
   })
 })

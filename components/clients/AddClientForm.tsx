@@ -18,7 +18,7 @@ import { addClient, findClientDuplicates, parseClientDetails } from '@/actions/c
 import { PhoneInput, type PhoneValue } from '@/components/ui/PhoneInput'
 import { AgeInput, type AgeValue } from '@/components/ui/AgeInput'
 import { GoalAccordion, type GoalSelectionState } from '@/components/clients/GoalAccordion'
-import { emptyGoalState, addGoal, setPrimaryGoal } from '@/components/clients/GoalAccordion/types'
+import { emptyGoalState, addGoal, setPrimaryGoal, toSelectedGoalDrafts as accordionToSelectedGoalDrafts } from '@/components/clients/GoalAccordion/types'
 import {
   AddClientGoalWorkspace,
   workspaceReducer,
@@ -373,21 +373,11 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
       billingMode:     billingMode !== 'unset' ? billingMode : undefined,
     }
 
-    // Workspace path: pass all selected goals via selectedGoals (Phase 4D+).
-    // Legacy path: derive primaryGoal from the accordion state (unchanged).
+    // Both paths (workspace and accordion) now emit selectedGoals[] with complete drafts (Phase 1).
+    // The legacy primaryGoal bridge is no longer used by either active UI path after Phase 1.
     const goalOption = GOAL_WORKSPACE_ENABLED
       ? { selectedGoals: toSelectedGoalDrafts(workspaceState) }
-      : (() => {
-          const primary = orderedGoalConfigs()[0] ?? null
-          return {
-            primaryGoal: primary ? {
-              goalId:            primary.goalId,
-              subGoalIds:        primary.primarySubGoalIds,
-              trainerSubGoalIds: primary.trainerSubGoalIds,
-              urgency:           primary.urgency,
-            } : undefined,
-          }
-        })()
+      : { selectedGoals: accordionToSelectedGoalDrafts(goalState) }
 
     const result = await addClient(buildPayload(), { ...sharedOptions, ...goalOption })
     if (result.success) {
@@ -653,7 +643,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
 
             <div className="space-y-1.5">
               <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                Trainer notes
+                General client notes
                 <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
                   (optional)
                 </span>

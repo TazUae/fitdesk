@@ -332,6 +332,11 @@ export type ClientGoalSummary = {
   confidence: GoalConfidence
   primaryGoalLabel: string | null
   status: GoalStatus
+  isPrimary: boolean
+  subGoalIds: string[]
+  trainerSubGoalIds: string[]
+  notes: string | null
+  safetyFlags: string[]
 }
 
 export type ClientActionIntentSummary = {
@@ -403,6 +408,13 @@ export type ClientHubOverview = {
     lastActivityAtUtc: string | null
   }
   goals: ClientGoalSummary[]
+  /**
+   * True when the client has ANY local client_goal row (active OR archived) — i.e.
+   * the local Goal System has ever produced a structured projection. Once true, the
+   * local Goal System is authoritative and ERP custom_fitness_goals must NOT be shown
+   * as a fallback, even when zero active goals remain (Decision D3).
+   */
+  hasGoalHistory: boolean
   pendingActions: ClientActionIntentSummary[]
   recentNotes: ClientNoteSummary[]
   progressEntries: ClientProgressEntrySummary[]
@@ -437,7 +449,7 @@ export type ClientParseFields = {
   /** value = normalized E.164 string when parseable; null otherwise. */
   phone:           ParsedField<string>
   whatsappEnabled: ParsedField<boolean>
-  /** Each value must be a canonical GOALS id from components/ui/GoalSelect.tsx. */
+  /** Each value must be a canonical goal id from lib/goals/taxonomy.ts GOALS. */
   goals:           ParsedField<string[]>
   notes:           ParsedField<string>
 }

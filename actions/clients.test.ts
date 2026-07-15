@@ -82,6 +82,7 @@ import { addClient, completeClientAction, dismissClientAction, findClientDuplica
 import * as evolution from '@/lib/evolution'
 import * as schedulingRepo from '@/lib/scheduling/sessionRepository'
 import type { FDSession } from '@/types/scheduling'
+import { revalidatePath } from 'next/cache'
 
 const CLIENTS_ACTION_SRC = readFileSync(join(__dirname, 'clients.ts'), 'utf-8')
 import * as erp from '@/lib/business-data/erp-adapter'
@@ -1706,13 +1707,14 @@ describe('addClientNoteAction (US-053)', () => {
     return rows[0].id as string
   }
 
-  it('writes a client.note event with the trimmed text', async () => {
+  it('writes a client.note event with the trimmed text and still calls revalidatePath (unlike addProgressEntryAction)', async () => {
     const clientIndexId = await seedClient()
 
     const result = await addClientNoteAction(clientIndexId, '  Great session today  ')
 
     expect(result.success).toBe(true)
     expect(await count('client_event', `type = 'client.note'`)).toBe(1)
+    expect(revalidatePath).toHaveBeenCalledWith('/dashboard/clients/CUST-100')
   })
 
   it('rejects an empty (or whitespace-only) note', async () => {
@@ -1841,6 +1843,21 @@ describe('addProgressEntryAction (US-052)', () => {
     } else {
       throw new Error('expected created')
     }
+  })
+
+  it('creates and returns the confirmed client.progress event without calling revalidatePath — unlike sibling actions, this action relies on the caller updating Progress/Recent activity from its own returned event, since a revalidated route refresh would remount ClientHubPanel and reset its in-progress goal-link selection', async () => {
+    const clientIndexId = await seedClientWithGoal()
+
+    const result = await addProgressEntryAction(clientIndexId, 'Feeling stronger this week')
+
+    expect(result.success).toBe(true)
+    if (result.success && result.data.outcome === 'created') {
+      expect(result.data.event.type).toBe('client.progress')
+      expect(result.data.event.payloadJson).toEqual({ text: 'Feeling stronger this week', goalId: null })
+    } else {
+      throw new Error('expected created')
+    }
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it('rejects an empty (or whitespace-only) progress entry', async () => {

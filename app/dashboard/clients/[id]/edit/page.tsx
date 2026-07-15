@@ -183,7 +183,15 @@ export default function EditClientPage({ params }: Props) {
             className="input-base cursor-not-allowed opacity-60"
           />
           <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
-            Goals can only be updated from Add Client or the goal workspace.
+            Goals are managed in the{' '}
+            <Link
+              href={`/dashboard/clients/${params.id}`}
+              className="font-semibold underline"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              Client Hub
+            </Link>
+            .
           </p>
         </div>
 

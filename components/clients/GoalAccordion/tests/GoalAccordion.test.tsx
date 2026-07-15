@@ -19,10 +19,15 @@ import {
   togglePrimarySubGoal,
   toggleTrainerSubGoal,
   setGoalUrgency,
+  setGoalNotes,
   defaultSectionExpansion,
   toggleSectionExpansion,
+  toSelectedGoalDrafts,
   type GoalSelectionState,
 } from '../types'
+import { workspaceReducer } from '@/components/clients/GoalWorkspace/reducer'
+import { INITIAL_WORKSPACE_STATE } from '@/components/clients/GoalWorkspace/state'
+import { toSelectedGoalDrafts as workspaceToSelectedGoalDrafts } from '@/components/clients/GoalWorkspace/selectors'
 
 // ─── Taxonomy: goal groupings ─────────────────────────────────────────────────
 
@@ -497,5 +502,217 @@ describe('onChange emits a valid GoalSelectionState', () => {
     const fatLossAfter = state.selected.find(s => s.goalId === 'fat-loss')
     expect(fatLossAfter?.urgency).toBe('active_focus')
     expect(fatLossRef).toStrictEqual(fatLossAfter)
+  })
+})
+
+// ─── Per-goal trainer notes (Phase 1) ──────────────────────────────────────────
+
+describe('Per-goal trainer notes', () => {
+  it('new goal defaults to notes=null', () => {
+    const state = addGoal(emptyGoalState(), 'fat-loss')
+    expect(state.selected[0].notes).toBeNull()
+  })
+
+  it('setGoalNotes sets notes on the specified goal', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', 'Client has lower-back issues, start slowly')
+    expect(state.selected[0].notes).toBe('Client has lower-back issues, start slowly')
+  })
+
+  it('setGoalNotes can clear notes to null', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', 'Some note')
+    state = setGoalNotes(state, 'fat-loss', null)
+    expect(state.selected[0].notes).toBeNull()
+  })
+
+  it('setGoalNotes trims whitespace', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', '  Trimmed note  ')
+    expect(state.selected[0].notes).toBe('Trimmed note')
+  })
+
+  it('setGoalNotes clears whitespace-only strings to null', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', '   ')
+    expect(state.selected[0].notes).toBeNull()
+  })
+
+  it('per-goal notes do not affect other goals', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = addGoal(state, 'strength')
+    state = setGoalNotes(state, 'fat-loss', 'Note for fat-loss')
+    const strength = state.selected.find(s => s.goalId === 'strength')
+    expect(strength?.notes).toBeNull()
+  })
+
+  it('setting notes on non-existent goal is a no-op', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'muscle', 'Note')
+    expect(state.selected[0].notes).toBeNull()
+  })
+})
+
+// ─── Mapping to SelectedGoalDraft (Phase 1 persistence) ──────────────────────────
+
+describe('toSelectedGoalDrafts: map GoalSelectionState to SelectedGoalDraft[]', () => {
+  it('empty state produces empty array', () => {
+    const state = emptyGoalState()
+    const drafts = toSelectedGoalDrafts(state)
+    expect(drafts).toEqual([])
+  })
+
+  it('single goal produces one draft', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setPrimaryGoal(state, 'fat-loss')
+    const drafts = toSelectedGoalDrafts(state)
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0].goalId).toBe('fat-loss')
+    expect(drafts[0].isPrimary).toBe(true)
+  })
+
+  it('multiple goals produce multiple drafts', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = addGoal(state, 'strength')
+    state = addGoal(state, 'cardio')
+    state = setPrimaryGoal(state, 'fat-loss')
+    const drafts = toSelectedGoalDrafts(state)
+    expect(drafts).toHaveLength(3)
+  })
+
+  it('exactly one draft has isPrimary=true when primary is set', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = addGoal(state, 'strength')
+    state = setPrimaryGoal(state, 'strength')
+    const drafts = toSelectedGoalDrafts(state)
+    const primaries = drafts.filter(d => d.isPrimary)
+    expect(primaries).toHaveLength(1)
+    expect(primaries[0].goalId).toBe('strength')
+  })
+
+  it('all drafted goals have isPrimary=false when no primary is set', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = addGoal(state, 'strength')
+    const drafts = toSelectedGoalDrafts(state)
+    expect(drafts.every(d => d.isPrimary === false)).toBe(true)
+  })
+
+  it('draft includes all required fields from SelectedGoalConfig', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = togglePrimarySubGoal(state, 'fat-loss', 'reduce_total_body_fat')
+    state = toggleTrainerSubGoal(state, 'fat-loss', 'preserve_skeletal_muscle_mass')
+    state = setGoalUrgency(state, 'fat-loss', 'urgent')
+    state = setGoalNotes(state, 'fat-loss', 'Test note')
+    state = setPrimaryGoal(state, 'fat-loss')
+    const [draft] = toSelectedGoalDrafts(state)
+    expect(draft.goalId).toBe('fat-loss')
+    expect(draft.isPrimary).toBe(true)
+    expect(draft.urgency).toBe('urgent')
+    expect(draft.clientSubGoalIds).toContain('reduce_total_body_fat')
+    expect(draft.trainerSubGoalIds).toContain('preserve_skeletal_muscle_mass')
+    expect(draft.trainerNotes).toBe('Test note')
+  })
+
+  it('trainerNotes is null when notes is null', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    const [draft] = toSelectedGoalDrafts(state)
+    expect(draft.trainerNotes).toBeNull()
+  })
+
+  it('trainerNotes is trimmed and never empty string', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', '  Trimmed  ')
+    const [draft] = toSelectedGoalDrafts(state)
+    expect(draft.trainerNotes).toBe('Trimmed')
+    expect(draft.trainerNotes).not.toBe('')
+  })
+
+  it('sub-goal arrays are passed through unchanged (pre-validated)', () => {
+    let state = addGoal(emptyGoalState(), 'fat-loss')
+    state = togglePrimarySubGoal(state, 'fat-loss', 'reduce_total_body_fat')
+    state = togglePrimarySubGoal(state, 'fat-loss', 'boost_daily_energy_levels')
+    const [draft] = toSelectedGoalDrafts(state)
+    expect(draft.clientSubGoalIds).toHaveLength(2)
+    expect(draft.clientSubGoalIds).toContain('reduce_total_body_fat')
+    expect(draft.clientSubGoalIds).toContain('boost_daily_energy_levels')
+  })
+
+  it('result is a valid SelectedGoalDraft[] ready for server action', () => {
+    let state = emptyGoalState()
+    state = addGoal(state, 'fat-loss')
+    state = addGoal(state, 'strength')
+    state = setPrimaryGoal(state, 'fat-loss')
+    state = setGoalNotes(state, 'fat-loss', 'Primary goal note')
+    state = setGoalNotes(state, 'strength', 'Secondary goal note')
+    const drafts = toSelectedGoalDrafts(state)
+    expect(drafts).toHaveLength(2)
+    drafts.forEach(d => {
+      expect(typeof d.goalId).toBe('string')
+      expect(typeof d.isPrimary).toBe('boolean')
+      expect(typeof d.urgency).toBe('string')
+      expect(Array.isArray(d.clientSubGoalIds)).toBe(true)
+      expect(Array.isArray(d.trainerSubGoalIds)).toBe(true)
+      expect(d.trainerNotes === null || typeof d.trainerNotes === 'string').toBe(true)
+    })
+    expect(drafts.filter(d => d.isPrimary)).toHaveLength(1)
+  })
+})
+
+// ─── Phase 5: feature-flag parity (no functional divergence) ─────────────────
+//
+// After Phase 1, both NEXT_PUBLIC_GOAL_WORKSPACE states emit selectedGoals.
+// These tests prove the two selectors produce EQUIVALENT SelectedGoalDraft[]
+// for the same logical selection, so the flag no longer changes what is
+// persisted — it only chooses which selector UI renders (Decision D4).
+
+describe('Selector parity — GoalAccordion vs GoalWorkspace produce equivalent drafts', () => {
+  function sortByGoal<T extends { goalId: string }>(arr: T[]): T[] {
+    return [...arr].sort((a, b) => a.goalId.localeCompare(b.goalId))
+  }
+
+  it('same selection → equivalent SelectedGoalDraft[] from both selectors', () => {
+    // Accordion path
+    let acc = emptyGoalState()
+    acc = addGoal(acc, 'fat-loss')
+    acc = addGoal(acc, 'cardio')
+    acc = setGoalUrgency(acc, 'fat-loss', 'urgent')
+    acc = togglePrimarySubGoal(acc, 'fat-loss', 'reduce_total_body_fat')
+    acc = toggleTrainerSubGoal(acc, 'fat-loss', 'preserve_skeletal_muscle_mass')
+    acc = setGoalNotes(acc, 'fat-loss', 'Careful with knees')
+    acc = setPrimaryGoal(acc, 'fat-loss')
+    const accDrafts = sortByGoal(toSelectedGoalDrafts(acc))
+
+    // Workspace path — same logical selection
+    let ws = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'ADD_GOAL', goalId: 'fat-loss' })
+    ws = workspaceReducer(ws, { type: 'ADD_GOAL', goalId: 'cardio' })
+    ws = workspaceReducer(ws, { type: 'SET_URGENCY', goalId: 'fat-loss', urgency: 'urgent' })
+    ws = workspaceReducer(ws, { type: 'SET_CLIENT_SUB_GOALS', goalId: 'fat-loss', subGoalIds: ['reduce_total_body_fat'] })
+    ws = workspaceReducer(ws, { type: 'SET_TRAINER_SUB_GOALS', goalId: 'fat-loss', subGoalIds: ['preserve_skeletal_muscle_mass'] })
+    ws = workspaceReducer(ws, { type: 'SET_TRAINER_NOTES', goalId: 'fat-loss', notes: 'Careful with knees' })
+    ws = workspaceReducer(ws, { type: 'SET_PRIMARY', goalId: 'fat-loss' })
+    const wsDrafts = sortByGoal(workspaceToSelectedGoalDrafts(ws))
+
+    expect(accDrafts).toEqual(wsDrafts)
+  })
+
+  it('both selectors mark exactly one primary for the same nonempty selection', () => {
+    let acc = emptyGoalState()
+    acc = addGoal(acc, 'strength')
+    acc = addGoal(acc, 'mobility')
+    acc = setPrimaryGoal(acc, 'mobility')
+
+    let ws = workspaceReducer(INITIAL_WORKSPACE_STATE, { type: 'ADD_GOAL', goalId: 'strength' })
+    ws = workspaceReducer(ws, { type: 'ADD_GOAL', goalId: 'mobility' })
+    ws = workspaceReducer(ws, { type: 'SET_PRIMARY', goalId: 'mobility' })
+
+    expect(toSelectedGoalDrafts(acc).filter(d => d.isPrimary)).toHaveLength(1)
+    expect(workspaceToSelectedGoalDrafts(ws).filter(d => d.isPrimary)).toHaveLength(1)
+    expect(toSelectedGoalDrafts(acc).find(d => d.isPrimary)?.goalId).toBe('mobility')
+    expect(workspaceToSelectedGoalDrafts(ws).find(d => d.isPrimary)?.goalId).toBe('mobility')
+  })
+
+  it('both selectors emit an empty array for an empty selection', () => {
+    expect(toSelectedGoalDrafts(emptyGoalState())).toEqual([])
+    expect(workspaceToSelectedGoalDrafts(INITIAL_WORKSPACE_STATE)).toEqual([])
   })
 })

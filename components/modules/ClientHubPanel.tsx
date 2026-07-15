@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -19,6 +19,10 @@ import {
 import { addClientNoteAction, addProgressEntryAction, completeClientAction, dismissClientAction, syncClientBillingMode } from '@/actions/clients'
 import { AssignPackageSheet } from '@/components/clients/AssignPackageSheet'
 import { PackageDetailsSheet } from '@/components/clients/PackageDetailsSheet'
+import { GoalEditorSheet } from '@/components/clients/GoalEditorSheet'
+import { resolveGoalDisplayLabel, resolveSubGoalDisplayLabel } from '@/lib/goals/display'
+import { resolveInitialProgressGoalId } from '@/lib/clients/progress-goal-selection'
+import { MAX_PROGRESS_ENTRIES, MAX_RECENT_NOTES, mapEventToNoteSummary, mapEventToProgressEntrySummary } from '@/lib/clients/hub-map'
 import type { ClientHubOverview } from '@/types/clients'
 import type { ActionIntentType } from '@/types/clients'
 
@@ -195,15 +199,33 @@ export function ClientHubPanel({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const { client, goals, pendingActions, recentNotes, progressEntries, placeholders } = overview
+  const { client, goals, hasGoalHistory, pendingActions, placeholders } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
+  const [goalEditorOpen, setGoalEditorOpen]     = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [isNotePending, startNoteTransition] = useTransition()
   const [progressDraft, setProgressDraft] = useState('')
-  const [progressGoalId, setProgressGoalId] = useState('')
+  const [progressGoalId, setProgressGoalId] = useState(() => resolveInitialProgressGoalId(goals))
   const [isProgressPending, startProgressTransition] = useTransition()
+
+  // Local, server-confirmed copies of recentNotes/progressEntries. Updated in
+  // place from addProgressEntryAction's own confirmed response so the Progress
+  // and Recent activity cards reflect a successful submission without needing
+  // router.refresh() (which re-renders this panel from fresh server props and
+  // would otherwise reset progressGoalId's selection). Re-synced below whenever
+  // a genuine refresh/remount supplies a new overview from the server.
+  const [recentNotes, setRecentNotes] = useState(overview.recentNotes)
+  const [progressEntries, setProgressEntries] = useState(overview.progressEntries)
+
+  useEffect(() => {
+    setRecentNotes(overview.recentNotes)
+  }, [overview.recentNotes])
+
+  useEffect(() => {
+    setProgressEntries(overview.progressEntries)
+  }, [overview.progressEntries])
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
@@ -260,9 +282,23 @@ export function ClientHubPanel({
         )
         return
       }
+
+      // Append the server-confirmed event locally (same mapping the server
+      // uses for a fresh overview) instead of router.refresh() — keeps
+      // progressGoalId's selection untouched and avoids depending on this
+      // panel's host tree (canonical page vs. intercepted overlay) preserving
+      // client state across a refresh-triggered re-render.
+      const event = result.data.event
+      const progressSummary = mapEventToProgressEntrySummary(event)
+      setProgressEntries(prev =>
+        [progressSummary, ...prev.filter(entry => entry.id !== progressSummary.id)].slice(0, MAX_PROGRESS_ENTRIES),
+      )
+      const noteSummary = mapEventToNoteSummary(event)
+      setRecentNotes(prev =>
+        [noteSummary, ...prev.filter(note => note.id !== noteSummary.id)].slice(0, MAX_RECENT_NOTES),
+      )
+
       setProgressDraft('')
-      setProgressGoalId('')
-      router.refresh()
     })
   }
 
@@ -390,24 +426,148 @@ export function ClientHubPanel({
           className="rounded-2xl border p-4 space-y-3"
           style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
         >
-          <div className="flex items-center gap-2">
-            <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
-            <SectionHeader>Goals</SectionHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+              <SectionHeader>Goals</SectionHeader>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGoalEditorOpen(true)}
+              className="rounded-lg px-2 py-1 text-xs font-semibold transition-opacity active:opacity-60"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              Edit goals
+            </button>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-4">
             {goals.map(g => (
-              <div key={g.id} className="flex items-center justify-between text-sm">
-                <span style={{ color: 'var(--fd-text)' }}>
-                  {g.primaryGoalLabel ?? g.goalId.replace(/_/g, ' ')}
-                </span>
-                <span className="text-xs capitalize" style={{ color: 'var(--fd-muted)' }}>
-                  {g.confidence}
-                </span>
+              <div
+                key={g.id}
+                className="rounded-lg border p-3"
+                style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)' }}
+              >
+                {/* Goal header: label + primary badge + confidence */}
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                      {resolveGoalDisplayLabel(g.goalId)}
+                    </span>
+                    {g.isPrimary && (
+                      <span className="inline-block w-fit rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: 'var(--fd-green)' }}>
+                        Primary
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-xs capitalize" style={{ color: 'var(--fd-muted)' }}>
+                      {g.confidence}
+                    </span>
+                    <span className="text-xs capitalize" style={{ color: 'var(--fd-muted)' }}>
+                      {g.urgency.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Client-stated sub-goals (primary layer) */}
+                {g.subGoalIds.length > 0 && (
+                  <div className="mb-2">
+                    <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
+                      Client focus:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {g.subGoalIds.map(id => (
+                        <span key={id} className="inline-block rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'var(--fd-surface)', color: 'var(--fd-muted)' }}>
+                          {resolveSubGoalDisplayLabel(g.goalId, id)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Trainer-assessed sub-goals (secondary layer) */}
+                {g.trainerSubGoalIds.length > 0 && (
+                  <div className="mb-2">
+                    <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
+                      Trainer assessment:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {g.trainerSubGoalIds.map(id => (
+                        <span key={id} className="inline-block rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'var(--fd-surface)', color: 'var(--fd-muted)' }}>
+                          {resolveSubGoalDisplayLabel(g.goalId, id)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Trainer notes */}
+                {g.notes && (
+                  <div className="mb-2">
+                    <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--fd-muted)' }}>
+                      Notes:
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--fd-text)' }}>
+                      {g.notes}
+                    </p>
+                  </div>
+                )}
+
+                {/* Safety flags */}
+                {g.safetyFlags.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold" style={{ color: 'rgb(217,158,0)' }}>
+                      ⚠ Safety flags:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {g.safetyFlags.map(flag => (
+                        <span key={flag} className="inline-block rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(251,191,36,0.12)', color: 'rgb(217,158,0)' }}>
+                          {flag.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Local goal history exists but zero active goals → "Goals not configured".
+          Never resurrect stale ERP custom_fitness_goals text here (Decision D3). */}
+      {goals.length === 0 && hasGoalHistory && (
+        <div
+          className="rounded-2xl border p-4 space-y-3"
+          style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Goal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
+              <SectionHeader>Goals</SectionHeader>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGoalEditorOpen(true)}
+              className="rounded-lg px-2 py-1 text-xs font-semibold transition-opacity active:opacity-60"
+              style={{ color: 'var(--fd-accent)' }}
+            >
+              Edit goals
+            </button>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--fd-muted)' }}>
+            Goals not configured
+          </p>
+        </div>
+      )}
+
+      {/* Phase 4 — reachable goal editor (confirmed-first replace-set) */}
+      <GoalEditorSheet
+        open={goalEditorOpen}
+        clientIndexId={client.clientIndexId}
+        goals={goals}
+        onClose={() => setGoalEditorOpen(false)}
+      />
 
       {/* ── Action queue ─────────────────────────────────────────────────────── */}
       <div
@@ -586,7 +746,7 @@ export function ClientHubPanel({
                 <option value="">No goal link</option>
                 {goals.map(g => (
                   <option key={g.id} value={g.goalId}>
-                    {g.primaryGoalLabel ?? g.goalId}
+                    {resolveGoalDisplayLabel(g.goalId)}
                   </option>
                 ))}
               </select>
@@ -612,7 +772,7 @@ export function ClientHubPanel({
                   <span>{formatDate(entry.createdAtUtc)}</span>
                   {entry.goalId && (
                     <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: 'var(--fd-card)' }}>
-                      {goals.find(g => g.goalId === entry.goalId)?.primaryGoalLabel ?? entry.goalId}
+                      {resolveGoalDisplayLabel(entry.goalId)}
                     </span>
                   )}
                 </div>

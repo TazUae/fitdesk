@@ -221,7 +221,7 @@ describe('LEGACY_GOAL_ALIASES', () => {
 })
 
 describe('LEGACY_SUBGOAL_ALIASES', () => {
-  it('covers the legacy fat_loss sub-goals from GoalMultiSelect.tsx', () => {
+  it('covers the legacy fat_loss sub-goals from the legacy multi-select taxonomy', () => {
     expect(LEGACY_SUBGOAL_ALIASES['fat-loss']).toMatchObject({
       weight_loss:    'reduce_total_body_fat',
       fat_percentage: 'reduce_total_body_fat',
@@ -229,7 +229,7 @@ describe('LEGACY_SUBGOAL_ALIASES', () => {
     })
   })
 
-  it('covers the legacy muscle_gain sub-goals from GoalMultiSelect.tsx', () => {
+  it('covers the legacy muscle_gain sub-goals from the legacy multi-select taxonomy', () => {
     expect(LEGACY_SUBGOAL_ALIASES['muscle']).toMatchObject({
       hypertrophy: 'build_lean_muscle_mass',
       lean_mass:   'build_lean_muscle_mass',
@@ -237,14 +237,14 @@ describe('LEGACY_SUBGOAL_ALIASES', () => {
     })
   })
 
-  it('covers the legacy strength sub-goals from GoalMultiSelect.tsx', () => {
+  it('covers the legacy strength sub-goals from the legacy multi-select taxonomy', () => {
     expect(LEGACY_SUBGOAL_ALIASES['strength']).toMatchObject({
       max_strength: 'increase_1rm_compound_lifts',
       powerlifting: 'increase_1rm_compound_lifts',
     })
   })
 
-  it('covers the legacy rehabilitation sub-goals from GoalMultiSelect.tsx', () => {
+  it('covers the legacy rehabilitation sub-goals from the legacy multi-select taxonomy', () => {
     expect(LEGACY_SUBGOAL_ALIASES['rehab']).toMatchObject({
       back_pain:       'reduce_movement_related_pain',
       knee_recovery:   'return_to_sport_or_daily_activity',

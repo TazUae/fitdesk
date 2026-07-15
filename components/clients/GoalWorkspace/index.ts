@@ -1,6 +1,6 @@
 export { AddClientGoalWorkspace } from './AddClientGoalWorkspace'
 export { workspaceReducer } from './reducer'
-export { INITIAL_WORKSPACE_STATE } from './state'
+export { INITIAL_WORKSPACE_STATE, workspaceStateFromGoals } from './state'
 export { toSelectedGoalDrafts, hasWorkspaceHardConflict } from './selectors'
 export type { GoalWorkspaceState } from './state'
 export type { GoalWorkspaceAction } from './reducer'

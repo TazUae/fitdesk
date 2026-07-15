@@ -17,9 +17,12 @@ import { and, desc, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/libsql'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from '@/lib/db/schema'
-import { computeSafetyFlags } from '@/lib/goals/safety'
+import { computeSafetyFlags, deriveSafetyState } from '@/lib/goals/safety'
+import { hasUnresolvedHardConflict } from '@/lib/goals/conflicts'
+import { checkPrimaryInvariant } from '@/lib/goals/primary-invariant'
+import { formatGoalLabel } from '@/lib/goals/format'
 import { canSendAutomatedWhatsApp, isOptedOut } from '@/lib/clients/consent'
-import { isIntakeGoalId } from '@/lib/goals/taxonomy'
+import { isIntakeGoalId, getSubGoals, type IntakeGoalId } from '@/lib/goals/taxonomy'
 import type {
   ActionIntentPriority,
   ActionIntentSource,
@@ -274,6 +277,7 @@ export class ClientRepository {
         and(
           eq(schema.clientGoal.tenantId, tenantId),
           eq(schema.clientGoal.clientIndexId, clientIndexId),
+          eq(schema.clientGoal.status, 'active'),
         ),
       )
       .orderBy(desc(schema.clientGoal.createdAtUtc))
@@ -1320,5 +1324,238 @@ export class ClientRepository {
       dismissedAtUtc:  now,
       updatedAtUtc:    now,
     })
+  }
+
+  // ─── Phase 3: Transactional goal replacement ────────────────────────────────
+
+  /**
+   * Replace the complete active goal set for a client in a single transaction.
+   * Strict validation (no silent sanitize for confirmed payloads).
+   * Atomic: update/insert/archive/reactivate rows, update index fields, write audit.
+   * Final assertion enforces invariants before commit.
+   * Returns tenant-verified erpCustomerId for route revalidation (Decision D9).
+   */
+  async replaceClientGoals(
+    ctx: TenantCtx,
+    clientIndexId: string,
+    desiredGoals: SelectedGoalDraft[],
+  ): Promise<{ erpCustomerId: string }> {
+    const tenantId = assertTenantId(ctx)
+
+    return this.db.transaction(async (tx) => {
+      const now = new Date().toISOString()
+
+      // 1. Load and verify ownership (fail closed on missing/cross-tenant)
+      const indexRows = await tx
+        .select()
+        .from(schema.clientIndex)
+        .where(
+          and(
+            eq(schema.clientIndex.id, clientIndexId),
+            eq(schema.clientIndex.tenantId, tenantId),
+          ),
+        )
+        .limit(1)
+
+      if (!indexRows.length) throw new Error('client_not_found')
+      const clientIndex = indexRows[0]
+
+      // 2. Strict validation (no silent sanitize; reject whole request on any error)
+      if (desiredGoals.some(d => !isIntakeGoalId(d.goalId))) {
+        throw new Error('validation_error: unknown_goal_id')
+      }
+      // After this guard every goalId is a canonical IntakeGoalId.
+      const goalIds = desiredGoals.map(d => d.goalId as IntakeGoalId)
+
+      if (new Set(goalIds).size !== goalIds.length) {
+        throw new Error('validation_error: duplicate_goal_id')
+      }
+
+      for (const draft of desiredGoals) {
+        // Omitted trainerNotes property is invalid (D8). `null` is allowed (means "no note").
+        if (!('trainerNotes' in draft) || draft.trainerNotes === undefined) {
+          throw new Error('validation_error: missing_trainer_notes_property')
+        }
+        const gid = draft.goalId as IntakeGoalId
+        const primarySubGoals = getSubGoals(gid, 'primary').map(s => s.id)
+        const secondarySubGoals = getSubGoals(gid, 'secondary').map(s => s.id)
+        if (draft.clientSubGoalIds?.some(id => !primarySubGoals.includes(id))) {
+          throw new Error('validation_error: unknown_sub_goal_in_primary_layer')
+        }
+        if (draft.trainerSubGoalIds?.some(id => !secondarySubGoals.includes(id))) {
+          throw new Error('validation_error: unknown_sub_goal_in_secondary_layer')
+        }
+      }
+
+      // 3. Hard-conflict check (hard-reject before any writes)
+      if (hasUnresolvedHardConflict(goalIds)) {
+        throw new Error('validation_error: hard_conflict_detected')
+      }
+
+      // 4. Corrected primary invariant (D7): zero allowed; exactly one when nonempty.
+      //    Shared helper — identical rule to the create path (actions/clients.ts).
+      if (checkPrimaryInvariant(desiredGoals) !== null) {
+        throw new Error('validation_error: primary_invariant_violated')
+      }
+
+      // 5. Load existing rows for reconciliation
+      const existingRows = await tx
+        .select()
+        .from(schema.clientGoal)
+        .where(eq(schema.clientGoal.clientIndexId, clientIndexId))
+
+      const activeByGoalId = new Map(
+        existingRows
+          .filter(r => r.status === 'active')
+          .map(r => [r.goalId, r]),
+      )
+      const priorActiveGoalIds = existingRows
+        .filter(r => r.status === 'active')
+        .map(r => r.goalId)
+
+      // 6. Reconcile: archive active goals not in the desired set (D2 — soft delete)
+      for (const row of existingRows) {
+        if (row.status === 'active' && !goalIds.includes(row.goalId as IntakeGoalId)) {
+          await tx
+            .update(schema.clientGoal)
+            .set({
+              status: 'archived',
+              isPrimary: false,
+              updatedAtUtc: now,
+            })
+            .where(eq(schema.clientGoal.id, row.id))
+        }
+      }
+
+      // 7. Update / insert / reactivate goals in the desired set.
+      //    Write NON-PRIMARY goals first and the single primary LAST, so at no
+      //    statement boundary do two active rows both have is_primary = 1. This
+      //    keeps the partial unique index (active + is_primary) satisfied even
+      //    during a primary swap (old primary is demoted before the new one is set).
+      const writeDraft = async (draft: SelectedGoalDraft) => {
+        const gid = draft.goalId as IntakeGoalId
+        const safetyFlagIds = computeSafetyFlags([gid]).map(f => f.id)
+        // Note semantics (D8): trim nonempty; blank/whitespace/null → null.
+        const notes = draft.trainerNotes?.trim() || null
+        const common = {
+          isPrimary:             draft.isPrimary,
+          urgency:               draft.urgency,
+          subGoalIdsJson:        JSON.stringify(draft.clientSubGoalIds || []),
+          trainerSubGoalIdsJson: JSON.stringify(draft.trainerSubGoalIds || []),
+          notes,
+          safetyFlagsJson:       JSON.stringify(safetyFlagIds),
+          confidence:            'high' as const,
+          source:                'trainer_manual' as const,
+          updatedAtUtc:          now,
+        }
+
+        const existing = activeByGoalId.get(draft.goalId)
+        if (existing) {
+          // UPDATE in place — preserve createdAtUtc, advance updatedAtUtc.
+          await tx.update(schema.clientGoal).set(common)
+            .where(eq(schema.clientGoal.id, existing.id))
+        } else {
+          const archived = existingRows.find(
+            r => r.goalId === draft.goalId && r.status === 'archived',
+          )
+          if (archived) {
+            // Reactivate the same logical row (preserve createdAtUtc).
+            await tx.update(schema.clientGoal).set({ ...common, status: 'active' })
+              .where(eq(schema.clientGoal.id, archived.id))
+          } else {
+            await tx.insert(schema.clientGoal).values({
+              id:            crypto.randomUUID(),
+              tenantId,
+              clientIndexId,
+              erpCustomerId: clientIndex.erpCustomerId,
+              goalId:        draft.goalId,
+              createdAtUtc:  now,
+              status:        'active',
+              ...common,
+            })
+          }
+        }
+      }
+
+      for (const draft of desiredGoals.filter(d => !d.isPrimary)) await writeDraft(draft)
+      for (const draft of desiredGoals.filter(d => d.isPrimary))  await writeDraft(draft)
+
+      // 8. Update client_index denormalized fields atomically.
+      //    Zero active goals → null primary fields (D7).
+      const activePrimary = desiredGoals.find(d => d.isPrimary)
+      const safetyState = deriveSafetyState(computeSafetyFlags(goalIds))
+
+      await tx
+        .update(schema.clientIndex)
+        .set({
+          primaryGoalId:    activePrimary ? activePrimary.goalId : null,
+          primaryGoalLabel: activePrimary ? formatGoalLabel(activePrimary.goalId as IntakeGoalId) : null,
+          safetyState,
+          updatedAtUtc:     now,
+        })
+        .where(eq(schema.clientIndex.id, clientIndexId))
+
+      // 9. Write one tenant-scoped audit event (inside the same transaction).
+      await tx.insert(schema.clientEvent).values({
+        id:              crypto.randomUUID(),
+        tenantId,
+        clientIndexId,
+        erpCustomerId:   clientIndex.erpCustomerId,
+        type:            'client.goals_updated',
+        payloadJson:     JSON.stringify({
+          before: { goalIds: priorActiveGoalIds, primary: clientIndex.primaryGoalId },
+          after:  { goalIds, primary: activePrimary?.goalId ?? null },
+        }),
+        createdByUserId: null,
+        createdAtUtc:    now,
+      })
+
+      // 10. Final invariant assertion before commit.
+      const finalActive = await tx
+        .select()
+        .from(schema.clientGoal)
+        .where(
+          and(
+            eq(schema.clientGoal.clientIndexId, clientIndexId),
+            eq(schema.clientGoal.status, 'active'),
+          ),
+        )
+
+      const finalPrimaries = finalActive.filter(g => g.isPrimary)
+      if (finalActive.length > 0 && finalPrimaries.length !== 1) {
+        throw new Error('invariant_failed: primary_count_mismatch')
+      }
+      if (finalActive.length === 0 && finalPrimaries.length !== 0) {
+        throw new Error('invariant_failed: orphaned_primary')
+      }
+      // Defense-in-depth: no duplicate active goalId (repository-level guarantee).
+      const activeIdSet = new Set(finalActive.map(g => g.goalId))
+      if (activeIdSet.size !== finalActive.length) {
+        throw new Error('invariant_failed: duplicate_active_goal')
+      }
+
+      return { erpCustomerId: clientIndex.erpCustomerId }
+    })
+  }
+
+  /**
+   * True when the client has ANY local goal row (active OR archived) — i.e. the
+   * local Goal System has ever produced a structured projection for this client.
+   * Used to decide ERP `custom_fitness_goals` fallback eligibility (Decision D3):
+   * once any local history exists, local is authoritative and ERP text is never shown.
+   */
+  async hasGoalHistory(ctx: TenantCtx, clientIndexId: string): Promise<boolean> {
+    const tenantId = assertTenantId(ctx)
+    const rows = await this.db
+      .select({ id: schema.clientGoal.id })
+      .from(schema.clientGoal)
+      .where(
+        and(
+          eq(schema.clientGoal.tenantId, tenantId),
+          eq(schema.clientGoal.clientIndexId, clientIndexId),
+        ),
+      )
+      .limit(1)
+    return rows.length > 0
   }
 }
