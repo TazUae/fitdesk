@@ -92,18 +92,15 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "client_goal_tenant_client_idx"
     ON "client_goal" ("tenant_id", "client_index_id")`,
-  // Phase 5 — defense-in-depth partial unique indexes for the goal system.
-  // Additive and idempotent (IF NOT EXISTS). Partial (WHERE status='active') so the
-  // archive model may keep multiple archived rows for the same goal. The repository
-  // remains the primary enforcement; these make an invalid ACTIVE state impossible.
-  // At most one active row per (tenant, client, goal):
-  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_uniqueness"
-    ON "client_goal" ("tenant_id", "client_index_id", "goal_id")
-    WHERE "status" = 'active'`,
-  // At most one active primary per (tenant, client):
-  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_primary"
-    ON "client_goal" ("tenant_id", "client_index_id")
-    WHERE "status" = 'active' AND "is_primary" = 1`,
+  // NOTE: the goal-system partial UNIQUE indexes (client_goal_active_uniqueness
+  // and client_goal_active_primary) are intentionally NOT created here. The
+  // active-primary index's predicate references is_primary, a column added by a
+  // later ALTER TABLE (below). Creating the index inside this statements array —
+  // which runs before that ALTER — fails with "no such column: is_primary" on any
+  // database that predates the is_primary column (fresh installs, DR-to-empty,
+  // fresh staging), aborting startup. They are created near the end of this file,
+  // after the column additions and the is_primary backfill. See the
+  // "Phase 5 — goal-system partial unique indexes" block below.
 
   `CREATE TABLE IF NOT EXISTS "client_action_intent" (
     "id"               TEXT NOT NULL PRIMARY KEY,
@@ -370,6 +367,45 @@ try {
   console.error('[app-migration] is_primary backfill failed:', err.message)
   process.exit(1)
 }
+
+// ── Phase 5 — goal-system partial unique indexes (defense-in-depth) ─────────
+//
+// Created HERE, deliberately after: (a) the client_goal table exists, (b) the
+// is_primary and trainer_sub_goal_ids_json columns have been added by the ALTERs
+// above, and (c) the is_primary backfill has completed — because
+// client_goal_active_primary's predicate references is_primary. Creating them
+// earlier (in the statements array, before the ALTER) fails on any database that
+// predates the is_primary column with "no such column: is_primary" and aborts
+// startup.
+//
+// Additive and idempotent (IF NOT EXISTS). Partial (WHERE status='active') so the
+// archive model may keep multiple archived rows for the same goal. The repository
+// remains the primary enforcement; these make an invalid ACTIVE state impossible.
+// Conflicting pre-existing data (a duplicate active (tenant, client, goal), or more
+// than one active primary per (tenant, client)) makes index creation fail loudly
+// here — the migration exits non-zero and the server does not start. This is
+// intentional: NO silent data repair or deletion, and rerunning is deterministic.
+const goalIndexStatements = [
+  // At most one ACTIVE row per (tenant, client, goal):
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_uniqueness"
+    ON "client_goal" ("tenant_id", "client_index_id", "goal_id")
+    WHERE "status" = 'active'`,
+  // At most one ACTIVE PRIMARY per (tenant, client):
+  `CREATE UNIQUE INDEX IF NOT EXISTS "client_goal_active_primary"
+    ON "client_goal" ("tenant_id", "client_index_id")
+    WHERE "status" = 'active' AND "is_primary" = 1`,
+]
+
+for (const sql of goalIndexStatements) {
+  try {
+    await client.execute(sql)
+  } catch (err) {
+    console.error('[app-migration] goal-system index creation failed:', err.message)
+    process.exit(1)
+  }
+}
+console.log('✓ client_goal_active_uniqueness index present')
+console.log('✓ client_goal_active_primary index present')
 
 console.log('\nVerifying app tables...')
 const { rows } = await client.execute(
