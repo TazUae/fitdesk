@@ -62,10 +62,20 @@ describe('AssignPackageForm — source invariants', () => {
     expect(FORM_SRC).not.toMatch(/manual invoice|create invoice|\+ invoice|new invoice/i)
   })
 
-  it('uses enabledPaymentMethods — disabled methods are never hard-coded', () => {
-    expect(FORM_SRC).toContain('enabledPaymentMethods')
-    // omt must not be hard-coded as an offered option
+  it('does NOT select a payment method before an invoice exists — deferred-payment redesign', () => {
+    // No invoice-independent, safe source for ERP company exists (see
+    // docs/execution/TENANT_AWARE_PAYMENT_SLICE_1_CHECKPOINT.md) — the form
+    // must never offer/hard-code a payment method at assignment time.
+    expect(FORM_SRC).not.toContain('enabledPaymentMethods')
+    expect(FORM_SRC).not.toContain("from '@/lib/payments/methods'")
     expect(FORM_SRC).not.toMatch(/['"]omt['"]/)
+    expect(FORM_SRC).not.toMatch(/['"]whish_money['"]/)
+  })
+
+  it('defers to the existing invoice payment flow after Paid Now creates the invoice', () => {
+    expect(FORM_SRC).toContain('decidePostAssignmentAction')
+    expect(FORM_SRC).toContain('invoicePaymentPath')
+    expect(FORM_SRC).toContain("from '@/lib/billing/assign-package-flow'")
   })
 
   it('generates idempotency key via crypto.randomUUID only — no server-supplied key', () => {
@@ -80,8 +90,13 @@ describe('AssignPackageForm — source invariants', () => {
     expect(FORM_SRC).toContain('I understand — assign another package')
   })
 
-  it('passes allowDuplicateActivePackage to assignPackage', () => {
-    expect(FORM_SRC).toContain('allowDuplicateActivePackage')
+  it('threads the duplicate-override confirmation into assignPackage via buildAssignPackagePayload', () => {
+    // The allowDuplicateActivePackage key itself now lives in the extracted,
+    // independently-tested lib/billing/assign-package-flow.ts builder — the
+    // component only needs to thread its own local state into that call.
+    expect(FORM_SRC).toContain('buildAssignPackagePayload')
+    expect(FORM_SRC).toContain('hasDuplicateWarning')
+    expect(FORM_SRC).toContain('duplicateConfirmed')
   })
 
   it('shows alternate confirm button label when override is confirmed', () => {

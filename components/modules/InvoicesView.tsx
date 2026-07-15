@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -14,9 +14,16 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { getPaymentLink, recordPayment } from '@/actions/invoices'
+import { getAvailablePaymentMethods, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
-import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
+import { type PaymentMethod } from '@/lib/payments/methods'
+import {
+  deriveSelectableMethodOptions,
+  hasNoAvailableMethods,
+  isSubmitBlockedByAvailability,
+  methodsToRender,
+  type SelectorAvailState,
+} from '@/lib/payments/selector-view'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
@@ -217,8 +224,34 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   const [provider, setProvider]           = useState<PaymentProvider>('cash')
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
 
+  // Tenant-aware, ERP-validated methods to offer (plan §4.3/§4.5). Resolved
+  // when the sheet opens for a given invoice. 'loading' → probing; the empty
+  // 'ready' list renders a recoverable configuration-unavailable state.
+  const [avail, setAvail] = useState<SelectorAvailState>({ phase: 'loading' })
+
+  useEffect(() => {
+    if (!invoice) return
+    let cancelled = false
+    setAvail({ phase: 'loading' })
+    getAvailablePaymentMethods(invoice.id).then((res) => {
+      if (cancelled) return
+      const methods = deriveSelectableMethodOptions(res)
+      setAvail({ phase: 'ready', methods })
+      // Select the first available method so `method`/`provider` never point at
+      // an option the tenant can't actually use.
+      const first = methods[0]
+      if (first) {
+        setMethod(first.value)
+        setProvider(first.value === 'whish_money' ? 'whish' : 'cash')
+      }
+    })
+    return () => { cancelled = true }
+  }, [invoice])
+
   const today = new Date().toISOString().slice(0, 10)
 
+  const availableMethods = methodsToRender(avail)
+  const noMethods        = hasNoAvailableMethods(avail)
   const selectedProviderMeta = PAYMENT_PROVIDERS.find(p => p.provider === provider)
 
   // Reset state when a different invoice is opened
@@ -270,6 +303,11 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!invoice) return
+    // Never submit without a validated, tenant-available method selected.
+    if (isSubmitBlockedByAvailability(avail)) {
+      setError('No payment method is available right now. Please try again.')
+      return
+    }
     setError(null)
     const fd = new FormData(e.currentTarget)
 
@@ -371,29 +409,51 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4 pb-2">
-                {/* Payment method */}
+                {/* Payment method — tenant-aware, ERP-validated (plan §4.5) */}
                 <div className="space-y-2">
                   <label className="text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>
                     Payment method
                   </label>
-                  <div className="flex gap-2">
-                    {enabledPaymentMethods().map(m => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => handleMethodChange(m.value)}
-                        className="flex-1 rounded-xl py-2 text-xs font-semibold transition-colors"
-                        style={{
-                          backgroundColor:
-                            method === m.value ? 'var(--fd-accent)' : 'var(--fd-card)',
-                          color:
-                            method === m.value ? 'var(--fd-bg)' : 'var(--fd-muted)',
-                        }}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
+                  {avail.phase === 'loading' ? (
+                    <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+                      Checking available methods…
+                    </p>
+                  ) : noMethods ? (
+                    <div
+                      className="rounded-xl border px-4 py-3 space-y-1"
+                      style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
+                    >
+                      <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
+                        No payment methods available
+                      </p>
+                      <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+                        We couldn&apos;t load a method your workspace can accept right now. Check{' '}
+                        <Link href="/dashboard/settings" style={{ color: 'var(--fd-accent)' }}>
+                          payment settings
+                        </Link>{' '}
+                        or try again in a moment.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      {availableMethods.map(m => (
+                        <button
+                          key={m.value}
+                          type="button"
+                          onClick={() => handleMethodChange(m.value)}
+                          className="flex-1 rounded-xl py-2 text-xs font-semibold transition-colors"
+                          style={{
+                            backgroundColor:
+                              method === m.value ? 'var(--fd-accent)' : 'var(--fd-card)',
+                            color:
+                              method === m.value ? 'var(--fd-bg)' : 'var(--fd-muted)',
+                          }}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Whish: generate link before recording */}
@@ -502,7 +562,7 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
 
                 <button
                   type="submit"
-                  disabled={isPending}
+                  disabled={isPending || isSubmitBlockedByAvailability(avail)}
                   className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
                   style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
                 >

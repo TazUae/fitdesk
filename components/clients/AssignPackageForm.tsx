@@ -4,9 +4,13 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Loader2, Package } from 'lucide-react'
 import { assignPackage, getClientPackageSummary, listAssignablePackageTemplates } from '@/actions/packages'
-import { enabledPaymentMethods } from '@/lib/payments/methods'
+import {
+  buildAssignPackagePayload,
+  decidePostAssignmentAction,
+  invoicePaymentPath,
+  type PackageAssignPayMode,
+} from '@/lib/billing/assign-package-flow'
 import type { AssignablePackageTemplate, PackagePurchaseWithBalance } from '@/types/billing'
-import type { PaymentMethod } from '@/lib/payments/methods'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,8 +64,7 @@ export function AssignPackageForm({
   // ── Selection state ─────────────────────────────────────────────────────────
 
   const [selectedId, setSelectedId]         = useState<string | null>(null)
-  const [payMode,    setPayMode]             = useState<'pay_later' | 'paid_now'>('pay_later')
-  const [payMethod,  setPayMethod]           = useState<PaymentMethod | null>(null)
+  const [payMode,    setPayMode]             = useState<PackageAssignPayMode>('pay_later')
   const [submitResult, setSubmitResult]     = useState<SubmitResult | null>(null)
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false)
 
@@ -75,15 +78,8 @@ export function AssignPackageForm({
     ikeyRef.current = null
   }
 
-  function handleSetPayMode(mode: 'pay_later' | 'paid_now') {
+  function handleSetPayMode(mode: PackageAssignPayMode) {
     setPayMode(mode)
-    setPayMethod(null)
-    setSubmitResult(null)
-    ikeyRef.current = null
-  }
-
-  function handleSetPayMethod(method: PaymentMethod) {
-    setPayMethod(method)
     setSubmitResult(null)
     ikeyRef.current = null
   }
@@ -92,8 +88,6 @@ export function AssignPackageForm({
 
   const selectedTemplate  = templates.find(t => t.id === selectedId) ?? null
   const isComplimentary   = selectedTemplate?.priceAmount === 0
-  const enabledMethods    = enabledPaymentMethods()
-  const showPaymentMethod = payMode === 'paid_now' && !isComplimentary
 
   const activeSameTemplate = selectedId
     ? activePurchases.filter(p => p.packageTemplateId === selectedId && p.packageStatus === 'active')
@@ -105,10 +99,11 @@ export function AssignPackageForm({
       }
     : null
 
+  // No payment method, company, or account is chosen here — that requires a
+  // real invoice to exist first (see lib/billing/assign-package-flow.ts).
   const canSubmit = (
     selectedId !== null &&
     !isPending &&
-    (payMode === 'pay_later' || isComplimentary || payMethod !== null) &&
     (!duplicateWarning || duplicateConfirmed)
   )
 
@@ -119,28 +114,47 @@ export function AssignPackageForm({
     if (!ikeyRef.current) {
       ikeyRef.current = crypto.randomUUID()
     }
-    const ikey    = ikeyRef.current
-    const payment = (payMode === 'paid_now' && !isComplimentary && payMethod)
-      ? { method: payMethod }
-      : undefined
+    const ikey = ikeyRef.current
+
+    // Never sends a payment method, company, or account — assignPackage()
+    // only ever creates the package and its billing document (no Payment
+    // Entry attempted here), regardless of payMode. See
+    // lib/billing/assign-package-flow.ts.
+    const payload = buildAssignPackagePayload({
+      clientIndexId,
+      erpCustomerId,
+      packageTemplateId:  selectedId,
+      idempotencyKey:     ikey,
+      hasDuplicateWarning: duplicateWarning !== null,
+      duplicateConfirmed,
+    })
 
     startTransition(async () => {
-      const result = await assignPackage({
-        clientIndexId,
-        erpCustomerId,
-        packageTemplateId: selectedId,
-        idempotencyKey:    ikey,
-        ...(payment ? { payment } : {}),
-        ...(duplicateWarning ? { allowDuplicateActivePackage: duplicateConfirmed } : {}),
-      })
-      if (result.success) {
-        ikeyRef.current = null
-        setSubmitResult({ type: 'success', paymentWarning: result.data.paymentWarning })
-        router.refresh()
-      } else {
+      const result = await assignPackage(payload)
+      if (!result.success) {
         // Keep ikey — allows idempotent retry without changing the key
         setSubmitResult({ type: 'error', message: result.error })
+        return
       }
+
+      ikeyRef.current = null
+      router.refresh()
+
+      const action = decidePostAssignmentAction({
+        payMode,
+        erpInvoiceId: result.data.erpInvoiceId,
+      })
+
+      if (action.type === 'collect_payment') {
+        // Close this sheet and hand off to the existing, ERP-preflighted
+        // invoice payment flow for the invoice just created — its real
+        // tenant/company/currency drive method availability there.
+        onClose()
+        router.push(invoicePaymentPath(action.invoiceId))
+        return
+      }
+
+      setSubmitResult({ type: 'success', paymentWarning: result.data.paymentWarning })
     })
   }
 
@@ -335,7 +349,9 @@ export function AssignPackageForm({
           </div>
         )}
 
-        {/* Payment mode — hidden for complimentary packages */}
+        {/* Payment mode — hidden for complimentary packages. No method, company,
+            or account is chosen here — Paid Now only decides whether the
+            trainer is taken to collect payment right after this step. */}
         {selectedId !== null && !isComplimentary && (
           <div className="space-y-2">
             <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
@@ -365,39 +381,12 @@ export function AssignPackageForm({
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* Payment method — only enabled methods, only when Paid Now + non-zero price */}
-        {showPaymentMethod && (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Method
-            </p>
-            <div className="flex gap-2 flex-wrap">
-              {enabledMethods.map(m => (
-                <button
-                  key={m.value}
-                  type="button"
-                  aria-pressed={payMethod === m.value}
-                  onClick={() => handleSetPayMethod(m.value)}
-                  className="rounded-xl border px-4 py-2 text-sm font-semibold transition-all"
-                  style={{
-                    backgroundColor: payMethod === m.value
-                      ? 'rgba(78,203,160,0.08)'
-                      : 'var(--fd-card)',
-                    borderColor: payMethod === m.value
-                      ? 'rgba(78,203,160,0.5)'
-                      : 'var(--fd-border)',
-                    color: payMethod === m.value
-                      ? 'var(--fd-green)'
-                      : 'var(--fd-text)',
-                  }}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            {payMode === 'paid_now' && (
+              <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
+                You&apos;ll pick how they paid on the next screen, once we know what your
+                workspace can accept.
+              </p>
+            )}
           </div>
         )}
 

@@ -4,10 +4,12 @@ import {
   createAndSubmitPaymentEntry,
   createInvoice,
   getInvoiceByIdForTrainer,
+  getInvoiceCompany,
   getInvoices,
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
+import { getTenantContext } from '@/lib/tenant/context'
 import { isExternalPaymentsAllowed } from '@/lib/pilot'
 import {
   generatePaymentLink,
@@ -16,6 +18,16 @@ import {
   type PaymentProvider,
 } from '@/lib/whish'
 import { isEnabledPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
+import {
+  resolveAvailablePaymentMethods,
+  type AvailabilityResult,
+} from '@/lib/payments/availability'
+import {
+  mapPaymentError,
+  paymentErrorMessage,
+  type PaymentActionResult,
+  type PaymentResult,
+} from '@/lib/payments/errors'
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import type { ActionResult, Invoice, IssueInvoiceResult, RecordPaymentResult } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
@@ -129,6 +141,56 @@ export async function getPaymentLink(opts: {
 }
 
 /**
+ * Resolve the payment methods this tenant can actually accept for a given
+ * invoice (plan §4.3). Runs a bounded ERP preflight: it lists the tenant's
+ * enabled Modes of Payment, validates a company-mapped deposit account per
+ * candidate, and checks currency compatibility. The transaction selectors use
+ * the returned `available` list; a failed probe yields a recoverable
+ * PAYMENT_CONFIGURATION_UNAVAILABLE (never a Cash assumption).
+ *
+ * Ownership-gated: the invoice must belong to the authenticated trainer.
+ */
+export async function getAvailablePaymentMethods(
+  invoiceId: string,
+): Promise<PaymentResult<AvailabilityResult>> {
+  const resolved = await resolveTrainerId()
+  if ('error' in resolved) {
+    // Not signed in / no trainer mapping — recoverable, nothing assumed.
+    return {
+      success: false,
+      code:    'PAYMENT_CONFIGURATION_UNAVAILABLE',
+      message: paymentErrorMessage('PAYMENT_CONFIGURATION_UNAVAILABLE'),
+    }
+  }
+
+  const ctx = await getTenantContext()
+  if (!ctx?.tenantId) {
+    // Fail closed on missing tenant context — never fall back to unscoped access.
+    return {
+      success: false,
+      code:    'PAYMENT_CONFIGURATION_UNAVAILABLE',
+      message: paymentErrorMessage('PAYMENT_CONFIGURATION_UNAVAILABLE'),
+    }
+  }
+
+  try {
+    // Ownership gate + currency come from the normalized invoice; company is a
+    // separate raw read (not on the normalized Invoice type).
+    const invoice = await getInvoiceByIdForTrainer(invoiceId, resolved.trainerId)
+    const company = await getInvoiceCompany(invoiceId)
+    const result  = await resolveAvailablePaymentMethods({
+      company,
+      currency: invoice.currency,
+      tenantId: ctx.tenantId,
+    })
+    return { success: true, data: result }
+  } catch (err) {
+    const mapped = mapPaymentError(err)
+    return { success: false, code: mapped.code, message: mapped.message }
+  }
+}
+
+/**
  * Record a payment for an invoice.
  *
  * Validates the request against a freshly-fetched invoice (ownership-gated),
@@ -136,6 +198,11 @@ export async function getPaymentLink(opts: {
  * to confirm ERPNext actually reduced the outstanding amount. Success is
  * reported only after that confirmation — a created-but-unreconciled payment
  * is a failure, never a false success.
+ *
+ * The Payment Entry path re-validates the Mode of Payment (exists → mapped
+ * account for company) BEFORE any POST, as defense in depth (plan §4.3). A
+ * misconfigured method surfaces as a structured PaymentErrorCode with a safe
+ * message — never the raw ERP 503 "deposit account missing" from the incident.
  *
  * Always call this AFTER the trainer has confirmed receipt.
  */
@@ -148,16 +215,20 @@ export async function recordPayment(opts: {
   date:       string
   reference?: string
   note?:      string
-}): Promise<ActionResult<RecordPaymentResult>> {
+}): Promise<PaymentActionResult<RecordPaymentResult>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
-  // Validate the payment method server-side. Only enabled MVP methods
-  // (Cash, Whish Money) are accepted; a disabled method such as OMT is
-  // rejected even if a client sends its value directly. The ERPNext Mode of
-  // Payment name is resolved server-side — never trusted from the client.
+  // Validate the payment method server-side. Only product-supported methods
+  // are accepted; a disabled method such as OMT is rejected even if a client
+  // sends its value directly. The ERPNext Mode of Payment name is resolved
+  // server-side — never trusted from the client.
   if (!isEnabledPaymentMethod(opts.method)) {
-    return { success: false, error: 'That payment method is not available.' }
+    return {
+      success: false,
+      error:   'That payment method is not available.',
+      code:    'PAYMENT_FEATURE_DISABLED',
+    }
   }
   const modeOfPayment = paymentMethodToErpMode(opts.method)
 
@@ -245,7 +316,12 @@ export async function recordPayment(opts: {
       },
     }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Failed to record payment' }
+    // A misconfigured Mode of Payment now arrives as a typed payment error, so
+    // it maps to a structured code + safe message — never the raw ERP 503 /
+    // "deposit account missing" that was the incident. Genuine connectivity
+    // failures map to ERP_UNAVAILABLE.
+    const mapped = mapPaymentError(err)
+    return { success: false, error: mapped.message, code: mapped.code }
   }
 }
 
@@ -321,14 +397,18 @@ export async function collectPayment(opts: {
   date:       string
   reference?: string
   note?:      string
-}): Promise<ActionResult<RecordPaymentResult>> {
+}): Promise<PaymentActionResult<RecordPaymentResult>> {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
   // Cheap validation before any ERPNext write, so a bad request can never
   // finalize an invoice and then fail on the payment.
   if (!isEnabledPaymentMethod(opts.method)) {
-    return { success: false, error: 'That payment method is not available.' }
+    return {
+      success: false,
+      error:   'That payment method is not available.',
+      code:    'PAYMENT_FEATURE_DISABLED',
+    }
   }
   if (!Number.isFinite(opts.amount)) {
     return { success: false, error: 'Enter a valid payment amount.' }

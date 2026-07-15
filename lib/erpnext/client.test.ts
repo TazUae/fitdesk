@@ -28,15 +28,21 @@ import {
   getCustomerBillingMode,
   getInvoiceById,
   getInvoiceByIdForTrainer,
+  getModeOfPaymentDoc,
   getPaymentEntry,
   getPaymentsForCustomer,
   getSessionById,
   getSessions,
+  listEnabledModesOfPayment,
   markSessionComplete,
   markSessionMissed,
   submitPaymentEntry,
   submitSalesInvoice,
 } from './client'
+import {
+  PaymentAccountMissingError,
+  PaymentMethodNotFoundError,
+} from '@/lib/payments/errors'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -447,31 +453,138 @@ describe('createAndSubmitPaymentEntry', () => {
     expect(fetchMock.mock.calls[2][1].method).toBe('POST')
   })
 
-  it('throws ERPNextError(503) when Mode of Payment has no deposit account', async () => {
+  it('throws PaymentAccountMissingError when the Mode of Payment exists but has no company account', async () => {
     // Step 1: GET invoice for company
     fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
-    // Step 2: MoP has no accounts
+    // Step 2: MoP found (enabled) but no accounts mapped
     fetchMock.mockResolvedValueOnce(erpOk({ accounts: [] }))
 
-    await expect(createAndSubmitPaymentEntry(opts)).rejects.toSatisfy(
-      (e: unknown) => e instanceof ERPNextError && e.status === 503,
-    )
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(PaymentAccountMissingError)
   })
 
-  it('throws ERPNextError(503) when Mode of Payment fetch fails', async () => {
+  it('requires an account mapped for THIS company — no cross-company fallback', async () => {
     fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
-    // MoP not found — triggers catch → paidTo undefined
+    // An account exists, but for a DIFFERENT company — must not be used.
+    fetchMock.mockResolvedValueOnce(
+      erpOk({ accounts: [{ company: 'Other Company', default_account: 'Cash - OC' }] }),
+    )
+
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(PaymentAccountMissingError)
+  })
+
+  it('throws PaymentMethodNotFoundError (not account-missing) when the Mode of Payment does not exist (404)', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
+    // MoP 404 — the incident bug re-threw this as a 503 deposit-account error.
     fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
 
-    await expect(createAndSubmitPaymentEntry(opts)).rejects.toSatisfy(
-      (e: unknown) => e instanceof ERPNextError && e.status === 503,
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(PaymentMethodNotFoundError)
+  })
+
+  it('does NOT POST a Payment Entry after a failed preflight (404 method)', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
+    fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
+
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(PaymentMethodNotFoundError)
+
+    // Exactly two reads (invoice company + MoP doc); no third POST occurred.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const postedPaymentEntry = fetchMock.mock.calls.some(
+      ([url, init]) =>
+        typeof url === 'string' &&
+        url.includes('Payment%20Entry') &&
+        (init as { method?: string } | undefined)?.method === 'POST',
     )
+    expect(postedPaymentEntry).toBe(false)
+  })
+
+  it('does NOT POST a Payment Entry after a failed preflight (account-missing)', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
+    fetchMock.mockResolvedValueOnce(erpOk({ accounts: [] }))
+
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(PaymentAccountMissingError)
+
+    // Exactly two reads (invoice company + MoP doc); no third POST occurred.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const postedPaymentEntry = fetchMock.mock.calls.some(
+      ([url, init]) =>
+        typeof url === 'string' &&
+        url.includes('Payment%20Entry') &&
+        (init as { method?: string } | undefined)?.method === 'POST',
+    )
+    expect(postedPaymentEntry).toBe(false)
   })
 
   it('propagates ERPNextError when the invoice company fetch fails', async () => {
     fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
 
     await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(ERPNextError)
+  })
+
+  it('propagates a connectivity error (non-404) from the Mode of Payment read — never masked as config', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk({ company: 'Test Company' }))
+    // 503 from the proxy is connectivity, not a business-config problem.
+    fetchMock.mockResolvedValueOnce(erpError(503, 'Service Unavailable'))
+
+    await expect(createAndSubmitPaymentEntry(opts)).rejects.toBeInstanceOf(ERPNextError)
+  })
+})
+
+// ─── Mode of Payment reads (availability preflight support) ────────────────────
+
+describe('listEnabledModesOfPayment', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('requests only enabled Modes of Payment and returns the list', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([{ name: 'Cash', type: 'Cash' }]))
+
+    const modes = await listEnabledModesOfPayment()
+
+    expect(modes).toEqual([{ name: 'Cash', type: 'Cash' }])
+    const url = new URL(fetchMock.mock.calls[0][0] as string)
+    expect(JSON.parse(url.searchParams.get('filters') as string)).toEqual([['enabled', '=', 1]])
+  })
+
+  it('returns an empty list (never throws) when the tenant has none', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([]))
+    await expect(listEnabledModesOfPayment()).resolves.toEqual([])
+  })
+})
+
+describe('getModeOfPaymentDoc', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the doc (enabled + accounts) for a single Mode of Payment', async () => {
+    fetchMock.mockResolvedValueOnce(
+      erpOk({ enabled: 1, accounts: [{ company: 'Test Company', default_account: 'Cash - TC' }] }),
+    )
+
+    const doc = await getModeOfPaymentDoc('Cash')
+
+    expect(doc.enabled).toBe(1)
+    expect(doc.accounts?.[0].default_account).toBe('Cash - TC')
+  })
+
+  it('propagates ERPNextError(404) — the caller classifies method-not-found, never swallowed here', async () => {
+    fetchMock.mockResolvedValueOnce(erpError(404, 'Not Found'))
+    await expect(getModeOfPaymentDoc('Nope')).rejects.toBeInstanceOf(ERPNextError)
   })
 })
 
