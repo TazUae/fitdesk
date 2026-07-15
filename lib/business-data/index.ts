@@ -6,6 +6,7 @@ import { bookSession as createSessionBooking, fetchSessions } from '@/actions/se
 import type { ActionResult, Client, Invoice, RecordPaymentResult, Session } from '@/types'
 import type { CreateClientPayload, CreateInvoicePayload } from '@/lib/erpnext/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
+import type { PaymentActionResult } from '@/lib/payments/errors'
 import type { BookSessionInput } from '@/actions/sessions'
 import { editClient, fetchClientById } from '@/actions/clients'
 import { fetchInvoiceById } from '@/actions/invoices'
@@ -65,6 +66,6 @@ export async function recordPayment(input: {
   date:       string
   reference?: string
   note?:      string
-}): Promise<ActionResult<RecordPaymentResult>> {
+}): Promise<PaymentActionResult<RecordPaymentResult>> {
   return recordInvoicePayment(input)
 }

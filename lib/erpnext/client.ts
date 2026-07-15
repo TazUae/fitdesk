@@ -25,6 +25,10 @@ import type { PaymentProvider } from '@/lib/whish'
 import type { BillingMode } from '@/types/clients'
 
 import { getTenantContext } from '@/lib/tenant/context'
+import {
+  PaymentMethodNotFoundError,
+  PaymentAccountMissingError,
+} from '@/lib/payments/errors'
 
 import type {
   CreateClientPayload,
@@ -706,6 +710,61 @@ export async function submitPaymentEntry(paymentEntryId: string): Promise<ERPPay
   return res.message
 }
 
+// ─── Mode of Payment reads (tenant availability preflight support) ─────────────
+
+/** Raw Mode of Payment doc — only the fields the preflight/submit paths read. */
+interface ERPModeOfPayment {
+  enabled?:  0 | 1
+  accounts?: Array<{ company?: string; default_account?: string }>
+}
+
+/**
+ * List the tenant's ENABLED Modes of Payment (name + type). Pure read via the
+ * CP proxy — this is the single "what can this tenant actually accept?" probe
+ * behind the availability preflight (plan §4.3 step 1). ERPNext stays the
+ * source of truth; no new CP endpoint, no local table.
+ */
+export async function listEnabledModesOfPayment(): Promise<Array<{ name: string; type?: string }>> {
+  const res = await erpFetch<ERPListResponse<{ name: string; type?: string }>>(
+    `/api/resource/${encodeURIComponent('Mode of Payment')}`,
+    {
+      params: {
+        filters:           JSON.stringify([['enabled', '=', 1]]),
+        fields:            JSON.stringify(['name', 'type']),
+        limit_page_length: '0',
+      },
+    },
+  )
+  return res.data ?? []
+}
+
+/**
+ * Read a single Mode of Payment doc (enabled flag + company account mappings).
+ * Pure read: it throws ERPNextError(404) when the MoP does not exist. The 404
+ * is NEVER swallowed here — the caller classifies it (method-not-found), which
+ * is the fix for the incident where a 404 was masked as a 503 deposit-account
+ * error (plan §2 Defect B).
+ */
+export async function getModeOfPaymentDoc(mode: string): Promise<ERPModeOfPayment> {
+  const res = await erpFetch<ERPDocResponse<ERPModeOfPayment>>(
+    `/api/resource/${encodeURIComponent('Mode of Payment')}/${encodeURIComponent(mode)}`,
+  )
+  return res.data
+}
+
+/**
+ * Read just the `company` of a Sales Invoice — required to resolve a
+ * company-scoped deposit account for the availability preflight. Mirrors Step 1
+ * of createAndSubmitPaymentEntry.
+ */
+export async function getInvoiceCompany(invoiceId: string): Promise<string> {
+  const res = await erpFetch<ERPDocResponse<{ company?: string }>>(
+    `/api/resource/${encodeURIComponent(DOCTYPE.INVOICE)}/${encodeURIComponent(invoiceId)}`,
+    { params: { fields: JSON.stringify(['company']) } },
+  )
+  return res.data.company ?? ''
+}
+
 /**
  * Record a payment for an invoice: create Payment Entry, submit it, re-fetch
  * the invoice. A draft entry has no accounting effect — submission is required.
@@ -728,27 +787,30 @@ export async function createAndSubmitPaymentEntry(opts: {
   )
   const company = invRes.data.company ?? ''
 
-  // Step 2: resolve paid_to account from Mode of Payment — Frappe requires it.
-  let paidTo: string | undefined
+  // Step 2: resolve paid_to account from the Mode of Payment — Frappe requires
+  // it. This doubles as the server-side defense-in-depth preflight (plan §4.3):
+  // it runs BEFORE the Payment Entry POST (Step 3), so no financial write can
+  // occur when the method is misconfigured.
+  //
+  // A missing Mode of Payment (404) is classified as PaymentMethodNotFoundError
+  // and is NEVER re-thrown as a deposit-account error — that mistranslation was
+  // the incident (plan §2 Defect B). Connectivity/proxy errors propagate as
+  // ERPNextError (→ ERP_UNAVAILABLE), and are never masked as a config problem.
+  let mop: ERPModeOfPayment
   try {
-    const mopRes = await erpFetch<ERPDocResponse<{
-      accounts?: Array<{ company?: string; default_account?: string }>
-    }>>(
-      `/api/resource/Mode%20of%20Payment/${encodeURIComponent(opts.modeOfPayment)}`,
-    )
-    const accounts = mopRes.data.accounts ?? []
-    const match = accounts.find(a => a.company === company) ?? accounts[0]
-    paidTo = match?.default_account
-  } catch {
-    // MoP not found / no accounts — handled by the explicit check below.
+    mop = await getModeOfPaymentDoc(opts.modeOfPayment)
+  } catch (err) {
+    if (err instanceof ERPNextError && err.status === 404) {
+      throw new PaymentMethodNotFoundError(opts.modeOfPayment)
+    }
+    throw err
   }
+  // Require an account mapped for THIS invoice's company — no cross-company
+  // fallback (plan §4.3 step 4). An enabled method with no company account is
+  // account-missing, a DISTINCT condition from method-not-found above.
+  const paidTo = (mop.accounts ?? []).find(a => a.company === company)?.default_account
   if (!paidTo) {
-    throw new ERPNextError(
-      503, 'Payment Account Missing',
-      `/api/resource/Mode of Payment/${opts.modeOfPayment}`,
-      `No deposit account is configured for payment method "${opts.modeOfPayment}". `
-        + 'Set its account in ERPNext before recording payments.',
-    )
+    throw new PaymentAccountMissingError(opts.modeOfPayment, company)
   }
 
   // Step 3: create the Payment Entry draft.

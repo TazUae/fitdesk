@@ -21,17 +21,26 @@ vi.mock('@/lib/business-data/erp-adapter', () => ({
   createInvoice:               vi.fn(),
   // List
   getInvoices:                 vi.fn(),
+  // Availability preflight support
+  getInvoiceCompany:           vi.fn(),
 }))
 vi.mock('@/lib/whish', () => ({
   logPaymentEvent:     vi.fn(),
   generatePaymentLink: vi.fn(),
   PAYMENT_PROVIDERS:   [],
 }))
+vi.mock('@/lib/tenant/context', () => ({
+  getTenantContext: vi.fn(),
+}))
+vi.mock('@/lib/payments/availability', () => ({
+  resolveAvailablePaymentMethods: vi.fn(),
+}))
 
 import {
   collectPayment,
   finalizeInvoice,
   fetchInvoiceById,
+  getAvailablePaymentMethods,
   getPaymentLink,
   issueInvoice,
   recordPayment,
@@ -42,9 +51,17 @@ import {
   createAndSubmitPaymentEntry,
   createInvoice,
   getInvoiceByIdForTrainer,
+  getInvoiceCompany,
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
 import { generatePaymentLink } from '@/lib/whish'
+import { getTenantContext } from '@/lib/tenant/context'
+import { resolveAvailablePaymentMethods } from '@/lib/payments/availability'
+import {
+  PaymentAccountMissingError,
+  PaymentConfigurationUnavailableError,
+  PaymentMethodNotFoundError,
+} from '@/lib/payments/errors'
 import type { Invoice, InvoiceStatus, Payment } from '@/types'
 import type { PaymentMethod } from '@/lib/payments/methods'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
@@ -329,14 +346,90 @@ describe('recordPayment', () => {
     if (!result.success) expect(result.error).toMatch(/did not apply it/i)
   })
 
-  it('surfaces a missing-payment-account error from the ERP layer', async () => {
+  it('maps an account-missing ERP error to PAYMENT_ACCOUNT_MISSING with a safe message', async () => {
     vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice({ outstandingAmount: 100 }))
     vi.mocked(createAndSubmitPaymentEntry).mockRejectedValue(
-      new Error('No deposit account is configured for payment method "Cash".'),
+      new PaymentAccountMissingError('Cash', 'Test Company'),
     )
     const result = await recordPayment({ ...BASE, amount: 100 })
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.error).toMatch(/No deposit account/i)
+    if (!result.success) {
+      expect(result.code).toBe('PAYMENT_ACCOUNT_MISSING')
+      // Safe, non-alarming message — never the raw ERP "No deposit account" 503.
+      expect(result.error).toMatch(/deposit account/i)
+      expect(result.error).not.toMatch(/503/)
+    }
+  })
+
+  it('maps a method-not-found ERP error to PAYMENT_METHOD_NOT_FOUND (never account-missing)', async () => {
+    vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice({ outstandingAmount: 100 }))
+    vi.mocked(createAndSubmitPaymentEntry).mockRejectedValue(
+      new PaymentMethodNotFoundError('Whish Money'),
+    )
+    const result = await recordPayment({ ...BASE, amount: 100 })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('PAYMENT_METHOD_NOT_FOUND')
+      expect(result.code).not.toBe('PAYMENT_ACCOUNT_MISSING')
+    }
+  })
+
+  it('rejects a product-disabled method before any ERP call, with PAYMENT_FEATURE_DISABLED', async () => {
+    const result = await recordPayment({ ...BASE, method: 'omt' as PaymentMethod })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
+      expect(result.error).toMatch(/not available/i)
+    }
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+})
+
+// ─── getAvailablePaymentMethods ───────────────────────────────────────────────
+
+describe('getAvailablePaymentMethods', () => {
+  beforeEach(() => {
+    mockAuth()
+    vi.mocked(getTenantContext).mockResolvedValue({
+      userId: 'user-1', slug: 'gym', tenantId: 'tenant-1',
+      provisioningStatus: 'provisioned', lastSyncedAt: null,
+    })
+    vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice())
+    vi.mocked(getInvoiceCompany).mockResolvedValue('Test Company')
+  })
+  afterEach(() => { vi.clearAllMocks() })
+
+  it('returns the tenant-validated available methods', async () => {
+    vi.mocked(resolveAvailablePaymentMethods).mockResolvedValue({
+      methods:   [{ id: 'cash', label: 'Cash', status: 'available', depositAccount: 'Cash - TC' }],
+      available: [{ id: 'cash', label: 'Cash', status: 'available', depositAccount: 'Cash - TC' }],
+      stale:     false,
+    })
+    const result = await getAvailablePaymentMethods('SINV-1')
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.available.map(m => m.id)).toEqual(['cash'])
+    }
+    // Availability is resolved for the invoice's own company + currency.
+    expect(resolveAvailablePaymentMethods).toHaveBeenCalledWith(
+      expect.objectContaining({ company: 'Test Company', currency: 'USD', tenantId: 'tenant-1' }),
+    )
+  })
+
+  it('returns PAYMENT_CONFIGURATION_UNAVAILABLE when the probe cannot resolve (no method assumed)', async () => {
+    vi.mocked(resolveAvailablePaymentMethods).mockRejectedValue(new PaymentConfigurationUnavailableError())
+    const result = await getAvailablePaymentMethods('SINV-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PAYMENT_CONFIGURATION_UNAVAILABLE')
+  })
+
+  it('fails closed to PAYMENT_CONFIGURATION_UNAVAILABLE when tenant context is missing', async () => {
+    vi.mocked(getTenantContext).mockResolvedValue(null)
+    const result = await getAvailablePaymentMethods('SINV-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PAYMENT_CONFIGURATION_UNAVAILABLE')
+    // Never probes ERP without a resolved tenant.
+    expect(resolveAvailablePaymentMethods).not.toHaveBeenCalled()
   })
 })
 

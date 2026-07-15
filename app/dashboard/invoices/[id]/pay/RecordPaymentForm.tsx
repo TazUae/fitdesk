@@ -5,14 +5,20 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { recordPayment } from '@/lib/business-data'
-import { enabledPaymentMethods, type PaymentMethod } from '@/lib/payments/methods'
+import type { PaymentMethod } from '@/lib/payments/methods'
 import type { Invoice } from '@/types'
 
 interface RecordPaymentFormProps {
   invoice: Invoice
+  /**
+   * Tenant-aware, ERP-validated methods to offer — resolved server-side by the
+   * page (plan §4.3/§4.5). Only these are selectable; the page renders a
+   * configuration-unavailable state instead when the list is empty.
+   */
+  availableMethods: Array<{ value: PaymentMethod; label: string }>
 }
 
-export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
+export function RecordPaymentForm({ invoice, availableMethods }: RecordPaymentFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -103,7 +109,7 @@ export function RecordPaymentForm({ invoice }: RecordPaymentFormProps) {
             Payment method *
           </label>
           <select name="method" className="input-base" required>
-            {enabledPaymentMethods().map(m => (
+            {availableMethods.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
