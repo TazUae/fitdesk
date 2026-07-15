@@ -12,9 +12,13 @@
 | **Metadata-correction commit (Phase 6, cont.)** | `5df3c0b` |
 | **Progress-selector & canonical-label closure (Phase 7)** | `e4d6180`, `19fa07e`, `db3cb07` |
 | **Current branch HEAD (implementation)** | `db3cb07` |
-| **This freeze-report correction commit** | pending — not yet committed (see §13 recommended next sequence, item A) |
+| **Freeze-report correction commit** | `d26368d` (`docs(goals): freeze functional closure report`) |
+| **Migration ordering hardening** | `fa0c658` (`fix(goals): harden client goal index migration ordering`) — see §5.1 |
 | **Governing plan** | `docs/plans/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_PLAN.md` (v1.1) |
+| **Production preflight runbook** | `docs/runbooks/FITDESK_GOAL_INDEX_PRODUCTION_PREFLIGHT.md` (created this update) |
 | **Baseline audit** | `docs/audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md` |
+
+> **Isolation note.** The migration-hardening commit `fa0c658` lives on an **isolated worktree branch** `fix/goal-index-migration-ordering`, based on `db3cb07`'s tree state (`d26368d`), created for autonomous overnight work. It is **not yet merged** into `fix/goal-system-functional-closure`, has **not** been pushed, and has **no** open pull request. This freeze-report update and the new runbook are committed on that same isolated branch. Merging `fa0c658` into the closure branch is a human review step (see §13).
 
 ## Verdict
 
@@ -144,6 +148,35 @@ e. **Deployment approval** — merge to `main` → auto-deploy remains a separat
 
 ---
 
+## 5.1 Migration ordering hardening (2026-07-15, commit `fa0c658`)
+
+A strictly read-only migration preflight found a **statement-ordering defect** in `scripts/migrate-app.mjs` as introduced by `62477e3`. This section records the confirmed defect, the fix, and its verification. **The Goal System feature was already complete; this hardens the deployment/migration path only.**
+
+**Confirmed original defect.** The two goal-system partial unique indexes were declared inside the `statements` array, which executes **before** the `ALTER TABLE "client_goal" ADD COLUMN "is_primary"` later in the same script. Because `client_goal_active_primary`'s predicate references `is_primary`, creating it there fails with `no such column: is_primary` on **any database that predates the `is_primary` column** — fresh installs, disaster-recovery-to-empty, and fresh staging clones. Since `migrate-app.mjs` runs as a **hard startup gate** (via `scripts/start-with-migrations.mjs`, before the server; a non-zero exit aborts startup), this would crash-loop such a container. The existing isolated test (`client-goal-indexes.test.ts`) could not catch it because it pre-creates `client_goal` **with** `is_primary` and only exercises the indexes in isolation, never the real script's statement order. *(Note: production, if deployed from `main` at/after `5fc18c5`, already has the `is_primary` column, so the defect primarily threatens fresh/DR/staging bootstraps and any environment whose `is_primary` presence is unverified — hence the runbook's schema-state gate.)*
+
+**Corrected execution order** (now enforced by `fa0c658`): `client_goal` table exists → `is_primary` + `trainer_sub_goal_ids_json` ALTERs → existing backfills (incl. the `is_primary` backfill) → `client_goal_active_uniqueness` → `client_goal_active_primary` → verification. The index SQL is **unchanged** (identical names, columns, predicates, `CREATE UNIQUE INDEX IF NOT EXISTS`). No transaction wrapper was introduced (the task and existing structure favor per-statement autocommit); conflicting data still fails loudly (non-zero exit, **no silent repair or deletion**), and reruns remain deterministic and idempotent.
+
+**Automated coverage added** — `lib/db/__tests__/migrate-app.test.ts` spawns the **real** `migrate-app.mjs` as a child process against throwaway `file:` databases under the OS temp directory (synthetic env only, no network, no real/remote/Turso DB, no `/app/data`, no repo/volume DB):
+
+| Scenario | Result |
+|---|---|
+| **A. Fresh empty database** | Exit 0; `client_goal` + `is_primary` + `trainer_sub_goal_ids_json` present; both indexes created with exact names/columns/predicates; **no `no such column: is_primary`**. |
+| **B. Idempotent second run** | Exit 0; each target index present exactly once; no duplicate-index/column errors. |
+| **C. Legacy upgrade fixture** | Old-shape `client_goal` (no `is_primary`) + valid rows → exit 0; columns added; `is_primary` backfilled from `client_index.primary_goal_id`; both indexes created; **existing rows preserved (no deletion)**. |
+| **D. Duplicate active goal conflict** | Non-zero exit; clear index-creation error; **no row deletion/repair**; uniqueness index not falsely created. |
+| **E. Multiple active primary conflict** | Non-zero exit; clear index-creation error; **no row deletion/repair**; primary index not falsely created. |
+| **F. Temp-database safety** | Every DB path asserted under the OS temp dir, `file:` URL only, never a real FitDesk DB. |
+
+**Verification totals for `fa0c658`** (run in the isolated worktree):
+- Focused: `migrate-app.test.ts` + `client-goal-indexes.test.ts` → **13 passed / 13** (2 files).
+- Full isolated suite (`npx vitest run --no-file-parallelism --maxWorkers=1 --exclude ".claude/worktrees/**"`) → **80 files / 2416 tests passed, exit 0, no `.claude/worktrees` paths, no worker crash** (clean on the first run — no retry needed). This is **+1 file / +6 tests** vs. the `db3cb07` baseline (the new migration test).
+- Lint (`npx next lint`) → exit 0, no warnings/errors. Build (`npm run build`) → exit 0, *Compiled successfully*.
+- **No production access** of any kind: no remote/Turso connection, no `.env`/secret read, no production DDL. All databases touched were throwaway files under the OS temp directory.
+
+**Effect on the §5 gates.** Gate (c) staged migration is now safe for fresh/DR/staging bootstraps as well as the production upgrade path. The read-only conflict scans in gate (b) — plus a schema-state (`is_primary` presence) check — are now specified precisely in the new runbook (`docs/runbooks/FITDESK_GOAL_INDEX_PRODUCTION_PREFLIGHT.md`). Gates (a) verified backup, (b) read-only scan, (c) staged migration, (d) rollback, and (e) deployment approval **all remain open and human-owned.** This hardening does **not** authorize production deployment.
+
+---
+
 ## 6. Tenant-isolation evidence
 
 - `replaceClientGoals`: `assertTenantId(ctx)` (fail-closed on empty), loads `client_index` scoped by `tenant_id` and throws `client_not_found` on absence/mismatch; every write is tenant-stamped; returns the tenant-verified `erpCustomerId` used for revalidation (never a client-supplied id, Decision D9).
@@ -199,6 +232,7 @@ a2a781d fix(goals): preserve complete goal drafts on client creation   (Phase 1)
 4. **Pre-existing unrelated test-file type errors** remain (not introduced here); they do not affect `next build`.
 5. **"Reorder" is not an implemented capability.** No drag/move action exists anywhere in the `GoalWorkspace` reducer (`ADD_GOAL`/`REMOVE_GOAL`/`SET_PRIMARY`/etc. — no `MOVE_GOAL`). Goals currently follow **add-order**: the order goals were selected in, with no explicit UI reorder control. This was never implemented and was never part of this closure's scope — it is **not** a regression and **not** a blocker. Any acceptance wording that implied reorder as a delivered capability is corrected by this report.
 6. **Test-runner concurrency flake** (§2) — noted for CI-reliability awareness only, not a code defect.
+7. **Migration fresh-bootstrap ordering defect — RESOLVED** (§5.1, commit `fa0c658`). The `no such column: is_primary` failure on fresh/DR/staging bootstraps is fixed by reordering the goal-system index creation after the `is_primary` column and backfill, with real-child-process migration tests. Merging `fa0c658` into the closure branch is a pending human step (§13). Production's own upgrade path was not affected by the original defect (production already has `is_primary`), but the runbook still verifies that assumption before any migration.
 
 ---
 
@@ -214,9 +248,9 @@ a2a781d fix(goals): preserve complete goal drafts on client creation   (Phase 1)
 
 ## 13. Recommended next sequence
 
-A. Commit this corrected freeze report (documentation-only commit).
-B. Prepare a read-only production migration preflight (no writes, no schema changes performed yet).
-C. Verify production backup and run the read-only duplicate-data scan (§5b).
+A. Review the two isolated-branch commits from the overnight run (`fa0c658` migration hardening + this documentation commit) and merge `fa0c658` into `fix/goal-system-functional-closure`.
+B. Follow the production preflight runbook (`docs/runbooks/FITDESK_GOAL_INDEX_PRODUCTION_PREFLIGHT.md`): confirm production database identity, then run the read-only conflict scans (duplicate active goal, multiple active primary, backfill hazard) plus the `is_primary`-presence and existing-index checks.
+C. Verify a production backup artifact + restore readiness (§5a).
 D. Approve the migration and rollback procedure (§5c–d) with whoever owns production deployment sign-off.
 E. Only then prepare the controlled merge/deployment gate (§12) — this step is explicitly **not** authorized by this report alone.
 
