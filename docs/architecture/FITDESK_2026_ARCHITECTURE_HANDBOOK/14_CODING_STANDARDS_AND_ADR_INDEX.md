@@ -38,6 +38,7 @@ FitDesk code conventions and the architecture-decision record set.
 | ADR | Title | Governs |
 |---|---|---|
 | ADR-001 | Client Management — ERP-Authoritative Hybrid | `10`, client create/identity |
+| ADR-MKT-001 | Workspace Operating Market Authority | Payment-method market eligibility; `Tenant.country` vs `operatingMarket` separation |
 | ADR-UX-001 | Design System Foundation | `07` |
 | ADR-UX-002 | Component Taxonomy | `06` |
 | ADR-UX-003 | Motion Constitution | `06` |

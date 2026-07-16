@@ -61,6 +61,32 @@ instead of re-reading the entire `docs/` tree from scratch each session.
    a `docs/product/*` / `docs/execution/*` file.** They remain valuable context and
    are not deleted, but must not be assumed current without a live cross-reference.
 
+### Binding ADRs (approved — controlling)
+
+Listed here once an ADR's own `Status` line reads `Approved`. These carry full
+architectural force per the hierarchy above and must not be silently
+overridden — see each ADR's own "Do-not-touch" / "Supersession" clause for how
+to change them.
+
+| ADR | Status | Controlling decision |
+|---|---|---|
+| [`ADR-MKT-001`](adr/ADR-MKT-001-workspace-operating-market-authority.md) — Workspace Operating Market Authority | **Approved** (2026-07-16) | `Tenant.country` is a locale/Chart-of-Accounts provisioning seed and must never authorize payment-method eligibility. Operating market is a separate, nullable, operator-verified field (`operatingMarket`) that fails closed when unverified — Cash remains available; Lebanon-specific methods stay unavailable and unprobed. No backfill from country, timezone, phone, locale, or currency. Historical payment identity stays global and market-independent. **This approval covers the architecture decision and documentation-governance transition only** — it does not authorize implementation, migration, deployment, ERP provisioning, or enabling the Lebanon catalog; see the ADR's Final Status for the full scope and `docs/plans/FITDESK_WORKSPACE_OPERATING_MARKET_AUTHORITY_PLAN.md` for the still-gated execution phases. |
+
+### Explicitly referenced, non-binding ADRs (tracked here — not historical)
+
+Listing an ADR here exempts it from the tier-7 "historical unless referenced"
+default above: it is current and discoverable, and must not be assumed stale or
+ignored. **Listing here does not by itself make the ADR's decision binding.** An
+ADR carries architectural force only once its own `Status` line reads
+`Approved` — until then it is recorded, reviewable intent, not settled
+architecture, and must not override existing approved behavior; it moves to the
+binding table above on approval. Absence from this list does not by itself
+demote an ADR that is already live-cross-referenced from code or the handbook
+(e.g. `ADR-001`, cited from `actions/clients.ts`, `lib/db/schema.ts`, and
+Handbook `10`/`14`, and itself `Approved`).
+
+*No ADRs are currently pending in this tier.*
+
 ## Rules
 
 - **Claude Code must not treat every doc as equally authoritative.** Always resolve
