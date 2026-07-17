@@ -24,7 +24,7 @@ import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-pu
 import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
 import { buildPackageInvoicePayload } from '@/lib/billing/package-invoice-builder'
 import type { PackagePaymentStatus } from '@/lib/billing/taxonomy'
-import { isEnabledPaymentMethod, paymentMethodToErpMode } from '@/lib/payments/methods'
+import { isMethodAuthorizedForMarket, paymentMethodToErpMode } from '@/lib/payments/methods'
 import { projectPackagePaymentStatus } from '@/lib/billing/payment-status'
 import type {
   AssignPackageInput,
@@ -38,7 +38,18 @@ import type {
 
 type AppDb = LibSQLDatabase<typeof schema>
 
-export type TenantCtx = { tenantId: string }
+export type TenantCtx = {
+  tenantId: string
+  /**
+   * The caller's own server-side resolved workspace market (via
+   * lib/tenant/market.ts's resolveWorkspaceMarket(), called by the 'use
+   * server' action layer — never here; this service deliberately makes no
+   * fetch calls of its own, see file header). Optional/undefined is treated
+   * identically to null — both fail closed, authorizing only market:'global'
+   * (Cash) methods.
+   */
+  market?: string | null
+}
 
 export type PackageAssignmentErpAdapter = {
   createInvoice:     (payload: CreateInvoicePayload) => Promise<Invoice>
@@ -207,7 +218,7 @@ export class PackageAssignmentService {
           '[PackageAssignmentService] payment requested but adapter is missing createAndSubmitPaymentEntry',
         )
       }
-      if (!isEnabledPaymentMethod(input.payment.method)) {
+      if (!isMethodAuthorizedForMarket(input.payment.method, ctx.market ?? null)) {
         throw new Error(
           `[PackageAssignmentService] unsupported or disabled payment method: "${input.payment.method}"`,
         )

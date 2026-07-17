@@ -409,6 +409,31 @@ describe('unsupported or disabled payment method', () => {
     const purchases = await purchaseRepo.listPurchasesByClient(CTX, CLIENT_ID)
     expect(purchases).toHaveLength(0)
   })
+
+  it('rejects a Lebanon-only method for an unverified ctx (no market) — no ERP call, no ledger', async () => {
+    const input = baseInput({ payment: { method: 'mymonty' }, idempotencyKey: 'ikey-pnow-lb-unverified' })
+
+    await expect(service.assignPackage(CTX, input)).rejects.toThrow(
+      /unsupported or disabled payment method/i,
+    )
+    expect(mockErp.createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+
+    const purchases = await purchaseRepo.listPurchasesByClient(CTX, CLIENT_ID)
+    expect(purchases).toHaveLength(0)
+  })
+
+  it('allows a Lebanon-only method through once ctx.market is "LB" — the gate lifts once authority is proven', async () => {
+    const verifiedCtx: TenantCtx = { tenantId: TENANT, market: 'LB' }
+    const input = baseInput({ payment: { method: 'mymonty' }, idempotencyKey: 'ikey-pnow-lb-verified' })
+
+    const result = await service.assignPackage(verifiedCtx, input)
+
+    expect(result.purchase.packageStatus).toBe('active')
+    expect(result.purchase.paymentStatus).toBe('paid')
+    expect(mockErp.createAndSubmitPaymentEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ modeOfPayment: paymentMethodToErpMode('mymonty') }),
+    )
+  })
 })
 
 // ─── 7. Payment requested but adapter missing createAndSubmitPaymentEntry ──────

@@ -39,7 +39,8 @@ const mockList = vi.mocked(listEnabledModesOfPayment)
 const mockDoc  = vi.mocked(getModeOfPaymentDoc)
 
 const CO = 'Test Company'
-const PARAMS = { company: CO, currency: 'USD', tenantId: 'tenant-1' }
+const PARAMS: ResolveAvailabilityParams = { company: CO, currency: 'USD', tenantId: 'tenant-1', market: null }
+const LB_PARAMS: ResolveAvailabilityParams = { ...PARAMS, market: 'LB' }
 
 /** A Mode of Payment doc reader keyed by exact docname. */
 function docBy(map: Record<string, { enabled?: 0 | 1; accounts?: Array<{ company?: string; default_account?: string }> }>) {
@@ -69,10 +70,11 @@ describe('resolveAvailablePaymentMethods — tenant truth', () => {
 
     expect(res.available.map(m => m.id)).toEqual(['cash'])
     expect(res.available[0].depositAccount).toBe('Cash - TC')
-    // Whish Money and every other Lebanon-only method are held product-off
-    // (see lib/payments/methods.ts) pending an authoritative country gate —
-    // absent from methods[] entirely, not even probed, regardless of what
-    // this (or any) tenant's ERP has configured.
+    // Whish Money and every other Lebanon-only method are absent for a
+    // workspace with no verified LB market (PARAMS.market is null here) —
+    // filtered out before any ERP detail probe, regardless of what this (or
+    // any) tenant's ERP has configured. See the dedicated market-gate
+    // describe block below for the verified-LB counterpart.
     expect(res.methods.find(m => m.id === 'whish_money')).toBeUndefined()
     expect(res.methods.find(m => m.id === 'omt')).toBeUndefined()
     expect(res.stale).toBe(false)
@@ -285,106 +287,192 @@ describe('resolveAvailablePaymentMethods — corrected fail behaviour (no Cash a
   })
 })
 
-describe('resolveAvailablePaymentMethods — Lebanon-only methods are held (no authoritative country gate wired yet)', () => {
-  // lib/payments/methods.ts holds every market:'LB' method at enabled:false
-  // — see that file's header for the full reasoning and the checkpoint doc
-  // for the architecture-gap writeup. The tests below prove the *effect*:
-  // no workspace, however perfectly its ERP is configured, can reach any of
-  // these six methods, and none of them are ever ERP-detail-probed.
+describe('resolveAvailablePaymentMethods — Lebanon market gate (ADR-MKT-001)', () => {
+  // The six Lebanon-only methods are now gated by params.market, resolved
+  // server-side by the caller via lib/tenant/market.ts — never by anything
+  // this function reads itself. Both sides of the gate are proven here: an
+  // unverified/non-LB workspace never sees or probes them (zero-probe
+  // guarantee), and a verified-LB workspace does.
 
   const ALL_SIX_LB_IDS = ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd']
-
-  it('a tenant whose ERP has all seven Modes of Payment perfectly configured still sees only cash as available', async () => {
-    mockList.mockResolvedValue([
-      { name: 'Cash' },
-      { name: 'Whish Money' },
-      { name: 'OMT Pay' },
-      { name: 'MyMonty' },
-      { name: 'Suyool' },
-      { name: 'Purpl' },
-      { name: 'Bank Transfer - Fresh USD' },
-    ])
-    mockDoc.mockImplementation(docBy({
-      'Cash':                      { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
-      'Whish Money':               { enabled: 1, accounts: [{ company: CO, default_account: 'Whish - TC' }] },
-      'OMT Pay':                   { enabled: 1, accounts: [{ company: CO, default_account: 'OMT - TC' }] },
-      'MyMonty':                   { enabled: 1, accounts: [{ company: CO, default_account: 'MyMonty - TC' }] },
-      'Suyool':                    { enabled: 1, accounts: [{ company: CO, default_account: 'Suyool - TC' }] },
-      'Purpl':                     { enabled: 1, accounts: [{ company: CO, default_account: 'Purpl - TC' }] },
-      'Bank Transfer - Fresh USD': { enabled: 1, accounts: [{ company: CO, default_account: 'Bank - TC' }] },
-    }))
-
-    const res = await resolveAvailablePaymentMethods(PARAMS)
-
-    expect(res.available.map(m => m.id)).toEqual(['cash'])
-    // Not "found but blocked" — structurally absent from methods[] entirely,
-    // exactly like USDT and mobile_wallet_other.
-    for (const id of ALL_SIX_LB_IDS) {
-      expect(res.methods.find(m => m.id === id)).toBeUndefined()
-    }
+  const ALL_SEVEN_ENABLED = [
+    { name: 'Cash' }, { name: 'Whish Money' }, { name: 'OMT Pay' },
+    { name: 'MyMonty' }, { name: 'Suyool' }, { name: 'Purpl' },
+    { name: 'Bank Transfer - Fresh USD' },
+  ]
+  const ALL_SEVEN_DOCS = docBy({
+    'Cash':                      { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
+    'Whish Money':               { enabled: 1, accounts: [{ company: CO, default_account: 'Whish - TC' }] },
+    'OMT Pay':                   { enabled: 1, accounts: [{ company: CO, default_account: 'OMT - TC' }] },
+    'MyMonty':                   { enabled: 1, accounts: [{ company: CO, default_account: 'MyMonty - TC' }] },
+    'Suyool':                    { enabled: 1, accounts: [{ company: CO, default_account: 'Suyool - TC' }] },
+    'Purpl':                     { enabled: 1, accounts: [{ company: CO, default_account: 'Purpl - TC' }] },
+    'Bank Transfer - Fresh USD': { enabled: 1, accounts: [{ company: CO, default_account: 'Bank - TC' }] },
   })
 
-  it('makes zero ERP Mode of Payment detail probes for any Lebanon-only method, even though Step 1\'s list included them', async () => {
-    mockList.mockResolvedValue([
-      { name: 'Cash' }, { name: 'Whish Money' }, { name: 'OMT Pay' },
-      { name: 'MyMonty' }, { name: 'Suyool' }, { name: 'Purpl' },
-      { name: 'Bank Transfer - Fresh USD' },
-    ])
-    mockDoc.mockImplementation(docBy({
-      Cash: { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
-    }))
+  describe('unverified / non-LB workspace — still Cash-only, still zero probes', () => {
+    it('a tenant whose ERP has all seven Modes of Payment perfectly configured still sees only cash as available (market: null)', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
 
-    await resolveAvailablePaymentMethods(PARAMS)
+      const res = await resolveAvailablePaymentMethods(PARAMS)
 
-    // The one generic "what's enabled" list call is expected (cash needs it
-    // too) — what must NEVER happen is a per-name detail read for any of
-    // the six held docnames.
-    expect(mockList).toHaveBeenCalledTimes(1)
-    expect(mockDoc).toHaveBeenCalledTimes(1)
-    expect(mockDoc).toHaveBeenCalledWith('Cash')
-    for (const docname of ['Whish Money', 'OMT Pay', 'MyMonty', 'Suyool', 'Purpl', 'Bank Transfer - Fresh USD']) {
-      expect(mockDoc).not.toHaveBeenCalledWith(docname)
-    }
+      expect(res.available.map(m => m.id)).toEqual(['cash'])
+      for (const id of ALL_SIX_LB_IDS) {
+        expect(res.methods.find(m => m.id === id)).toBeUndefined()
+      }
+    })
+
+    it('an explicitly non-LB market value behaves identically to null — same Cash-only result', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
+
+      const res = await resolveAvailablePaymentMethods({ ...PARAMS, market: 'US' })
+
+      expect(res.available.map(m => m.id)).toEqual(['cash'])
+      for (const id of ALL_SIX_LB_IDS) {
+        expect(res.methods.find(m => m.id === id)).toBeUndefined()
+      }
+    })
+
+    it('makes zero ERP Mode of Payment detail probes for any Lebanon-only method, even though Step 1\'s list included them', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(docBy({
+        Cash: { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
+      }))
+
+      await resolveAvailablePaymentMethods(PARAMS)
+
+      // The one generic "what's enabled" list call is expected (cash needs it
+      // too) — what must NEVER happen is a per-name detail read for any of
+      // the six Lebanon-only docnames.
+      expect(mockList).toHaveBeenCalledTimes(1)
+      expect(mockDoc).toHaveBeenCalledTimes(1)
+      expect(mockDoc).toHaveBeenCalledWith('Cash')
+      for (const docname of ['Whish Money', 'OMT Pay', 'MyMonty', 'Suyool', 'Purpl', 'Bank Transfer - Fresh USD']) {
+        expect(mockDoc).not.toHaveBeenCalledWith(docname)
+      }
+    })
+
+    it('the gate applies even to omt on its corrected docname "OMT Pay" — market-gated, not a docname problem', async () => {
+      // Distinct from a missing/misconfigured MoP: OMT Pay is fully, correctly
+      // configured here, and omt STILL never becomes a candidate without LB.
+      mockList.mockResolvedValue([{ name: 'OMT Pay' }])
+      mockDoc.mockImplementation(docBy({
+        'OMT Pay': { enabled: 1, accounts: [{ company: CO, default_account: 'OMT - TC' }] },
+      }))
+
+      const res = await resolveAvailablePaymentMethods(PARAMS)
+
+      expect(res.methods.find(m => m.id === 'omt')).toBeUndefined()
+      expect(mockDoc).not.toHaveBeenCalledWith('OMT Pay')
+    })
+
+    it('the gate applies even to bank_transfer_fresh_usd on its exact hyphenated docname — configuration is irrelevant without LB', async () => {
+      mockList.mockResolvedValue([{ name: 'Bank Transfer - Fresh USD' }])
+      mockDoc.mockImplementation(docBy({
+        'Bank Transfer - Fresh USD': { enabled: 1, accounts: [{ company: CO, default_account: 'Bank - TC' }] },
+      }))
+
+      const res = await resolveAvailablePaymentMethods(PARAMS)
+
+      expect(res.methods.find(m => m.id === 'bank_transfer_fresh_usd')).toBeUndefined()
+      expect(mockDoc).not.toHaveBeenCalledWith('Bank Transfer - Fresh USD')
+    })
+
+    it('produces no misleading configuration error — gated methods are simply absent, never a specific error code', async () => {
+      mockList.mockResolvedValue([{ name: 'Cash' }])
+      mockDoc.mockImplementation(docBy({
+        Cash: { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
+      }))
+
+      const res = await resolveAvailablePaymentMethods(PARAMS)
+
+      for (const id of ALL_SIX_LB_IDS) {
+        expect(res.methods.find(m => m.id === id)).toBeUndefined()
+      }
+    })
   })
 
-  it('the hold applies even to omt on its corrected docname "OMT Pay" — market-held, not a docname problem', async () => {
-    // Distinct from a missing/misconfigured MoP: OMT Pay is fully, correctly
-    // configured here, and omt STILL never becomes a candidate.
-    mockList.mockResolvedValue([{ name: 'OMT Pay' }])
-    mockDoc.mockImplementation(docBy({
-      'OMT Pay': { enabled: 1, accounts: [{ company: CO, default_account: 'OMT - TC' }] },
-    }))
+  describe('verified LB workspace — the seven-method catalog, fully probed', () => {
+    it('a verified-LB workspace with all seven Modes of Payment configured receives exactly seven available methods', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
 
-    const res = await resolveAvailablePaymentMethods(PARAMS)
+      const res = await resolveAvailablePaymentMethods(LB_PARAMS)
 
-    expect(res.methods.find(m => m.id === 'omt')).toBeUndefined()
-    expect(mockDoc).not.toHaveBeenCalledWith('OMT Pay')
+      expect(res.available.map(m => m.id).sort()).toEqual(
+        ['bank_transfer_fresh_usd', 'cash', 'mymonty', 'omt', 'purpl', 'suyool', 'whish_money'].sort(),
+      )
+    })
+
+    it('Other Mobile Wallet is absent even for a verified-LB workspace — not a catalog row at all', async () => {
+      mockList.mockResolvedValue([...ALL_SEVEN_ENABLED, { name: 'Some Custom Wallet' }])
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
+
+      const res = await resolveAvailablePaymentMethods(LB_PARAMS)
+
+      expect(res.methods.find(m => m.id === ('mobile_wallet_other' as never))).toBeUndefined()
+    })
+
+    it('USDT is absent even for a verified-LB workspace whose ERP has an enabled "USDT" Mode of Payment', async () => {
+      mockList.mockResolvedValue([...ALL_SEVEN_ENABLED, { name: 'USDT' }])
+      mockDoc.mockImplementation((mode: string) =>
+        mode === 'USDT'
+          ? Promise.resolve({ enabled: 1 as const, accounts: [{ company: CO, default_account: 'USDT - TC' }] })
+          : ALL_SEVEN_DOCS(mode),
+      )
+
+      const res = await resolveAvailablePaymentMethods(LB_PARAMS)
+
+      expect(res.methods.map(m => m.id)).not.toContain('usdt')
+      expect(mockDoc).not.toHaveBeenCalledWith('USDT')
+    })
+
+    it('a missing or disabled Lebanon method remains unavailable for a verified-LB workspace — never fabricated', async () => {
+      mockList.mockResolvedValue([{ name: 'Cash' }, { name: 'Whish Money' }]) // only two of seven enabled in ERP
+      mockDoc.mockImplementation(docBy({
+        Cash:          { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
+        'Whish Money': { enabled: 0, accounts: [{ company: CO, default_account: 'Whish - TC' }] }, // disabled doc
+      }))
+
+      const res = await resolveAvailablePaymentMethods(LB_PARAMS)
+
+      expect(res.available.map(m => m.id)).toEqual(['cash'])
+      expect(res.methods.find(m => m.id === 'whish_money')?.status).toBe('PAYMENT_METHOD_DISABLED')
+      // omt/mymonty/suyool/purpl/bank_transfer_fresh_usd are candidates for a
+      // verified-LB workspace but absent from Step 1's enabled-set list.
+      expect(res.methods.find(m => m.id === 'omt')?.status).toBe('PAYMENT_METHOD_NOT_FOUND')
+    })
   })
 
-  it('the hold applies even to bank_transfer_fresh_usd on its exact hyphenated docname — configuration is irrelevant while held', async () => {
-    mockList.mockResolvedValue([{ name: 'Bank Transfer - Fresh USD' }])
-    mockDoc.mockImplementation(docBy({
-      'Bank Transfer - Fresh USD': { enabled: 1, accounts: [{ company: CO, default_account: 'Bank - TC' }] },
-    }))
+  describe('cache key includes market — a grant or revoke takes effect on the next probe, not after a stale TTL', () => {
+    it('the same tenant/company/currency with a different market forces a fresh probe, not a shared cache entry', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
 
-    const res = await resolveAvailablePaymentMethods(PARAMS)
+      await resolveAvailablePaymentMethods(PARAMS)
+      expect(mockList).toHaveBeenCalledTimes(1)
 
-    expect(res.methods.find(m => m.id === 'bank_transfer_fresh_usd')).toBeUndefined()
-    expect(mockDoc).not.toHaveBeenCalledWith('Bank Transfer - Fresh USD')
-  })
+      // Same tenant/company/currency, market flips null -> 'LB' (a grant) —
+      // must NOT reuse the Cash-only cached entry.
+      const granted = await resolveAvailablePaymentMethods(LB_PARAMS)
+      expect(mockList).toHaveBeenCalledTimes(2)
+      expect(granted.available.map(m => m.id)).toContain('whish_money')
+    })
 
-  it('the hold produces no misleading configuration error — held methods are simply absent, never a specific error code', async () => {
-    mockList.mockResolvedValue([{ name: 'Cash' }])
-    mockDoc.mockImplementation(docBy({
-      Cash: { enabled: 1, accounts: [{ company: CO, default_account: 'Cash - TC' }] },
-    }))
+    it('reverting market LB -> null (a revoke) forces a fresh probe and the six methods disappear again', async () => {
+      mockList.mockResolvedValue(ALL_SEVEN_ENABLED)
+      mockDoc.mockImplementation(ALL_SEVEN_DOCS)
 
-    const res = await resolveAvailablePaymentMethods(PARAMS)
+      const granted = await resolveAvailablePaymentMethods(LB_PARAMS)
+      expect(granted.available.map(m => m.id)).toContain('whish_money')
 
-    for (const id of ALL_SIX_LB_IDS) {
-      const entry = res.methods.find(m => m.id === id)
-      expect(entry).toBeUndefined()
-    }
+      const revoked = await resolveAvailablePaymentMethods(PARAMS)
+      expect(mockList).toHaveBeenCalledTimes(2)
+      expect(revoked.available.map(m => m.id)).toEqual(['cash'])
+      expect(revoked.methods.find(m => m.id === 'whish_money')).toBeUndefined()
+    })
   })
 })
 
@@ -406,29 +494,21 @@ describe('resolveAvailablePaymentMethods — USDT guard', () => {
   })
 })
 
-describe('resolveAvailablePaymentMethods — no Lebanon-eligibility inference channel exists (architecture proof)', () => {
-  // These tests prove there is no code path anywhere in this function by
-  // which nationality, phone number, locale, timezone, or invoice currency
-  // could ever activate a Lebanon-only method — not "unlikely to", but
-  // structurally incapable of it, because no such input reaches this
-  // function at all. This is also, necessarily, why "missing workspace
-  // country" always fails closed here: there is no country field to be
-  // missing FROM — every call, unconditionally, is as if country were
-  // absent, and every call, unconditionally, holds every Lebanon-only
-  // method. There is currently no way to construct the positive case (an
-  // authoritatively-LB-resolved workspace) at all — see the checkpoint doc
-  // for the full architecture-gap writeup; that gap is exactly why this is
-  // not testable here, not an oversight in this test file.
+describe('resolveAvailablePaymentMethods — market is the ONLY eligibility channel (architecture proof)', () => {
+  // These tests prove there is no OTHER code path by which nationality,
+  // phone number, locale, timezone, or invoice currency could ever activate
+  // a Lebanon-only method — not "unlikely to", but structurally incapable,
+  // because none of those inputs are ever inspected for that purpose. The
+  // resolved `market` field (never client-supplied — see
+  // lib/tenant/market.ts and actions/invoices.ts, which resolve it
+  // server-side before calling this function) is the only channel.
 
-  it('ResolveAvailabilityParams has no country/nationality/phone/locale/timezone field — company, currency, and tenantId are the entire input surface', () => {
-    // This assignment is itself the proof: if a country-like field existed
-    // and were required, omitting it would fail to compile. If one existed
-    // but were optional, the key-list assertion below would catch it.
-    const params: ResolveAvailabilityParams = { company: CO, currency: 'USD', tenantId: 'tenant-1' }
-    expect(Object.keys(params).sort()).toEqual(['company', 'currency', 'tenantId'])
+  it('ResolveAvailabilityParams\' entire input surface is company, currency, tenantId, and market — no country/nationality/phone/locale/timezone field', () => {
+    const params: ResolveAvailabilityParams = { company: CO, currency: 'USD', tenantId: 'tenant-1', market: null }
+    expect(Object.keys(params).sort()).toEqual(['company', 'currency', 'market', 'tenantId'])
   })
 
-  it('a Lebanon-suggestive currency (LBP) does not unlock Lebanon-only methods — currency gates settlement compatibility only, never market eligibility', async () => {
+  it('a Lebanon-suggestive currency (LBP) does not unlock Lebanon-only methods without market:\'LB\' — currency gates settlement compatibility only, never market eligibility', async () => {
     mockList.mockResolvedValue([{ name: 'Cash' }, { name: 'Whish Money' }])
     mockDoc.mockImplementation(docBy({
       Cash:          { enabled: 1, accounts: [{ company: CO, default_account: 'x' }] },
@@ -445,7 +525,7 @@ describe('resolveAvailablePaymentMethods — no Lebanon-eligibility inference ch
     expect(res.methods.find(m => m.id === 'whish_money')).toBeUndefined()
   })
 
-  it('a Lebanon-suggestive company or tenant identifier does not unlock Lebanon-only methods — these strings are never inspected for that purpose', async () => {
+  it('a Lebanon-suggestive company or tenant identifier does not unlock Lebanon-only methods without market:\'LB\' — these strings are never inspected for that purpose', async () => {
     mockList.mockResolvedValue([{ name: 'Cash' }, { name: 'Whish Money' }])
     mockDoc.mockImplementation(docBy({
       Cash:          { enabled: 1, accounts: [{ company: 'Beirut Fitness LB', default_account: 'x' }] },
@@ -453,11 +533,23 @@ describe('resolveAvailablePaymentMethods — no Lebanon-eligibility inference ch
     }))
 
     const res = await resolveAvailablePaymentMethods({
-      company: 'Beirut Fitness LB', currency: 'USD', tenantId: 'lebanon-trainer-tenant',
+      company: 'Beirut Fitness LB', currency: 'USD', tenantId: 'lebanon-trainer-tenant', market: null,
     })
 
     expect(res.available.map(m => m.id)).toEqual(['cash'])
     expect(res.methods.find(m => m.id === 'whish_money')).toBeUndefined()
+  })
+
+  it('an actually-verified market:\'LB\' DOES unlock the six methods — proving market, and only market, is the channel', async () => {
+    mockList.mockResolvedValue([{ name: 'Cash' }, { name: 'Whish Money' }])
+    mockDoc.mockImplementation(docBy({
+      Cash:          { enabled: 1, accounts: [{ company: CO, default_account: 'x' }] },
+      'Whish Money': { enabled: 1, accounts: [{ company: CO, default_account: 'y' }] },
+    }))
+
+    const res = await resolveAvailablePaymentMethods({ ...PARAMS, market: 'LB' })
+
+    expect(res.available.map(m => m.id)).toContain('whish_money')
   })
 })
 

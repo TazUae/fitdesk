@@ -3,13 +3,14 @@
 import { db } from '@/lib/db'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTenantContext } from '@/lib/tenant/context'
+import { resolveWorkspaceMarket } from '@/lib/tenant/market'
 import {
   createAndSubmitPaymentEntry,
   createInvoice,
   getInvoiceById,
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
-import { isEnabledPaymentMethod } from '@/lib/payments/methods'
+import { isMethodAuthorizedForMarket } from '@/lib/payments/methods'
 import { PackageAssignmentService } from '@/lib/billing/package-assignment-service'
 import { PackageVoidService } from '@/lib/billing/package-void-service'
 import { PackageConsumptionService } from '@/lib/billing/package-consumption-service'
@@ -59,9 +60,13 @@ export async function assignPackage(
     assignedByUserId: ctx.userId,
   }
 
+  // Resolved once, server-side, never client-supplied — passed to both the
+  // check below and the service (which makes no fetch calls of its own).
+  const { market } = await resolveWorkspaceMarket()
+
   // Validate payment method server-side before service construction —
-  // disabled or unsupported methods must never reach ERP.
-  if (safeInput.payment != null && !isEnabledPaymentMethod(safeInput.payment.method)) {
+  // disabled, unsupported, or market-ineligible methods must never reach ERP.
+  if (safeInput.payment != null && !isMethodAuthorizedForMarket(safeInput.payment.method, market)) {
     return {
       success: false,
       error:   `Unsupported or disabled payment method: "${safeInput.payment.method}".`,
@@ -75,7 +80,7 @@ export async function assignPackage(
       submitSalesInvoice,
       getInvoiceById,
     })
-    const data = await service.assignPackage({ tenantId: ctx.tenantId }, safeInput)
+    const data = await service.assignPackage({ tenantId: ctx.tenantId, market }, safeInput)
     return { success: true, data }
   } catch (err) {
     console.error('[assignPackage]', err instanceof Error ? err.message : String(err))

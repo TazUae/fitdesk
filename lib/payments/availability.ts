@@ -59,6 +59,14 @@ export interface ResolveAvailabilityParams {
   company:  string
   currency: string
   tenantId: string
+  /**
+   * The caller's own server-side resolved workspace market (via
+   * lib/tenant/market.ts's resolveWorkspaceMarket()) — NEVER client-supplied,
+   * never re-derived here. `null` (the resolver's fail-closed default) means
+   * every 'LB' catalog row is filtered out before any ERP probe; only Cash
+   * (market: 'global') is ever a candidate for such a workspace.
+   */
+  market: string | null
 }
 
 // ─── Tunables (plan §4.4 / §9 open-decision #1) ──────────────────────────────────
@@ -92,6 +100,8 @@ interface CatalogEntry {
   settlementAsset:  SettlementAsset
   /** Static product-support gate; a product-off method is never even probed. */
   productSupported: boolean
+  /** 'global' or 'LB' — see lib/payments/methods.ts's PaymentMethodDef. */
+  market:           'global' | 'LB'
 }
 
 // Every current method settles in fresh USD. Settlement asset is metadata
@@ -114,6 +124,7 @@ const CATALOG: CatalogEntry[] = PAYMENT_METHODS.map((m) => ({
   erpModeOfPayment: m.erpNextModeOfPayment,
   settlementAsset:  SETTLEMENT_ASSET[m.value],
   productSupported: m.enabled,
+  market:           m.market,
 }))
 
 function currencyCompatible(asset: SettlementAsset, invoiceCurrency: string): boolean {
@@ -132,7 +143,10 @@ interface CacheEntry { value: AvailabilityResult; at: number }
 const cache = new Map<string, CacheEntry>()
 
 function cacheKey(p: ResolveAvailabilityParams): string {
-  return `${p.tenantId}|${p.company}|${p.currency}|${CONFIG_VERSION}`
+  // market is part of the key deliberately (not an optimization): without it,
+  // a market grant or revoke would be ignored for a full TTL window after it
+  // takes effect, since a stale pre-change result would still satisfy the key.
+  return `${p.tenantId}|${p.company}|${p.currency}|${p.market ?? 'null'}|${CONFIG_VERSION}`
 }
 
 /** Test-only: reset the module-level cache between cases. */
@@ -142,17 +156,23 @@ export function resetAvailabilityCache(): void {
 
 // ─── Core probe ─────────────────────────────────────────────────────────────────
 
-async function probe({ company, currency }: ResolveAvailabilityParams): Promise<AvailabilityResult> {
+async function probe({ company, currency, market }: ResolveAvailabilityParams): Promise<AvailabilityResult> {
   // Step 1: one list request — what this tenant can actually accept.
   const enabled      = await listEnabledModesOfPayment()
   const enabledNames = new Set(enabled.map((m) => m.name))
 
   // Step 2: intersect with the supported catalog; drop product-off methods
-  // first so we never probe them (plan §4.3 step 2). USDT and the tenant-
-  // defined "Other Mobile Wallet" concept are not catalog rows at all (see
+  // AND market-ineligible methods first so we never probe them (plan §4.3
+  // step 2; ADR-MKT-001). This is the whole zero-probe guarantee: a workspace
+  // whose resolved `market` isn't 'LB' filters out all six Lebanon rows here,
+  // before listEnabledModesOfPayment's result is even consulted for them —
+  // structurally, not by convention. USDT and the tenant-defined "Other
+  // Mobile Wallet" concept are not catalog rows at all (see
   // docs/execution/TENANT_AWARE_PAYMENT_SLICE_2_CHECKPOINT.md), so this
   // filter structurally can never surface or probe either of them.
-  const candidates = CATALOG.filter((c) => c.productSupported)
+  const candidates = CATALOG.filter(
+    (c) => c.productSupported && (c.market === 'global' || c.market === market),
+  )
 
   // Step 3-5: bounded parallel per-candidate validation.
   const methods = await Promise.all(

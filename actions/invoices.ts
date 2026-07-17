@@ -10,6 +10,7 @@ import {
 } from '@/lib/business-data/erp-adapter'
 import { resolveTrainerId } from '@/lib/auth/resolve-trainer'
 import { getTenantContext } from '@/lib/tenant/context'
+import { resolveWorkspaceMarket } from '@/lib/tenant/market'
 import { isExternalPaymentsAllowed } from '@/lib/pilot'
 import {
   generatePaymentLink,
@@ -18,7 +19,7 @@ import {
   type PaymentProvider,
 } from '@/lib/whish'
 import {
-  isEnabledPaymentMethod,
+  isMethodAuthorizedForMarket,
   paymentMethodToErpMode,
   paymentRecordedAuditIdentity,
   type PaymentMethod,
@@ -172,13 +173,17 @@ export async function getAvailablePaymentMethods(
 
   try {
     // Ownership gate + currency come from the normalized invoice; company is a
-    // separate raw read (not on the normalized Invoice type).
+    // separate raw read (not on the normalized Invoice type). market is
+    // resolved server-side here — never client-supplied — and precedes any
+    // Lebanon-specific ERP probe inside resolveAvailablePaymentMethods.
     const invoice = await getInvoiceByIdForTrainer(invoiceId, resolved.trainerId)
     const company = await getInvoiceCompany(invoiceId)
+    const { market } = await resolveWorkspaceMarket()
     const result  = await resolveAvailablePaymentMethods({
       company,
       currency: invoice.currency,
       tenantId: ctx.tenantId,
+      market,
     })
     return { success: true, data: result }
   } catch (err) {
@@ -216,11 +221,13 @@ export async function recordPayment(opts: {
   const resolved = await resolveTrainerId()
   if ('error' in resolved) return { success: false, error: resolved.error }
 
-  // Validate the payment method server-side. Only product-supported methods
-  // are accepted; a disabled method such as OMT is rejected even if a client
-  // sends its value directly. The ERPNext Mode of Payment name is resolved
+  // Validate the payment method server-side, INSEPARABLE from the caller's
+  // resolved workspace market — a direct call with a Lebanon-only method is
+  // rejected here, before any ERP read or write, for any workspace that is
+  // not currently verified LB. The ERPNext Mode of Payment name is resolved
   // server-side — never trusted from the client.
-  if (!isEnabledPaymentMethod(opts.method)) {
+  const { market } = await resolveWorkspaceMarket()
+  if (!isMethodAuthorizedForMarket(opts.method, market)) {
     return {
       success: false,
       error:   'That payment method is not available.',
@@ -405,8 +412,10 @@ export async function collectPayment(opts: {
   if ('error' in resolved) return { success: false, error: resolved.error }
 
   // Cheap validation before any ERPNext write, so a bad request can never
-  // finalize an invoice and then fail on the payment.
-  if (!isEnabledPaymentMethod(opts.method)) {
+  // finalize an invoice and then fail on the payment. Same policy gate as
+  // recordPayment — see isMethodAuthorizedForMarket's own doc comment.
+  const { market } = await resolveWorkspaceMarket()
+  if (!isMethodAuthorizedForMarket(opts.method, market)) {
     return {
       success: false,
       error:   'That payment method is not available.',

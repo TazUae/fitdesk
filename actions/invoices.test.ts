@@ -32,6 +32,9 @@ vi.mock('@/lib/whish', () => ({
 vi.mock('@/lib/tenant/context', () => ({
   getTenantContext: vi.fn(),
 }))
+vi.mock('@/lib/tenant/market', () => ({
+  resolveWorkspaceMarket: vi.fn(),
+}))
 vi.mock('@/lib/payments/availability', () => ({
   resolveAvailablePaymentMethods: vi.fn(),
 }))
@@ -56,6 +59,7 @@ import {
 } from '@/lib/business-data/erp-adapter'
 import { generatePaymentLink, logPaymentEvent } from '@/lib/whish'
 import { getTenantContext } from '@/lib/tenant/context'
+import { resolveWorkspaceMarket } from '@/lib/tenant/market'
 import { resolveAvailablePaymentMethods } from '@/lib/payments/availability'
 import {
   PaymentAccountMissingError,
@@ -120,6 +124,9 @@ function mockAuth() {
     user: { id: 'user-1', name: 'Trainer', email: 'trainer@example.com', phone: null },
   } as never)
   vi.mocked(ensureTrainerIdForUser).mockResolvedValue('trainer-1')
+  // Safe default: unverified/no market. Tests that need a verified-LB
+  // workspace override this explicitly.
+  vi.mocked(resolveWorkspaceMarket).mockResolvedValue({ market: null, verified: false })
 }
 
 // ─── fetchInvoiceById ─────────────────────────────────────────────────────────
@@ -310,13 +317,36 @@ describe('recordPayment', () => {
     expect('provider' in call).toBe(false)
   })
 
-  it('rejects a Lebanon-only held method before any audit event is logged', async () => {
+  it('rejects every Lebanon-only method for an unverified workspace, before any ERP access or audit event', async () => {
+    const LB_METHODS = ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd'] as const
+    for (const method of LB_METHODS) {
+      vi.clearAllMocks()
+      mockAuth()
+      vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice())
+
+      const result = await recordPayment({ ...BASE, method })
+
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
+      expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+      expect(logPaymentEvent).not.toHaveBeenCalled()
+    }
+  })
+
+  it('a verified-LB workspace CAN record a Lebanon-only method — the gate lifts once authority is proven', async () => {
+    vi.mocked(resolveWorkspaceMarket).mockResolvedValue({ market: 'LB', verified: true })
+    vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice())
+    vi.mocked(createAndSubmitPaymentEntry).mockResolvedValue({
+      payment: payment(),
+      invoice: invoice({ status: 'paid', outstandingAmount: 0 }),
+    })
+
     const result = await recordPayment({ ...BASE, method: 'mymonty' })
 
-    expect(result.success).toBe(false)
-    if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
-    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
-    expect(logPaymentEvent).not.toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(createAndSubmitPaymentEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ modeOfPayment: 'MyMonty' }),
+    )
   })
 
   // ── Mode-of-payment mapping ────────────────────────────────────────────────
@@ -333,11 +363,11 @@ describe('recordPayment', () => {
     )
   })
 
-  it('whish_money is currently held for the Lebanon market boundary — rejected before any ERP call, never reaches the mode-mapping step', async () => {
+  it('whish_money is rejected before any ERP call for an unverified workspace — never reaches the mode-mapping step', async () => {
     // lib/payments/methods.test.ts separately proves paymentMethodToErpMode
     // still correctly maps 'whish_money' -> 'Whish Money' at the catalog
-    // level; this proves recordPayment's own gate gets there first while
-    // the method is held.
+    // level; this proves recordPayment's own market gate rejects it first
+    // for a workspace with no verified LB authority (the default mock).
     const result = await recordPayment({ ...BASE, method: 'whish_money' })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
@@ -455,6 +485,49 @@ describe('getAvailablePaymentMethods', () => {
     )
   })
 
+  it('resolves market server-side and passes it to resolveAvailablePaymentMethods — never client-supplied', async () => {
+    vi.mocked(resolveWorkspaceMarket).mockResolvedValue({ market: 'LB', verified: true })
+    vi.mocked(resolveAvailablePaymentMethods).mockResolvedValue({
+      methods: [], available: [], stale: false,
+    })
+
+    await getAvailablePaymentMethods('SINV-1')
+
+    expect(resolveAvailablePaymentMethods).toHaveBeenCalledWith(
+      expect.objectContaining({ market: 'LB' }),
+    )
+  })
+
+  it('an unverified workspace resolves market: null, passed through unchanged', async () => {
+    vi.mocked(resolveAvailablePaymentMethods).mockResolvedValue({
+      methods: [], available: [], stale: false,
+    })
+
+    await getAvailablePaymentMethods('SINV-1')
+
+    expect(resolveAvailablePaymentMethods).toHaveBeenCalledWith(
+      expect.objectContaining({ market: null }),
+    )
+  })
+
+  it('Control Plane unavailable (market resolver fails closed) still leaves Cash available — the probe itself is unaffected', async () => {
+    // resolveWorkspaceMarket never throws (see lib/tenant/market.test.ts); a
+    // Control-Plane outage surfaces here as market: null, exactly like an
+    // ordinary unverified workspace — never as a getAvailablePaymentMethods
+    // failure by itself.
+    vi.mocked(resolveWorkspaceMarket).mockResolvedValue({ market: null, verified: false })
+    vi.mocked(resolveAvailablePaymentMethods).mockResolvedValue({
+      methods:   [{ id: 'cash', label: 'Cash', status: 'available', depositAccount: 'Cash - TC' }],
+      available: [{ id: 'cash', label: 'Cash', status: 'available', depositAccount: 'Cash - TC' }],
+      stale:     false,
+    })
+
+    const result = await getAvailablePaymentMethods('SINV-1')
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.available.map(m => m.id)).toEqual(['cash'])
+  })
+
   it('returns PAYMENT_CONFIGURATION_UNAVAILABLE when the probe cannot resolve (no method assumed)', async () => {
     vi.mocked(resolveAvailablePaymentMethods).mockRejectedValue(new PaymentConfigurationUnavailableError())
     const result = await getAvailablePaymentMethods('SINV-1')
@@ -558,6 +631,14 @@ describe('collectPayment', () => {
     expect(result.success).toBe(false)
     expect(getInvoiceByIdForTrainer).not.toHaveBeenCalled()
     expect(submitSalesInvoice).not.toHaveBeenCalled()
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects a Lebanon-only method for an unverified workspace before any ERP access — same gate as recordPayment', async () => {
+    const result = await collectPayment({ ...BASE, method: 'purpl' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
+    expect(getInvoiceByIdForTrainer).not.toHaveBeenCalled()
     expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
   })
 

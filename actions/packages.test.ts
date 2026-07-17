@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => {
   return {
     resolveTrainerId:            vi.fn(),
     getTenantContext:            vi.fn(),
+    resolveWorkspaceMarket:      vi.fn(),
     serviceAssignPackage,
     PackageAssignmentServiceMock,
     createInvoice:               vi.fn(),
@@ -83,6 +84,10 @@ vi.mock('@/lib/auth/resolve-trainer', () => ({
 
 vi.mock('@/lib/tenant/context', () => ({
   getTenantContext: mocks.getTenantContext,
+}))
+
+vi.mock('@/lib/tenant/market', () => ({
+  resolveWorkspaceMarket: mocks.resolveWorkspaceMarket,
 }))
 
 vi.mock('@/lib/business-data/erp-adapter', () => ({
@@ -256,6 +261,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.resolveTrainerId.mockResolvedValue({ trainerId: 'trainer-c3c-1' })
   mocks.getTenantContext.mockResolvedValue(TENANT_CTX)
+  // Safe default: unverified/no market. Tests needing a verified-LB
+  // workspace override this explicitly.
+  mocks.resolveWorkspaceMarket.mockResolvedValue({ market: null, verified: false })
   mocks.serviceAssignPackage.mockResolvedValue(makeAssignResult())
   mocks.listTemplatesMock.mockResolvedValue([])
   mocks.listPurchasesByClientMock.mockResolvedValue([])
@@ -300,7 +308,10 @@ describe('server-derived ctx', () => {
     await assignPackage(makeInput())
 
     const [receivedCtx] = mocks.serviceAssignPackage.mock.calls[0]!
-    expect(receivedCtx).toEqual({ tenantId: 'tenant-c3c' })
+    // market is also server-resolved (lib/tenant/market.ts) — never from the
+    // client — and included alongside tenantId; the default mock resolves
+    // an unverified workspace (market: null) for this test.
+    expect(receivedCtx).toEqual({ tenantId: 'tenant-c3c', market: null })
   })
 
   it('injects ctx.userId as assignedByUserId, overriding any client-supplied value', async () => {
@@ -661,12 +672,34 @@ describe('payment method validation gate', () => {
     expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
   })
 
-  it('rejects whish_money — currently held for the Lebanon market boundary, same gate as any other disabled method', async () => {
+  it('rejects whish_money for an unverified workspace — same gate as any other disabled method', async () => {
     const result = await assignPackage(makeInput({ payment: { method: 'whish_money' } }))
 
     expect(result.success).toBe(false)
     if (result.success) throw new Error('expected failure')
     expect(result.error).toMatch(/unsupported or disabled payment method/i)
+    expect(mocks.serviceAssignPackage).not.toHaveBeenCalled()
+  })
+
+  it('allows whish_money through once the workspace is verified LB, and passes market to the service', async () => {
+    mocks.resolveWorkspaceMarket.mockResolvedValue({ market: 'LB', verified: true })
+
+    const result = await assignPackage(makeInput({ payment: { method: 'whish_money' } }))
+
+    expect(result.success).toBe(true)
+    expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
+    const [ctx] = mocks.serviceAssignPackage.mock.calls[0]!
+    expect(ctx.market).toBe('LB')
+  })
+
+  it('rejects every Lebanon-only method for an unverified workspace, before service construction', async () => {
+    const LB_METHODS: PaymentMethod[] = ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd']
+    for (const method of LB_METHODS) {
+      const result = await assignPackage(makeInput({ payment: { method } }))
+      expect(result.success).toBe(false)
+      if (result.success) throw new Error(`expected failure for ${method}`)
+      expect(result.error).toMatch(/unsupported or disabled payment method/i)
+    }
     expect(mocks.serviceAssignPackage).not.toHaveBeenCalled()
   })
 })
