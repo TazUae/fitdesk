@@ -29,6 +29,7 @@ import {
   PaymentMethodNotFoundError,
   PaymentAccountMissingError,
 } from '@/lib/payments/errors'
+import { erpModeToPaymentMethod } from '@/lib/payments/methods'
 
 import type {
   CreateClientPayload,
@@ -212,6 +213,13 @@ function mapInvoiceStatus(s: string): InvoiceStatus {
   return map[s] ?? 'draft'
 }
 
+/**
+ * Coarse rail-family bucket only — deliberately approximate (e.g. every
+ * mobile-wallet docname buckets as 'cash'). Used solely to populate
+ * Payment.provider, which exists for Whish-link-generation routing, not
+ * identity. For the exact method a payment used, normalizePayment resolves
+ * methodId/methodLabel via erpModeToPaymentMethod instead — never this.
+ */
 function mapPaymentProvider(modeOfPayment: string): PaymentProvider {
   const lower = modeOfPayment.toLowerCase()
   if (lower.includes('whish'))                          return 'whish'
@@ -290,17 +298,23 @@ function normalizeInvoice(raw: ERPInvoice): Invoice {
  * trainerId: '' sentinel already used throughout this single-tenant adapter.
  */
 function normalizePayment(raw: ERPPaymentEntry, invoiceId: string = ''): Payment {
+  // Exact identity, resolved from the real ERP docname — never approximated.
+  // Unrecognized/legacy docnames (no catalog match) stay explicit: methodId
+  // null, methodLabel is the raw ERP text verbatim, never defaulted to Cash.
+  const resolved = erpModeToPaymentMethod(raw.mode_of_payment)
   return {
-    id:        raw.name,
+    id:          raw.name,
     invoiceId,
-    clientId:  raw.party,
-    trainerId: '',
-    amount:    raw.paid_amount,
-    currency:  raw.currency ?? 'USD',
-    provider:  mapPaymentProvider(raw.mode_of_payment),
-    reference: raw.reference_no,
-    note:      raw.remarks,
-    paidAt:    raw.posting_date ?? raw.payment_date ?? '',
+    clientId:    raw.party,
+    trainerId:   '',
+    amount:      raw.paid_amount,
+    currency:    raw.currency ?? 'USD',
+    provider:    mapPaymentProvider(raw.mode_of_payment),
+    methodId:    resolved?.id ?? null,
+    methodLabel: resolved?.label ?? raw.mode_of_payment,
+    reference:   raw.reference_no,
+    note:        raw.remarks,
+    paidAt:      raw.posting_date ?? raw.payment_date ?? '',
   }
 }
 

@@ -23,6 +23,7 @@ import {
   type PackageAssignmentErpAdapter,
   type TenantCtx,
 } from '@/lib/billing/package-assignment-service'
+import type { PaymentMethod } from '@/lib/payments/methods'
 import { ClientPackagePurchaseRepository } from '@/lib/billing/client-package-purchase-repository'
 import { PackageLedgerRepository } from '@/lib/billing/package-ledger-repository'
 import { paymentMethodToErpMode } from '@/lib/payments/methods'
@@ -394,8 +395,8 @@ describe('PE fails and getInvoiceById re-fetch also fails', () => {
 
 describe('unsupported or disabled payment method', () => {
   it('throws before purchase creation — no ERP call, no ledger', async () => {
-    // 'omt' is defined but disabled in PAYMENT_METHODS
-    const input = baseInput({ payment: { method: 'omt' } })
+    // usdt is intentionally not a PAYMENT_METHODS catalog entry (must stay unavailable)
+    const input = baseInput({ payment: { method: 'usdt' as PaymentMethod } })
 
     await expect(service.assignPackage(CTX, input)).rejects.toThrow(
       /unsupported or disabled payment method/i,

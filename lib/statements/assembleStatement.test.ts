@@ -23,14 +23,16 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
 
 function payment(overrides: Partial<Payment> = {}): Payment {
   return {
-    id:        'PE-1',
-    invoiceId: '',
-    clientId:  'CUST-1',
-    trainerId: '',
-    amount:    50,
-    currency:  'USD',
-    provider:  'cash',
-    paidAt:    '2026-05-17',
+    id:          'PE-1',
+    invoiceId:   '',
+    clientId:    'CUST-1',
+    trainerId:   '',
+    amount:      50,
+    currency:    'USD',
+    provider:    'cash',
+    methodId:    'cash',
+    methodLabel: 'Cash',
+    paidAt:      '2026-05-17',
     ...overrides,
   }
 }
@@ -63,6 +65,24 @@ describe('assembleStatement — row typing', () => {
     expect(rows[0].debit).toBe(0)
     expect(rows[0].credit).toBe(75)
     expect(rows[0].status).toBe('Paid')
+    expect(rows[0].description).toContain('Cash')
+  })
+
+  it('a non-cash payment shows its own exact method — never mislabeled as Cash', () => {
+    const { rows } = assembleStatement(
+      [],
+      [payment({ methodId: 'mymonty', methodLabel: 'MyMonty' })],
+    )
+    expect(rows[0].description).toContain('MyMonty')
+    expect(rows[0].description).not.toContain('Cash')
+  })
+
+  it('an unrecognized ERP mode shows its raw text, never a guessed method', () => {
+    const { rows } = assembleStatement(
+      [],
+      [payment({ methodId: null, methodLabel: 'Some Tenant-Custom Wallet' })],
+    )
+    expect(rows[0].description).toContain('Some Tenant-Custom Wallet')
   })
 })
 

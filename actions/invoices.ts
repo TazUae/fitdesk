@@ -17,7 +17,12 @@ import {
   PAYMENT_PROVIDERS,
   type PaymentProvider,
 } from '@/lib/whish'
-import { isEnabledPaymentMethod, paymentMethodToErpMode, type PaymentMethod } from '@/lib/payments/methods'
+import {
+  isEnabledPaymentMethod,
+  paymentMethodToErpMode,
+  paymentRecordedAuditIdentity,
+  type PaymentMethod,
+} from '@/lib/payments/methods'
 import {
   resolveAvailablePaymentMethods,
   type AvailabilityResult,
@@ -31,14 +36,6 @@ import {
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import type { ActionResult, Invoice, IssueInvoiceResult, RecordPaymentResult } from '@/types'
 import type { CreateInvoicePayload } from '@/lib/erpnext/types'
-
-/** Map ERPNext mode-of-payment strings to our PaymentProvider enum. */
-function modeToProvider(mode: string): PaymentProvider {
-  const lower = mode.toLowerCase()
-  if (lower.includes('whish'))                        return 'whish'
-  if (lower.includes('bank') || lower.includes('transfer')) return 'bank_transfer'
-  return 'cash'
-}
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -292,15 +289,21 @@ export async function recordPayment(opts: {
       }
     }
 
+    // No `provider` here — that field is link-generation routing only (see
+    // PaymentAuditEvent) and a manually recorded payment has no link
+    // adapter. The exact identity (method/methodLabel/erpModeOfPayment) is
+    // built by paymentRecordedAuditIdentity — never re-derived or
+    // substring-matched, which is what previously collapsed
+    // MyMonty/Suyool/Purpl/OMT Pay to a false `provider: 'cash'`.
     logPaymentEvent({
-      trainerId:  resolved.trainerId,
-      invoiceId:  opts.invoiceId,
-      provider:   modeToProvider(modeOfPayment),
-      eventType:  'payment_recorded',
-      amount:     opts.amount,
-      reference:  opts.reference,
-      note:       opts.note,
-      timestamp:  new Date().toISOString(),
+      trainerId:        resolved.trainerId,
+      invoiceId:        opts.invoiceId,
+      ...paymentRecordedAuditIdentity(opts.method),
+      eventType:        'payment_recorded',
+      amount:           opts.amount,
+      reference:        opts.reference,
+      note:             opts.note,
+      timestamp:        new Date().toISOString(),
     })
 
     // Treat a sub-cent residual as fully paid: ERPNext rounds outstanding to

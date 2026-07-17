@@ -73,9 +73,27 @@ describe('methodsToRender — availability failure renders configuration-unavail
     expect(methodsToRender(state)).toEqual([])
   })
 
-  it('renders the resolved methods once ready', () => {
+  it('renders the resolved methods once ready — a single available method', () => {
     const state: SelectorAvailState = { phase: 'ready', methods: [{ value: 'cash', label: 'Cash' }] }
     expect(methodsToRender(state)).toEqual([{ value: 'cash', label: 'Cash' }])
+    expect(hasNoAvailableMethods(state)).toBe(false)
+  })
+
+  it('renders all seven methods safely when the full canonical catalog is available for a tenant', () => {
+    const methods = [
+      { value: 'cash' as const,                    label: 'Cash' },
+      { value: 'whish_money' as const,              label: 'Whish Money' },
+      { value: 'omt' as const,                      label: 'OMT Pay' },
+      { value: 'mymonty' as const,                  label: 'MyMonty' },
+      { value: 'suyool' as const,                   label: 'Suyool' },
+      { value: 'purpl' as const,                    label: 'Purpl' },
+      { value: 'bank_transfer_fresh_usd' as const,  label: 'Bank Transfer — Fresh USD' },
+    ]
+    const state: SelectorAvailState = { phase: 'ready', methods }
+    expect(methodsToRender(state)).toEqual(methods)
+    expect(methodsToRender(state)).toHaveLength(7)
+    expect(hasNoAvailableMethods(state)).toBe(false)
+    expect(isSubmitBlockedByAvailability(state)).toBe(false)
   })
 
   it('renders an empty list when ready with zero methods — caller shows configuration-unavailable', () => {

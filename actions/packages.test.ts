@@ -23,6 +23,7 @@ import type {
   ClientPackagePurchase,
   PackageTemplateSnapshot,
 } from '@/types/billing'
+import type { PaymentMethod } from '@/lib/payments/methods'
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -643,8 +644,8 @@ describe('action source invariants', () => {
 
 describe('payment method validation gate', () => {
   it('returns success:false for a disabled payment method before constructing the service', async () => {
-    // 'omt' is defined but disabled in PAYMENT_METHODS
-    const result = await assignPackage(makeInput({ payment: { method: 'omt' } }))
+    // usdt is intentionally not a PAYMENT_METHODS catalog entry (must stay unavailable)
+    const result = await assignPackage(makeInput({ payment: { method: 'usdt' as PaymentMethod } }))
 
     expect(result.success).toBe(false)
     if (result.success) throw new Error('expected failure')
@@ -660,11 +661,13 @@ describe('payment method validation gate', () => {
     expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
   })
 
-  it('allows whish_money through to the service', async () => {
+  it('rejects whish_money — currently held for the Lebanon market boundary, same gate as any other disabled method', async () => {
     const result = await assignPackage(makeInput({ payment: { method: 'whish_money' } }))
 
-    expect(result.success).toBe(true)
-    expect(mocks.serviceAssignPackage).toHaveBeenCalledOnce()
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('expected failure')
+    expect(result.error).toMatch(/unsupported or disabled payment method/i)
+    expect(mocks.serviceAssignPackage).not.toHaveBeenCalled()
   })
 })
 

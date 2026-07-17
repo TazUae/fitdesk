@@ -360,6 +360,83 @@ describe('getPaymentsForCustomer', () => {
 
     await expect(getPaymentsForCustomer(CLIENT_ID)).rejects.toBeInstanceOf(ERPNextError)
   })
+
+  // ── Exact method identity (never approximated to a wrong provider) ───────────
+
+  it('Cash stays Cash: methodId "cash", methodLabel "Cash"', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([rawPaymentEntry()])) // mode_of_payment: 'Cash'
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].methodId).toBe('cash')
+    expect(payments[0].methodLabel).toBe('Cash')
+  })
+
+  it('a new-catalog method resolves its exact identity, never collapsing to cash', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...rawPaymentEntry(), mode_of_payment: 'MyMonty' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].methodId).toBe('mymonty')
+    expect(payments[0].methodLabel).toBe('MyMonty')
+    // The coarse provider bucket is a SEPARATE, deliberately-approximate
+    // field — it is allowed to say 'cash' here. methodId/methodLabel must not.
+    expect(payments[0].methodId).not.toBe('cash')
+  })
+
+  it('every canonical method reads back with its own exact identity, not a shared default', async () => {
+    const cases: Array<[string, string, string]> = [
+      ['Cash',                       'cash',                     'Cash'],
+      ['Whish Money',                'whish_money',              'Whish Money'],
+      ['OMT Pay',                    'omt',                      'OMT Pay'],
+      ['MyMonty',                    'mymonty',                  'MyMonty'],
+      ['Suyool',                     'suyool',                   'Suyool'],
+      ['Purpl',                      'purpl',                    'Purpl'],
+      ['Bank Transfer - Fresh USD',  'bank_transfer_fresh_usd',  'Bank Transfer — Fresh USD'],
+    ]
+
+    for (const [mode, expectedId, expectedLabel] of cases) {
+      fetchMock.mockResolvedValueOnce(erpOk([
+        { ...rawPaymentEntry(), mode_of_payment: mode },
+      ]))
+      const payments = await getPaymentsForCustomer(CLIENT_ID)
+      expect(payments[0].methodId).toBe(expectedId)
+      expect(payments[0].methodLabel).toBe(expectedLabel)
+    }
+  })
+
+  it('none of the six non-cash methods ever reads back with methodId "cash" — checked directly, not just by omission', async () => {
+    for (const mode of ['Whish Money', 'OMT Pay', 'MyMonty', 'Suyool', 'Purpl', 'Bank Transfer - Fresh USD']) {
+      fetchMock.mockResolvedValueOnce(erpOk([{ ...rawPaymentEntry(), mode_of_payment: mode }]))
+      const payments = await getPaymentsForCustomer(CLIENT_ID)
+      expect(payments[0].methodId).not.toBe('cash')
+      expect(payments[0].methodLabel).not.toBe('Cash')
+    }
+  })
+
+  it('an unrecognized ERP mode_of_payment preserves the raw text and reports methodId null — never Cash', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...rawPaymentEntry(), mode_of_payment: 'Some Tenant-Custom Wallet' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].methodId).toBeNull()
+    expect(payments[0].methodLabel).toBe('Some Tenant-Custom Wallet')
+  })
+
+  it('the retired docname "OMT" (pre-correction) now reads back as unrecognized, not as omt', async () => {
+    fetchMock.mockResolvedValueOnce(erpOk([
+      { ...rawPaymentEntry(), mode_of_payment: 'OMT' },
+    ]))
+
+    const payments = await getPaymentsForCustomer(CLIENT_ID)
+
+    expect(payments[0].methodId).toBeNull()
+    expect(payments[0].methodLabel).toBe('OMT')
+  })
 })
 
 // ─── submitPaymentEntry ───────────────────────────────────────────────────────

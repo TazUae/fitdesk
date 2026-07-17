@@ -54,7 +54,7 @@ import {
   getInvoiceCompany,
   submitSalesInvoice,
 } from '@/lib/business-data/erp-adapter'
-import { generatePaymentLink } from '@/lib/whish'
+import { generatePaymentLink, logPaymentEvent } from '@/lib/whish'
 import { getTenantContext } from '@/lib/tenant/context'
 import { resolveAvailablePaymentMethods } from '@/lib/payments/availability'
 import {
@@ -86,14 +86,16 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
 
 function payment(): Payment {
   return {
-    id:        'PE-0001',
-    invoiceId: 'SINV-1',
-    clientId:  'CUST-1',
-    trainerId: '',
-    amount:    100,
-    currency:  'USD',
-    provider:  'cash',
-    paidAt:    '2026-05-16',
+    id:          'PE-0001',
+    invoiceId:   'SINV-1',
+    clientId:    'CUST-1',
+    trainerId:   '',
+    amount:      100,
+    currency:    'USD',
+    provider:    'cash',
+    methodId:    'cash',
+    methodLabel: 'Cash',
+    paidAt:      '2026-05-16',
   }
 }
 
@@ -205,8 +207,8 @@ describe('recordPayment', () => {
 
   // ── Method validation ──────────────────────────────────────────────────────
 
-  it('rejects OMT while it is disabled', async () => {
-    const result = await recordPayment({ ...BASE, method: 'omt' })
+  it('rejects usdt — not a supported catalog method, must remain unavailable', async () => {
+    const result = await recordPayment({ ...BASE, method: 'usdt' as PaymentMethod })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error).toMatch(/not available/i)
     expect(getInvoiceByIdForTrainer).not.toHaveBeenCalled()
@@ -279,6 +281,44 @@ describe('recordPayment', () => {
     },
   )
 
+  // ── Audit event carries exact identity ─────────────────────────────────────
+
+  it('logs the exact three-field identity on the audit event, and never sets the link-routing provider field', async () => {
+    vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice({ status: 'sent', outstandingAmount: 100 }))
+    vi.mocked(createAndSubmitPaymentEntry).mockResolvedValue({
+      payment: payment(),
+      invoice: invoice({ status: 'paid', outstandingAmount: 0 }),
+    })
+
+    // 'cash' is the only currently-enabled method (every Lebanon-only method
+    // is held — see lib/payments/methods.ts), so it is the one live case
+    // that can actually reach logPaymentEvent. It still proves the WIRING is
+    // correct: methods.test.ts separately proves paymentMethodLabel/
+    // paymentMethodToErpMode are correct for all seven catalog ids
+    // (including the held ones) — together these prove recordPayment will
+    // forward the right values for any method the moment it is enabled.
+    await recordPayment({ ...BASE, method: 'cash' })
+
+    const call = vi.mocked(logPaymentEvent).mock.calls[0][0]
+    expect(call.method).toBe('cash')
+    expect(call.methodLabel).toBe('Cash')
+    expect(call.erpModeOfPayment).toBe('Cash')
+    // The link-routing `provider` field must never be set on a
+    // payment_recorded event — that was the source of the contradictory
+    // `{ provider: 'cash', method: 'mymonty' }` class of audit record.
+    expect(call.provider).toBeUndefined()
+    expect('provider' in call).toBe(false)
+  })
+
+  it('rejects a Lebanon-only held method before any audit event is logged', async () => {
+    const result = await recordPayment({ ...BASE, method: 'mymonty' })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
+    expect(logPaymentEvent).not.toHaveBeenCalled()
+  })
+
   // ── Mode-of-payment mapping ────────────────────────────────────────────────
 
   it('maps "cash" method to the ERPNext "Cash" Mode of Payment', async () => {
@@ -293,16 +333,15 @@ describe('recordPayment', () => {
     )
   })
 
-  it('maps "whish_money" method to the ERPNext "Whish Money" Mode of Payment', async () => {
-    vi.mocked(getInvoiceByIdForTrainer).mockResolvedValue(invoice())
-    vi.mocked(createAndSubmitPaymentEntry).mockResolvedValue({
-      payment: payment(),
-      invoice: invoice({ status: 'paid', outstandingAmount: 0 }),
-    })
-    await recordPayment({ ...BASE, method: 'whish_money' })
-    expect(createAndSubmitPaymentEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ modeOfPayment: 'Whish Money' }),
-    )
+  it('whish_money is currently held for the Lebanon market boundary — rejected before any ERP call, never reaches the mode-mapping step', async () => {
+    // lib/payments/methods.test.ts separately proves paymentMethodToErpMode
+    // still correctly maps 'whish_money' -> 'Whish Money' at the catalog
+    // level; this proves recordPayment's own gate gets there first while
+    // the method is held.
+    const result = await recordPayment({ ...BASE, method: 'whish_money' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
+    expect(createAndSubmitPaymentEntry).not.toHaveBeenCalled()
   })
 
   // ── Post-submit verification ───────────────────────────────────────────────
@@ -374,8 +413,8 @@ describe('recordPayment', () => {
     }
   })
 
-  it('rejects a product-disabled method before any ERP call, with PAYMENT_FEATURE_DISABLED', async () => {
-    const result = await recordPayment({ ...BASE, method: 'omt' as PaymentMethod })
+  it('rejects a non-catalog method (usdt) before any ERP call, with PAYMENT_FEATURE_DISABLED', async () => {
+    const result = await recordPayment({ ...BASE, method: 'usdt' as PaymentMethod })
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.code).toBe('PAYMENT_FEATURE_DISABLED')
@@ -515,7 +554,7 @@ describe('collectPayment', () => {
   // ── Early validation (before any fetch) ───────────────────────────────────
 
   it('rejects an unavailable method before fetching, finalizing, or paying', async () => {
-    const result = await collectPayment({ ...BASE, method: 'omt' })
+    const result = await collectPayment({ ...BASE, method: 'usdt' as PaymentMethod })
     expect(result.success).toBe(false)
     expect(getInvoiceByIdForTrainer).not.toHaveBeenCalled()
     expect(submitSalesInvoice).not.toHaveBeenCalled()

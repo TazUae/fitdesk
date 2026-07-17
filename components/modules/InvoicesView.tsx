@@ -435,13 +435,13 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
                       </p>
                     </div>
                   ) : (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {availableMethods.map(m => (
                         <button
                           key={m.value}
                           type="button"
                           onClick={() => handleMethodChange(m.value)}
-                          className="flex-1 rounded-xl py-2 text-xs font-semibold transition-colors"
+                          className="flex-1 min-w-[100px] rounded-xl py-2 text-xs font-semibold transition-colors"
                           style={{
                             backgroundColor:
                               method === m.value ? 'var(--fd-accent)' : 'var(--fd-card)',
