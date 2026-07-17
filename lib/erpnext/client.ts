@@ -89,7 +89,7 @@ export class ERPNextError extends Error {
 
 // ─── JWT helper ───────────────────────────────────────────────────────────────
 
-async function signTenantJwt(tenantId: string): Promise<string> {
+export async function signTenantJwt(tenantId: string): Promise<string> {
   const rawSecret = process.env.FITDESK_JWT_SECRET
   if (!rawSecret) {
     throw new ERPNextError(

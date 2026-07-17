@@ -18,20 +18,21 @@
  * see docs/execution/TENANT_AWARE_PAYMENT_SLICE_2_CHECKPOINT.md for why and
  * for the configuration contract either would need before being added.
  *
- * `market` records product intent — 'global' (cash) vs. 'LB' (Lebanon-only:
- * every mobile wallet + the Fresh USD bank transfer) — but is NOT yet a live
- * enforcement mechanism. There is currently no reachable, authoritative
- * workspace-country signal anywhere in FitDesk's approved request path (no
- * field on TenantContext, no field on the tenant-scoped Control Plane ERP
- * proxy response, no field on ERPTrainerSettings — full audit in the
- * checkpoint doc). Control Plane's Tenant.country column exists but requires
- * a Control Plane contract change to expose it, which is out of scope here.
- * Until that lands, every `market: 'LB'` row is held at `enabled: false` —
- * the exact same product-level kill switch OMT used before its docname was
- * corrected — so NO workspace (Lebanon or otherwise) is offered it, rather
- * than wrongly offering it to every workspace. See
- * docs/execution/TENANT_AWARE_PAYMENT_SLICE_2_CHECKPOINT.md for the full
- * writeup and the exact precondition for re-enabling each row.
+ * `market` is now a LIVE enforcement key, not just product intent. ADR-MKT-001
+ * (see FitDesk docs/adr/ADR-MKT-001-workspace-operating-market-authority.md)
+ * settles the authority model: Control Plane owns a separate, nullable,
+ * operator-verified `Tenant.operatingMarket` field, reachable through the
+ * tenant-scoped `GET /api/erp/tenant/market` contract (lib/tenant/market.ts)
+ * over the existing tenant JWT + Control Plane proxy path. `Tenant.country`
+ * is a locale/Chart-of-Accounts seed and never authorizes anything.
+ *
+ * `enabled: true` on a `market: 'LB'` row means "product-supported, subject
+ * to the live market gate" — NOT "globally offered." The actual gate lives in
+ * isMethodAuthorizedForMarket() below and in lib/payments/availability.ts's
+ * candidate filter, both server-side; a client can never widen it. See
+ * docs/execution/TENANT_AWARE_PAYMENT_SLICE_2_CHECKPOINT.md §13 for the
+ * history of why these six rows were previously held at `enabled: false` as a
+ * blanket kill switch, before the Control Plane contract existed.
  */
 
 import type { PaymentRail } from './rails'
@@ -55,9 +56,9 @@ interface PaymentMethodDef {
   /** Rail family — display/grouping metadata, never identity (see ./rails). */
   rail: PaymentRail
   /**
-   * Product intent only (see file header) — 'global' methods are for every
-   * workspace; 'LB' methods are Lebanon-only and are currently HELD via
-   * `enabled: false` because no authoritative country gate exists yet.
+   * 'global' methods are for every workspace, unconditionally. 'LB' methods
+   * are Lebanon-only and require isMethodAuthorizedForMarket() to return true
+   * for the caller's resolved workspace market — see file header.
    */
   market: 'global' | 'LB'
   /** Whether the method is offered in the UI. */
@@ -66,15 +67,17 @@ interface PaymentMethodDef {
 
 export const PAYMENT_METHODS: readonly PaymentMethodDef[] = [
   { value: 'cash', label: 'Cash', erpNextModeOfPayment: 'Cash', rail: 'cash', market: 'global', enabled: true },
-  // Lebanon-only (market: 'LB') — held at enabled:false pending an
-  // authoritative workspace-country gate (see file header). Docname
-  // corrected from the retired 'OMT' to 'OMT Pay' for `omt` specifically;
-  // the old name was never provisioned in any tenant's ERP.
-  { value: 'whish_money', label: 'Whish Money', erpNextModeOfPayment: 'Whish Money', rail: 'mobile_wallet', market: 'LB', enabled: false },
-  { value: 'omt',         label: 'OMT Pay',     erpNextModeOfPayment: 'OMT Pay',     rail: 'mobile_wallet', market: 'LB', enabled: false },
-  { value: 'mymonty',     label: 'MyMonty',     erpNextModeOfPayment: 'MyMonty',     rail: 'mobile_wallet', market: 'LB', enabled: false },
-  { value: 'suyool',      label: 'Suyool',      erpNextModeOfPayment: 'Suyool',      rail: 'mobile_wallet', market: 'LB', enabled: false },
-  { value: 'purpl',       label: 'Purpl',       erpNextModeOfPayment: 'Purpl',       rail: 'mobile_wallet', market: 'LB', enabled: false },
+  // Lebanon-only (market: 'LB') — product-supported; live eligibility is
+  // gated by isMethodAuthorizedForMarket() / availability.ts's candidate
+  // filter, both keyed off the caller's resolved, server-side workspace
+  // market (lib/tenant/market.ts). Docname corrected from the retired 'OMT'
+  // to 'OMT Pay' for `omt` specifically; the old name was never provisioned
+  // in any tenant's ERP.
+  { value: 'whish_money', label: 'Whish Money', erpNextModeOfPayment: 'Whish Money', rail: 'mobile_wallet', market: 'LB', enabled: true },
+  { value: 'omt',         label: 'OMT Pay',     erpNextModeOfPayment: 'OMT Pay',     rail: 'mobile_wallet', market: 'LB', enabled: true },
+  { value: 'mymonty',     label: 'MyMonty',     erpNextModeOfPayment: 'MyMonty',     rail: 'mobile_wallet', market: 'LB', enabled: true },
+  { value: 'suyool',      label: 'Suyool',      erpNextModeOfPayment: 'Suyool',      rail: 'mobile_wallet', market: 'LB', enabled: true },
+  { value: 'purpl',       label: 'Purpl',       erpNextModeOfPayment: 'Purpl',       rail: 'mobile_wallet', market: 'LB', enabled: true },
   {
     value:                'bank_transfer_fresh_usd',
     label:                'Bank Transfer — Fresh USD',
@@ -84,7 +87,7 @@ export const PAYMENT_METHODS: readonly PaymentMethodDef[] = [
     erpNextModeOfPayment: 'Bank Transfer - Fresh USD',
     rail:                 'bank_transfer',
     market:               'LB',
-    enabled:              false,
+    enabled:              true,
   },
 ]
 
@@ -103,6 +106,40 @@ export function isPaymentMethod(value: unknown): value is PaymentMethod {
 export function isEnabledPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === 'string'
     && PAYMENT_METHODS.some(m => m.value === value && m.enabled)
+}
+
+/**
+ * THE single canonical payment-policy gate. The same function governs
+ * catalog visibility (lib/payments/availability.ts's candidate filter),
+ * method-selection validation, and every server action / ERP write path
+ * (actions/invoices.ts, actions/packages.ts,
+ * lib/billing/package-assignment-service.ts) — there is deliberately no
+ * second, parallel authorization check anywhere in the codebase.
+ *
+ * `market` must be the caller's own server-side resolved value from
+ * lib/tenant/market.ts's resolveWorkspaceMarket() — never client-supplied,
+ * never re-derived from Tenant.country/locale/timezone/IP/phone/currency/ERP
+ * site/ERP Customer/user profile/payment history. Passing `null` (the
+ * fail-closed default for any resolver failure) can only ever authorize a
+ * `market: 'global'` method — structurally, since no catalog row's `market`
+ * field is ever `null`, so `def.market === null` can never be true.
+ *
+ * - `market: 'global'` methods (today: only Cash) are unconditionally
+ *   authorized whenever `enabled` — Cash's availability is never affected by
+ *   this function's `market` argument being null, unresolved, or wrong.
+ * - `market: 'LB'` methods are authorized only when `market === 'LB'`
+ *   exactly, matching what a verified-LB resolveWorkspaceMarket() call
+ *   returns. Any other value — null, an unsupported market string, or a
+ *   resolver failure's fail-closed default — is unauthorized.
+ */
+export function isMethodAuthorizedForMarket(
+  method: unknown,
+  market: string | null,
+): method is PaymentMethod {
+  const def = PAYMENT_METHODS.find(m => m.value === method)
+  if (!def || !def.enabled) return false
+  if (def.market === 'global') return true
+  return def.market === market
 }
 
 /** Map an internal payment method to its ERPNext "Mode of Payment" name. */

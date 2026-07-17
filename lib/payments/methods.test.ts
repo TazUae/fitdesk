@@ -4,12 +4,15 @@ import {
   enabledPaymentMethods,
   erpModeToPaymentMethod,
   isEnabledPaymentMethod,
+  isMethodAuthorizedForMarket,
   isPaymentMethod,
   paymentMethodLabel,
   paymentMethodToErpMode,
   paymentRecordedAuditIdentity,
   PAYMENT_METHODS,
 } from './methods'
+
+const LB_IDS = ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd'] as const
 
 const CANONICAL_IDS = [
   'cash',
@@ -45,11 +48,11 @@ describe('PAYMENT_METHODS — canonical Slice 2 catalog', () => {
     })
   })
 
-  it('cash is global and enabled; the six Lebanon-only methods are held (enabled: false) pending an authoritative country gate', () => {
+  it('cash is global and enabled; the six Lebanon-only methods are product-enabled and market-gated (market: "LB")', () => {
     const byId = Object.fromEntries(PAYMENT_METHODS.map(m => [m.value, { market: m.market, enabled: m.enabled }]))
     expect(byId.cash).toEqual({ market: 'global', enabled: true })
-    for (const id of ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd'] as const) {
-      expect(byId[id]).toEqual({ market: 'LB', enabled: false })
+    for (const id of LB_IDS) {
+      expect(byId[id]).toEqual({ market: 'LB', enabled: true })
     }
   })
 
@@ -125,17 +128,21 @@ describe('isPaymentMethod', () => {
   })
 })
 
-describe('enabledPaymentMethods / isEnabledPaymentMethod — Lebanon market hold', () => {
-  it('offers only cash — every Lebanon-only method is held pending an authoritative country gate', () => {
-    expect(enabledPaymentMethods().map(m => m.value)).toEqual(['cash'])
+describe('enabledPaymentMethods / isEnabledPaymentMethod — product-support flag only (not market)', () => {
+  // isEnabledPaymentMethod checks ONLY the static product-support flag; it
+  // has no tenant/market context and is never, by itself, a sufficient
+  // write-side guard for a market:'LB' method. isMethodAuthorizedForMarket
+  // (below) is the actual policy gate used everywhere a payment is written.
+
+  it('all seven catalog methods are product-enabled', () => {
+    expect(enabledPaymentMethods().map(m => m.value).sort()).toEqual([...LB_IDS, 'cash'].sort())
   })
 
-  it('accepts cash; rejects every Lebanon-only method even though each is a known, correctly-mapped catalog id', () => {
+  it('accepts every catalog id, regardless of market', () => {
     expect(isEnabledPaymentMethod('cash')).toBe(true)
-    for (const id of ['whish_money', 'omt', 'mymonty', 'suyool', 'purpl', 'bank_transfer_fresh_usd'] as const) {
-      // Still a real catalog member with a correct docname/label — held, not unknown.
+    for (const id of LB_IDS) {
       expect(isPaymentMethod(id)).toBe(true)
-      expect(isEnabledPaymentMethod(id)).toBe(false)
+      expect(isEnabledPaymentMethod(id)).toBe(true)
     }
   })
 
@@ -147,6 +154,50 @@ describe('enabledPaymentMethods / isEnabledPaymentMethod — Lebanon market hold
     expect(isEnabledPaymentMethod('')).toBe(false)
     expect(isEnabledPaymentMethod(undefined)).toBe(false)
     expect(isEnabledPaymentMethod(null)).toBe(false)
+  })
+})
+
+describe('isMethodAuthorizedForMarket — THE canonical write-side / catalog policy gate', () => {
+  it('cash is authorized regardless of market — null, an unsupported string, or "LB"', () => {
+    expect(isMethodAuthorizedForMarket('cash', null)).toBe(true)
+    expect(isMethodAuthorizedForMarket('cash', 'US')).toBe(true)
+    expect(isMethodAuthorizedForMarket('cash', 'LB')).toBe(true)
+  })
+
+  it('every Lebanon-only method is authorized when market is exactly "LB"', () => {
+    for (const id of LB_IDS) {
+      expect(isMethodAuthorizedForMarket(id, 'LB')).toBe(true)
+    }
+  })
+
+  it('every Lebanon-only method is unauthorized when market is null', () => {
+    for (const id of LB_IDS) {
+      expect(isMethodAuthorizedForMarket(id, null)).toBe(false)
+    }
+  })
+
+  it('every Lebanon-only method is unauthorized for any market string other than "LB"', () => {
+    for (const id of LB_IDS) {
+      expect(isMethodAuthorizedForMarket(id, 'US')).toBe(false)
+      expect(isMethodAuthorizedForMarket(id, 'lb')).toBe(false) // case-sensitive, not "LB"
+    }
+  })
+
+  it('rejects unknown, non-catalog, and non-string method values regardless of market', () => {
+    expect(isMethodAuthorizedForMarket('usdt', 'LB')).toBe(false)
+    expect(isMethodAuthorizedForMarket('mobile_wallet_other', 'LB')).toBe(false)
+    expect(isMethodAuthorizedForMarket('', 'LB')).toBe(false)
+    expect(isMethodAuthorizedForMarket(undefined, 'LB')).toBe(false)
+    expect(isMethodAuthorizedForMarket(null, 'LB')).toBe(false)
+  })
+
+  it('a null market can only ever authorize a market:"global" method — structurally, since no catalog row has market:null', () => {
+    // Proven directly against the live catalog, not just the six known ids,
+    // so this stays true even if the catalog grows.
+    for (const def of PAYMENT_METHODS) {
+      const authorized = isMethodAuthorizedForMarket(def.value, null)
+      expect(authorized).toBe(def.market === 'global')
+    }
   })
 })
 
@@ -187,13 +238,14 @@ describe('existing Cash and Whish Money identity is unchanged by the catalog exp
     expect(isEnabledPaymentMethod('cash')).toBe(true)
   })
 
-  it('whish_money: same id, label, and docname as before — its enabled status changed for a documented reason', () => {
+  it('whish_money: same id, label, and docname as before — its write-eligibility is now market-gated, not a blanket kill switch', () => {
     expect(paymentMethodToErpMode('whish_money')).toBe('Whish Money')
     expect(paymentMethodLabel('whish_money')).toBe('Whish Money')
-    // Was enabled prior to the Lebanon market boundary; now held like every
-    // other Lebanon-only method, pending an authoritative country gate —
-    // not a regression in its identity mapping, which is unchanged above.
-    expect(isEnabledPaymentMethod('whish_money')).toBe(false)
+    // Product-enabled (unaffected by market context)...
+    expect(isEnabledPaymentMethod('whish_money')).toBe(true)
+    // ...but only actually authorized for a verified-LB workspace.
+    expect(isMethodAuthorizedForMarket('whish_money', 'LB')).toBe(true)
+    expect(isMethodAuthorizedForMarket('whish_money', null)).toBe(false)
   })
 })
 
