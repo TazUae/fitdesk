@@ -19,9 +19,10 @@ import 'server-only'
  * Server-only: this reaches ERPNext through the CP proxy. UI selectors must
  * call the `getAvailablePaymentMethods` server action, never import this file.
  *
- * Slice 1 keeps the three existing method ids (cash / whish_money / omt) and
- * derives its small catalog from lib/payments/methods.ts. The full rail-grouped
- * product catalog is Slice 2 (plan §4.2).
+ * The candidate catalog is derived entirely from lib/payments/methods.ts (the
+ * single source of truth for internal id / label / ERP docname / rail) — this
+ * module adds no method-specific logic, only the generic live-probe mechanics
+ * (plan §4.2/§4.3). Adding a method never requires a change here.
  */
 
 import {
@@ -46,7 +47,7 @@ export interface PaymentMethodAvailability {
 }
 
 export interface AvailabilityResult {
-  /** Every Slice-1 candidate with its per-method status. */
+  /** Every product-supported catalog candidate with its per-method status. */
   methods:   PaymentMethodAvailability[]
   /** Convenience projection: only status === 'available'. */
   available: PaymentMethodAvailability[]
@@ -58,6 +59,14 @@ export interface ResolveAvailabilityParams {
   company:  string
   currency: string
   tenantId: string
+  /**
+   * The caller's own server-side resolved workspace market (via
+   * lib/tenant/market.ts's resolveWorkspaceMarket()) — NEVER client-supplied,
+   * never re-derived here. `null` (the resolver's fail-closed default) means
+   * every 'LB' catalog row is filtered out before any ERP probe; only Cash
+   * (market: 'global') is ever a candidate for such a workspace.
+   */
+  market: string | null
 }
 
 // ─── Tunables (plan §4.4 / §9 open-decision #1) ──────────────────────────────────
@@ -82,31 +91,40 @@ const STALE_WINDOW_MS     = 5 * 60_000 // 5 min — inert while the flag above i
 /** Bumped in Slice 2 when workspace enablement / feature flags change (plan §4.7). */
 const CONFIG_VERSION  = 'v1'
 
-// ─── Slice-1 catalog (derived from the single source of truth) ───────────────────
+// ─── Candidate catalog (derived from the single source of truth) ─────────────────
 
-interface Slice1CatalogEntry {
+interface CatalogEntry {
   id:               PaymentMethod
   label:            string
   erpModeOfPayment: string
   settlementAsset:  SettlementAsset
   /** Static product-support gate; a product-off method is never even probed. */
   productSupported: boolean
+  /** 'global' or 'LB' — see lib/payments/methods.ts's PaymentMethodDef. */
+  market:           'global' | 'LB'
 }
 
-// Slice 1 methods all settle in fresh USD. Settlement asset is metadata used
-// only for currency compatibility — it is NOT a method identity (plan §4.1).
+// Every current method settles in fresh USD. Settlement asset is metadata
+// used only for currency compatibility — it is NOT a method identity (plan
+// §4.1). Record<PaymentMethod, SettlementAsset> forces this map to stay
+// exhaustive as PaymentMethod grows (lib/payments/methods.ts).
 const SETTLEMENT_ASSET: Record<PaymentMethod, SettlementAsset> = {
-  cash:        'USD',
-  whish_money: 'USD',
-  omt:         'USD',
+  cash:                     'USD',
+  whish_money:              'USD',
+  omt:                      'USD',
+  mymonty:                  'USD',
+  suyool:                   'USD',
+  purpl:                    'USD',
+  bank_transfer_fresh_usd:  'USD',
 }
 
-const SLICE1_CATALOG: Slice1CatalogEntry[] = PAYMENT_METHODS.map((m) => ({
+const CATALOG: CatalogEntry[] = PAYMENT_METHODS.map((m) => ({
   id:               m.value,
   label:            m.label,
   erpModeOfPayment: m.erpNextModeOfPayment,
   settlementAsset:  SETTLEMENT_ASSET[m.value],
   productSupported: m.enabled,
+  market:           m.market,
 }))
 
 function currencyCompatible(asset: SettlementAsset, invoiceCurrency: string): boolean {
@@ -125,7 +143,10 @@ interface CacheEntry { value: AvailabilityResult; at: number }
 const cache = new Map<string, CacheEntry>()
 
 function cacheKey(p: ResolveAvailabilityParams): string {
-  return `${p.tenantId}|${p.company}|${p.currency}|${CONFIG_VERSION}`
+  // market is part of the key deliberately (not an optimization): without it,
+  // a market grant or revoke would be ignored for a full TTL window after it
+  // takes effect, since a stale pre-change result would still satisfy the key.
+  return `${p.tenantId}|${p.company}|${p.currency}|${p.market ?? 'null'}|${CONFIG_VERSION}`
 }
 
 /** Test-only: reset the module-level cache between cases. */
@@ -135,14 +156,23 @@ export function resetAvailabilityCache(): void {
 
 // ─── Core probe ─────────────────────────────────────────────────────────────────
 
-async function probe({ company, currency }: ResolveAvailabilityParams): Promise<AvailabilityResult> {
+async function probe({ company, currency, market }: ResolveAvailabilityParams): Promise<AvailabilityResult> {
   // Step 1: one list request — what this tenant can actually accept.
   const enabled      = await listEnabledModesOfPayment()
   const enabledNames = new Set(enabled.map((m) => m.name))
 
   // Step 2: intersect with the supported catalog; drop product-off methods
-  // first so we never probe them (plan §4.3 step 2).
-  const candidates = SLICE1_CATALOG.filter((c) => c.productSupported)
+  // AND market-ineligible methods first so we never probe them (plan §4.3
+  // step 2; ADR-MKT-001). This is the whole zero-probe guarantee: a workspace
+  // whose resolved `market` isn't 'LB' filters out all six Lebanon rows here,
+  // before listEnabledModesOfPayment's result is even consulted for them —
+  // structurally, not by convention. USDT and the tenant-defined "Other
+  // Mobile Wallet" concept are not catalog rows at all (see
+  // docs/execution/TENANT_AWARE_PAYMENT_SLICE_2_CHECKPOINT.md), so this
+  // filter structurally can never surface or probe either of them.
+  const candidates = CATALOG.filter(
+    (c) => c.productSupported && (c.market === 'global' || c.market === market),
+  )
 
   // Step 3-5: bounded parallel per-candidate validation.
   const methods = await Promise.all(

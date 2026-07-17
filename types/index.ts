@@ -11,6 +11,7 @@
 
 import type { PaymentProvider } from '@/lib/whish'
 export type { PaymentProvider }
+import type { PaymentMethod } from '@/lib/payments/methods'
 
 // ─── Status string unions ─────────────────────────────────────────────────────
 
@@ -138,7 +139,28 @@ export interface Payment {
   trainerId: string
   amount: number
   currency: string
+  /**
+   * Coarse rail-family bucket (whish / cash / bank_transfer) — used ONLY for
+   * Whish-link-generation routing. NOT a precise method identity: e.g. every
+   * mobile-wallet method (MyMonty, Suyool, Purpl, OMT Pay) buckets here as
+   * 'cash'. Use methodId/methodLabel for the exact method a payment used.
+   */
   provider: PaymentProvider
+  /**
+   * Exact catalog identity resolved from the ERP Payment Entry's real
+   * mode_of_payment (lib/payments/methods.ts erpModeToPaymentMethod) — never
+   * approximated from `provider`. null when the raw ERP mode does not match
+   * any current catalog entry (an unrecognized or legacy Mode of Payment);
+   * see methodLabel for the safe display fallback in that case.
+   */
+  methodId: PaymentMethod | null
+  /**
+   * Exact trainer-facing label for the payment method actually used. Equals
+   * the catalog label when methodId resolves; otherwise falls back to the
+   * raw ERP mode_of_payment text verbatim — NEVER a guessed or default
+   * method name (in particular, never silently 'Cash' for a non-cash mode).
+   */
+  methodLabel: string
   /** External reference (e.g. Whish transaction ID). */
   reference?: string
   note?: string

@@ -69,14 +69,16 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
 
 function payment(overrides: Partial<Payment> = {}): Payment {
   return {
-    id:        'PE-1',
-    invoiceId: '',
-    clientId:  'CUST-1',
-    trainerId: '',
-    amount:    40,
-    currency:  'USD',
-    provider:  'cash',
-    paidAt:    '2026-05-17',
+    id:          'PE-1',
+    invoiceId:   '',
+    clientId:    'CUST-1',
+    trainerId:   '',
+    amount:      40,
+    currency:    'USD',
+    provider:    'cash',
+    methodId:    'cash',
+    methodLabel: 'Cash',
+    paidAt:      '2026-05-17',
     ...overrides,
   }
 }

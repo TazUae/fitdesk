@@ -118,13 +118,18 @@ function buildInvoiceRow(invoice: Invoice): ClientStatementRow {
   }
 }
 
+/**
+ * methodLabel is always populated by normalizePayment (the catalog label, or
+ * the raw ERP mode_of_payment text for an unrecognized/legacy mode) — never
+ * silently defaulted to a specific method, so it is always safe to show here.
+ */
 function buildPaymentRow(payment: Payment): ClientStatementRow {
   return {
     id:             `pay-${payment.id}`,
     date:           payment.paidAt,
     type:           'Payment',
     reference:      payment.id,
-    description:    'Payment received',
+    description:    `Payment received — ${payment.methodLabel}`,
     debit:          0,
     credit:         payment.amount,
     runningBalance: 0, // filled in after sorting

@@ -34,6 +34,8 @@
 
 // ─── Core types ───────────────────────────────────────────────────────────────
 
+import type { PaymentMethod } from '@/lib/payments/methods'
+
 export type PaymentProvider = 'whish' | 'cash' | 'bank_transfer'
 
 export interface GenerateLinkParams {
@@ -67,7 +69,30 @@ export interface PaymentLinkResult {
 export interface PaymentAuditEvent {
   trainerId:  string
   invoiceId:  string
-  provider:   PaymentProvider
+  /**
+   * Operational link-routing provider — set ONLY for 'link_generated'
+   * events, where it unambiguously identifies which link-generation adapter
+   * ran (Whish is the only one with a real API call). MUST be omitted for
+   * 'payment_recorded' events: a manually recorded payment invokes no link
+   * adapter, and setting this there previously produced a genuinely
+   * contradictory record (e.g. `{ provider: 'cash', method: 'mymonty' }`,
+   * since every non-Whish/non-bank-transfer method's coarse bucket is
+   * 'cash'). The exact identity of a recorded payment lives in
+   * method/methodLabel/erpModeOfPayment below instead — never in this field.
+   */
+  provider?:  PaymentProvider
+  /**
+   * Exact catalog method identity — set for 'payment_recorded' events, the
+   * only event type with one specific PaymentMethod. Sourced directly from
+   * the caller's already-validated value, never re-derived from `provider`
+   * or from substring-matching the ERP mode string (that produced the
+   * collapse-to-cash defect these three fields exist to prevent).
+   */
+  method?:            PaymentMethod
+  /** Exact trainer-facing label for `method` — e.g. 'MyMonty', not 'Cash'. */
+  methodLabel?:        string
+  /** Exact ERPNext Mode of Payment docname the Payment Entry was posted with. */
+  erpModeOfPayment?:   string
   eventType:  'link_generated' | 'payment_recorded' | 'manual_marked'
   amount?:    number
   reference?: string
