@@ -1,3 +1,11 @@
+> **Status:** Archived - superseded payment plan
+> **Replacement authority:** docs/plans/FITDESK_LEBANON_PAYMENT_PROGRAM_MASTER_EXECUTION_PLAN.md
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+> **Note:** Relative link paths were depth-adjusted on 2026-07-19 for the archive location. No other content was modified.
+
+---
+
 # FitDesk — Tenant-Aware Payment Options — Implementation Plan
 
 | | |
@@ -28,9 +36,9 @@ The working checkout is on branch `fix/goal-system-functional-closure` whose ups
 
 ## 2. Confirmed root causes (verified against `origin/main`)
 
-**Defect A — the catalog is not tenant-aware.** [`lib/payments/methods.ts:25-32`](../../lib/payments/methods.ts) marks `whish_money` `enabled: true` **globally**. Every tenant is offered Whish Money regardless of whether their ERPNext site has that Mode of Payment. The audited tenant has only `Cash`.
+**Defect A — the catalog is not tenant-aware.** [`lib/payments/methods.ts:25-32`](../../../../lib/payments/methods.ts) marks `whish_money` `enabled: true` **globally**. Every tenant is offered Whish Money regardless of whether their ERPNext site has that Mode of Payment. The audited tenant has only `Cash`.
 
-**Defect B — a missing Mode of Payment is mistranslated into a deposit-account error.** In `createAndSubmitPaymentEntry` ([`lib/erpnext/client.ts:731-752`](../../lib/erpnext/client.ts)):
+**Defect B — a missing Mode of Payment is mistranslated into a deposit-account error.** In `createAndSubmitPaymentEntry` ([`lib/erpnext/client.ts:731-752`](../../../../lib/erpnext/client.ts)):
 
 ```
 Step 2: GET /api/resource/Mode of Payment/<name>   → 404 when the MoP does not exist
@@ -43,7 +51,7 @@ A **404 (method absent)** is swallowed and re-thrown as a **503 "deposit account
 
 **Gap C — no availability probe exists.** The ERP client can only GET a single MoP doc; there is no capability to *list* a tenant's enabled Modes of Payment, so the UI cannot know what to offer.
 
-**Structural issue D — two overlapping enums.** `PaymentMethod` (`cash | whish_money | omt`, [`lib/payments/methods.ts`](../../lib/payments/methods.ts)) drives *recording*; `PaymentProvider` (`whish | cash | bank_transfer`, [`lib/whish.ts:37`](../../lib/whish.ts)) drives *link generation* + `Payment.provider` + audit. They are reconciled ad-hoc in the UI ([`InvoicesView.tsx:236`](../../components/modules/InvoicesView.tsx)). The design formalizes this split (see §6) rather than adding a third representation.
+**Structural issue D — two overlapping enums.** `PaymentMethod` (`cash | whish_money | omt`, [`lib/payments/methods.ts`](../../../../lib/payments/methods.ts)) drives *recording*; `PaymentProvider` (`whish | cash | bank_transfer`, [`lib/whish.ts:37`](../../../../lib/whish.ts)) drives *link generation* + `Payment.provider` + audit. They are reconciled ad-hoc in the UI ([`InvoicesView.tsx:236`](../../../../components/modules/InvoicesView.tsx)). The design formalizes this split (see §6) rather than adding a third representation.
 
 **Current payment surfaces (complete inventory):**
 
@@ -191,7 +199,7 @@ Cache key: `tenantId + company + currency + configVersion`. `configVersion` bump
 
 ### 4.6 Error contract
 
-Follow the **existing repository precedent** in [`actions/schedulingActions.ts:76-94`](../../actions/schedulingActions.ts): a typed error-code union + a discriminated result `{ success:false; code; message }` + a `mapError` that maps typed error classes to codes. **Do not** shoehorn codes into the generic `ActionResult<T>` string error, and **do not** use HTTP 503 for business-configuration failures.
+Follow the **existing repository precedent** in [`actions/schedulingActions.ts:76-94`](../../../../actions/schedulingActions.ts): a typed error-code union + a discriminated result `{ success:false; code; message }` + a `mapError` that maps typed error classes to codes. **Do not** shoehorn codes into the generic `ActionResult<T>` string error, and **do not** use HTTP 503 for business-configuration failures.
 
 ```ts
 // lib/payments/errors.ts (new)
@@ -231,7 +239,7 @@ export type PaymentResult<T> =
 
 - **Never** turn method-not-found into account-missing (this is the exact incident). The `catch {}` at `lib/erpnext/client.ts:742-744` must be replaced with logic that distinguishes a **404 (→ `PAYMENT_METHOD_NOT_FOUND`)** from a **found-but-no-company-account (→ `PAYMENT_ACCOUNT_MISSING`)** from a **connectivity error (→ `ERP_UNAVAILABLE`)**.
 - **No Payment Entry POST after a failed preflight** — preserved.
-- **No HTTP 503 for business configuration.** Implementation approach: the ERP client throws typed error classes (e.g. `PaymentMethodNotFoundError`, `PaymentAccountMissingError`, `PaymentMethodDisabledError`) — mirroring the typed errors `schedulingActions` maps — and the payment action's `mapError` converts them to `PaymentResult` codes. Genuine ERP connectivity failures continue to surface via the existing `ERPNextError` + `isErpUnavailableError` markers ([`lib/errors/is-unavailable-error.ts`](../../lib/errors/is-unavailable-error.ts)) and map to `ERP_UNAVAILABLE`. Server actions still **never throw to the UI** — they return the envelope. If a REST route handler is ever added, business-config codes map to **422 Unprocessable Entity** (not 503) and connectivity to **502/503**.
+- **No HTTP 503 for business configuration.** Implementation approach: the ERP client throws typed error classes (e.g. `PaymentMethodNotFoundError`, `PaymentAccountMissingError`, `PaymentMethodDisabledError`) — mirroring the typed errors `schedulingActions` maps — and the payment action's `mapError` converts them to `PaymentResult` codes. Genuine ERP connectivity failures continue to surface via the existing `ERPNextError` + `isErpUnavailableError` markers ([`lib/errors/is-unavailable-error.ts`](../../../../lib/errors/is-unavailable-error.ts)) and map to `ERP_UNAVAILABLE`. Server actions still **never throw to the UI** — they return the envelope. If a REST route handler is ever added, business-config codes map to **422 Unprocessable Entity** (not 503) and connectivity to **502/503**.
 
 ### 4.7 Workspace enablement (Slice 2, optional)
 
@@ -273,7 +281,7 @@ Slice 1 keeps the existing method IDs; it swaps the *availability source* and *e
 
 - Keep `PaymentProvider` (`whish | cash | bank_transfer`, `lib/whish.ts`) for the **link-generation** path, `Payment.provider`, and audit events — it is not a per-method identity.
 - Each catalog method carries a `providerCode` mapping its rail-family to a provider for link/audit. A single mapper replaces the ad-hoc `m === 'whish_money' ? 'whish' : 'cash'` in `InvoicesView.tsx`.
-- **Recording a payment is a manual path with no external call**, so mobile-wallet / USDT methods need only *MoP exists + enabled + account mapped + currency ok*. The `PILOT_ALLOW_EXTERNAL_PAYMENTS` flag ([`lib/pilot.ts:15`](../../lib/pilot.ts)) continues to gate only **Whish link generation**, never recording.
+- **Recording a payment is a manual path with no external call**, so mobile-wallet / USDT methods need only *MoP exists + enabled + account mapped + currency ok*. The `PILOT_ALLOW_EXTERNAL_PAYMENTS` flag ([`lib/pilot.ts:15`](../../../../lib/pilot.ts)) continues to gate only **Whish link generation**, never recording.
 
 ---
 

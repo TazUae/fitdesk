@@ -3,7 +3,7 @@
 - **Date:** 2026-07-06
 - **Phase:** FitDesk Remaining Roadmap v2.1 — Phase 1 (Re-open FitDesk safely) / Phase 1C
 - **Author:** Claude Code (docs-only)
-- **Related:** [`docs/audits/PHASE_1B_ONBOARDING_VALIDATION_BLOCKER.md`](PHASE_1B_ONBOARDING_VALIDATION_BLOCKER.md), [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../plans/FITDESK_REMAINING_ROADMAP_V2.md)
+- **Related:** [`docs/audits/PHASE_1B_ONBOARDING_VALIDATION_BLOCKER.md`](PHASE_1B_ONBOARDING_VALIDATION_BLOCKER.md), [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md)
 
 ---
 

@@ -1,3 +1,11 @@
+> **Status:** Archived - stale migration plan
+> **Replacement authority:** docs/plans/FITDESK_ACTIVE_ROADMAP_V3.md; a fresh repository audit is required
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+> **Note:** Relative link paths were depth-adjusted on 2026-07-19 for the archive location. No other content was modified.
+
+---
+
 # Phase 8A — Feature-Folder Migration Plan
 
 - **Date:** 2026-07-04
@@ -18,14 +26,14 @@ The migration is low-risk to *start*: the `@/features/*` pattern is **already pr
 
 | Signal | Source | Finding |
 |---|---|---|
-| Path alias | [`tsconfig.json:17-19`](../../tsconfig.json) | **Single** alias `@/* → ./*` (root-relative). `features/` resolves as `@/features/*` with no config change. |
-| Test path resolution | [`package.json:66`](../../package.json) (`vite-tsconfig-paths`) | vitest already resolves `@/*` — proven by the existing `features/` component being testable. **No test-config change needed.** |
-| CI gate | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | On push/PR to `main`: `npm test` → `npm run lint` → `npm run build:verify`. The tenant-isolation + source-invariant suites run inside `npm test`, so they **already gate merges**. |
+| Path alias | [`tsconfig.json:17-19`](../../../../tsconfig.json) | **Single** alias `@/* → ./*` (root-relative). `features/` resolves as `@/features/*` with no config change. |
+| Test path resolution | [`package.json:66`](../../../../package.json) (`vite-tsconfig-paths`) | vitest already resolves `@/*` — proven by the existing `features/` component being testable. **No test-config change needed.** |
+| CI gate | [`.github/workflows/ci.yml`](../../../../.github/workflows/ci.yml) | On push/PR to `main`: `npm test` → `npm run lint` → `npm run build:verify`. The tenant-isolation + source-invariant suites run inside `npm test`, so they **already gate merges**. |
 | `features/` scaffold | `find features` | 8 domains (billing, clients, dashboard, goals, messaging, onboarding, scheduling) × `{components,hooks,types}`; **28 `.gitkeep` + exactly one real file**. |
-| Proven pattern | [`app/dashboard/@overlay/(.)clients/[id]/page.tsx:3`](../../app/dashboard/@overlay/(.)clients/[id]/page.tsx) → [`features/clients/components/ClientWorkspaceOverlay.tsx`](../../features/clients/components/ClientWorkspaceOverlay.tsx) | A live Next route **already imports a feature component** via `@/features/...`. Alias + RSC-route→feature-component boundary is proven end-to-end. |
+| Proven pattern | [`app/dashboard/@overlay/(.)clients/[id]/page.tsx:3`](../../../../app/dashboard/@overlay/(.)clients/[id]/page.tsx) → [`features/clients/components/ClientWorkspaceOverlay.tsx`](../../../../features/clients/components/ClientWorkspaceOverlay.tsx) | A live Next route **already imports a feature component** via `@/features/...`. Alias + RSC-route→feature-component boundary is proven end-to-end. |
 | Domain sizes | `find … -name '*.ts*'` | `app` 46 · `actions` 14 · `components` 87 · `lib` 124 · `types` 6 · `features` 1. |
-| Roadmap Phase 8 | [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md:421-446`](../plans/FITDESK_REMAINING_ROADMAP_V2.md) | Move one feature at a time behind shims; no big-bang rewrite; no behavior change. |
-| Handbook cleanup | [`docs/architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md:30-110`](../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md) | "No migration map, shim… exists yet." This plan is that map. |
+| Roadmap Phase 8 | [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md:421-446`](./FITDESK_REMAINING_ROADMAP_V2.md) | Move one feature at a time behind shims; no big-bang rewrite; no behavior change. |
+| Handbook cleanup | [`docs/architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md:30-110`](../../../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/02_CLEANUP_ROADMAP.md) | "No migration map, shim… exists yet." This plan is that map. |
 
 ---
 

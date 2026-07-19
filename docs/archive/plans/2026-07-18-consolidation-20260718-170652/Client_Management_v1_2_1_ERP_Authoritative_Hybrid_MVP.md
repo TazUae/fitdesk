@@ -1,3 +1,10 @@
+> **Status:** Archived - historical evidence only
+> **Replacement authority:** docs/adr/ADR-001-client-management-erp-authoritative-hybrid.md and current code
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+
+---
+
 # Client Management v1.2.1 - ERP-Authoritative Hybrid MVP
 
 ```text

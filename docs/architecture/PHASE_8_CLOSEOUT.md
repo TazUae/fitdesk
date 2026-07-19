@@ -4,7 +4,7 @@
 - **Phase:** 8Z (closeout — docs only, no runtime code touched)
 - **Author:** Claude Code
 - **Predecessor:** Phase 8Y — read-only closeout audit (passed)
-- **Governing docs:** [`docs/plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md`](../plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md) (ADR-001), [`ADR-002-shared-ui-atom-ownership.md`](ADR-002-shared-ui-atom-ownership.md)
+- **Governing docs:** [`docs/plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md) (ADR-001), [`ADR-002-shared-ui-atom-ownership.md`](ADR-002-shared-ui-atom-ownership.md)
 
 ---
 

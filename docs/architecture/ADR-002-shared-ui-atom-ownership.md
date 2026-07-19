@@ -7,7 +7,7 @@
 - **Predecessor:** Phase 8S — `f71ee81` `refactor(clients): migrate client action leaf to feature folder`
 - **Governing parent:** [ADR-UX-002 — FitDesk Component Taxonomy](PHASE_0B_SYSTEMIZATION/ADR-UX-002-FITDESK_COMPONENT_TAXONOMY.md) (Approved v1.1)
 
-> **Numbering note.** The existing ADRs are numbered `ADR-UX-NNN` under `PHASE_0B_SYSTEMIZATION/`. This document is filed at the requested top-level path `docs/architecture/ADR-002-shared-ui-atom-ownership.md` as the second decision in the **Phase 8 feature-folder migration** series (ADR-001 being the migration plan itself, [`docs/plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md`](../plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md)). It **applies**, and does not supersede, the constitution-level taxonomy in ADR-UX-002.
+> **Numbering note.** The existing ADRs are numbered `ADR-UX-NNN` under `PHASE_0B_SYSTEMIZATION/`. This document is filed at the requested top-level path `docs/architecture/ADR-002-shared-ui-atom-ownership.md` as the second decision in the **Phase 8 feature-folder migration** series (ADR-001 being the migration plan itself, [`docs/plans/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/PHASE_8_FEATURE_FOLDER_MIGRATION_PLAN.md)). It **applies**, and does not supersede, the constitution-level taxonomy in ADR-UX-002.
 
 ---
 

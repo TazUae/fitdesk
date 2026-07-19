@@ -4,7 +4,7 @@
 > business value on the strength of a stale inference.
 > **Last verified:** 2026-06-25 (read-only inspection of FitDesk `main` + sibling repos).
 > **Update (2026-07-03):** G3 (PT vs FD Session) is now resolved by code — see the G-section
-> update below and [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md).
+> update below and [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md).
 > C1 (design tokens) is confirmed fixed. The rest of this audit's classifications stand as of
 > 2026-06-25 and have not been re-verified item-by-item in this pass.
 

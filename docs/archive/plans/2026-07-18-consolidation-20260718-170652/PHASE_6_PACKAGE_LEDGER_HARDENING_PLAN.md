@@ -1,10 +1,18 @@
+> **Status:** Completed and frozen - historical implementation plan
+> **Closeout authority:** Phase 6 closeout evidence and docs/plans/FITDESK_ACTIVE_ROADMAP_V3.md
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+> **Note:** Relative link paths were depth-adjusted on 2026-07-19 for the archive location. No other content was modified.
+
+---
+
 # Phase 6 — Package / Session Ledger Hardening Plan (6A)
 
 > **Date:** 2026-07-04
 > **Phase:** FitDesk Remaining Roadmap v2.1 — Phase 6A (audit + docs-only implementation plan)
 > **Deliverable of this run:** this plan only. **No runtime code, schema, or migration changed.**
 > **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](./FITDESK_REMAINING_ROADMAP_V2.md) §Phase 6 ·
-> [`docs/architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/09_SCHEDULING_ARCHITECTURE.md`](../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/09_SCHEDULING_ARCHITECTURE.md) ·
+> [`docs/architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/09_SCHEDULING_ARCHITECTURE.md`](../../../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/09_SCHEDULING_ARCHITECTURE.md) ·
 > `docs/architecture/FITDESK_BILLING_PACKAGE_ERP_DECISION.md`
 
 ---
@@ -18,7 +26,7 @@ package and pay-per-session completion paths are wired with partial-failure-safe
 **hardening, not construction.**
 
 The single real data-integrity gap is a **last-unit concurrency race** in
-[`package-consumption-service.ts:86`](../../lib/billing/package-consumption-service.ts): the balance
+[`package-consumption-service.ts:86`](../../../../lib/billing/package-consumption-service.ts): the balance
 is read *outside* the transaction that appends the debit (read-then-insert TOCTOU). Two *different*
 sessions racing on a package's final slot can each pass the `balance > 0` guard and each append `-1`,
 driving the derived balance to `-1`. The idempotency key protects the *same* session from
@@ -44,19 +52,19 @@ Why **cautions**, not an unqualified GO:
 
 | Area | File | What it told us |
 |---|---|---|
-| **Consumption service** | [`lib/billing/package-consumption-service.ts`](../../lib/billing/package-consumption-service.ts) | The hardening target. Idempotency pre-check `:70`; balance read `:86` **outside** the append transaction `:98-113` → the read-then-insert TOCTOU. Idempotency key `session_consumed:{sessionId}` `:66`. Returns structured outcomes (`consumed`/`already_done`/`no_package`/`no_balance`); never throws for business outcomes. |
-| **Ledger repository** | [`lib/billing/package-ledger-repository.ts`](../../lib/billing/package-ledger-repository.ts) | Append-only; `appendEvent` is the only writer `:174`. Idempotency pre-check `:223` + `UNIQUE`-constraint race recovery `:252-263` (replays on payload match, throws on payload divergence). Balance derived via `SUM` `:132-149`. Direction validated `:208`. No update/delete/void. |
-| **Purchase repository** | [`lib/billing/client-package-purchase-repository.ts`](../../lib/billing/client-package-purchase-repository.ts) | Purchase creation in one tx `:568`; `first_sold_at_utc` stamped race-safely via `WHERE … IS NULL` `:588-599`; `findBestEligiblePackageForClient` expiry-first, NULLs-last `:230-260`; `recordInvoiceCreated`/`attachInvoiceAndActivate` idempotent on `erpSalesInvoiceId`. |
-| **Session completion** | [`lib/scheduling/sessionCompletionService.ts`](../../lib/scheduling/sessionCompletionService.ts) | Pure, fully DI'd. Guard order: version check `:165` (optimistic concurrency) → terminal-state check `:170`. Trial → status-only `:175`. Package → ledger-first consume then status write `:235-262`. PPS → invoice create+submit **before** status write, idempotent via `findInvoiceBySession` `:189-233`. Fails closed on `unset`/unknown mode. |
-| **Completion action (billing-wired)** | [`actions/schedulingActions.ts:283-336`](../../actions/schedulingActions.ts) | `completeSessionAction(id, expectedVersion)` — resolves trainer + tenant, injects billing deps, calls `completeSession`. This is the **authoritative** FD-Session completion path. |
-| **Completion action (legacy)** | [`actions/sessions.ts:92-107`](../../actions/sessions.ts) | Legacy `completeSession(sessionId, notes)` → `markSessionComplete`; carries an unfilled `TODO(P-C)` for billing `:87-90`. **No billing dispatch.** Dual-path risk — see R7. |
-| **Manual "Use 1 session"** | [`actions/packages.ts:180-219`](../../actions/packages.ts) | Hub action; requires caller-supplied `idempotencyKey` `:191`; passes it as `sessionId` into the same `PackageConsumptionService`. Same TOCTOU applies here. |
-| **Void / reversal** | [`lib/billing/package-void-service.ts`](../../lib/billing/package-void-service.ts) | Compensating `refund_credit` event; strict eligibility (complimentary, unpaid, fully unused); idempotent via `voidIdempotencyKey`; no schema migration. Reversal already exists. |
-| **PPS invoice builder** | [`lib/scheduling/sessionInvoiceBuilder.ts`](../../lib/scheduling/sessionInvoiceBuilder.ts) | Builds the Sales Invoice payload anchored on the FD Session docname. |
-| **Taxonomy** | [`lib/billing/taxonomy.ts`](../../lib/billing/taxonomy.ts) | Canonical event types `:45-54`; direction map `:109-116`; `ledgerDeltaMatchesDirection` `:119`. `session_consumed` = negative. |
-| **Schema** | [`lib/db/schema.ts:278-336`](../../lib/db/schema.ts) | `client_package_purchase` + `package_ledger`. `package_ledger` has **no balance column** (event-sourced). CHECK constraints + partial unique indexes live in the migration DDL, not Drizzle. |
-| **Migration DDL** | [`scripts/migrate-app.mjs:201-227`](../../scripts/migrate-app.mjs) | Confirms `delta_units != 0` CHECK `:212`, `event_type` CHECK `:208`, and the partial unique index `package_ledger_tenant_idempotency_uq` on `(tenant_id, idempotency_key)` `:225-227` — the same-session idempotency guarantee is **DB-enforced and real**. |
-| **Existing consumption tests** | [`lib/billing/__tests__/package-consumption-service.test.ts`](../../lib/billing/__tests__/package-consumption-service.test.ts) | Covers happy path, idempotent replay, independent sessions, `no_package`, **sequential** `no_balance`, expiry, selection order, tenant isolation, input validation, source invariants. **No concurrent last-unit race test** — the exact gap Phase 6 must add. |
+| **Consumption service** | [`lib/billing/package-consumption-service.ts`](../../../../lib/billing/package-consumption-service.ts) | The hardening target. Idempotency pre-check `:70`; balance read `:86` **outside** the append transaction `:98-113` → the read-then-insert TOCTOU. Idempotency key `session_consumed:{sessionId}` `:66`. Returns structured outcomes (`consumed`/`already_done`/`no_package`/`no_balance`); never throws for business outcomes. |
+| **Ledger repository** | [`lib/billing/package-ledger-repository.ts`](../../../../lib/billing/package-ledger-repository.ts) | Append-only; `appendEvent` is the only writer `:174`. Idempotency pre-check `:223` + `UNIQUE`-constraint race recovery `:252-263` (replays on payload match, throws on payload divergence). Balance derived via `SUM` `:132-149`. Direction validated `:208`. No update/delete/void. |
+| **Purchase repository** | [`lib/billing/client-package-purchase-repository.ts`](../../../../lib/billing/client-package-purchase-repository.ts) | Purchase creation in one tx `:568`; `first_sold_at_utc` stamped race-safely via `WHERE … IS NULL` `:588-599`; `findBestEligiblePackageForClient` expiry-first, NULLs-last `:230-260`; `recordInvoiceCreated`/`attachInvoiceAndActivate` idempotent on `erpSalesInvoiceId`. |
+| **Session completion** | [`lib/scheduling/sessionCompletionService.ts`](../../../../lib/scheduling/sessionCompletionService.ts) | Pure, fully DI'd. Guard order: version check `:165` (optimistic concurrency) → terminal-state check `:170`. Trial → status-only `:175`. Package → ledger-first consume then status write `:235-262`. PPS → invoice create+submit **before** status write, idempotent via `findInvoiceBySession` `:189-233`. Fails closed on `unset`/unknown mode. |
+| **Completion action (billing-wired)** | [`actions/schedulingActions.ts:283-336`](../../../../actions/schedulingActions.ts) | `completeSessionAction(id, expectedVersion)` — resolves trainer + tenant, injects billing deps, calls `completeSession`. This is the **authoritative** FD-Session completion path. |
+| **Completion action (legacy)** | [`actions/sessions.ts:92-107`](../../../../actions/sessions.ts) | Legacy `completeSession(sessionId, notes)` → `markSessionComplete`; carries an unfilled `TODO(P-C)` for billing `:87-90`. **No billing dispatch.** Dual-path risk — see R7. |
+| **Manual "Use 1 session"** | [`actions/packages.ts:180-219`](../../../../actions/packages.ts) | Hub action; requires caller-supplied `idempotencyKey` `:191`; passes it as `sessionId` into the same `PackageConsumptionService`. Same TOCTOU applies here. |
+| **Void / reversal** | [`lib/billing/package-void-service.ts`](../../../../lib/billing/package-void-service.ts) | Compensating `refund_credit` event; strict eligibility (complimentary, unpaid, fully unused); idempotent via `voidIdempotencyKey`; no schema migration. Reversal already exists. |
+| **PPS invoice builder** | [`lib/scheduling/sessionInvoiceBuilder.ts`](../../../../lib/scheduling/sessionInvoiceBuilder.ts) | Builds the Sales Invoice payload anchored on the FD Session docname. |
+| **Taxonomy** | [`lib/billing/taxonomy.ts`](../../../../lib/billing/taxonomy.ts) | Canonical event types `:45-54`; direction map `:109-116`; `ledgerDeltaMatchesDirection` `:119`. `session_consumed` = negative. |
+| **Schema** | [`lib/db/schema.ts:278-336`](../../../../lib/db/schema.ts) | `client_package_purchase` + `package_ledger`. `package_ledger` has **no balance column** (event-sourced). CHECK constraints + partial unique indexes live in the migration DDL, not Drizzle. |
+| **Migration DDL** | [`scripts/migrate-app.mjs:201-227`](../../../../scripts/migrate-app.mjs) | Confirms `delta_units != 0` CHECK `:212`, `event_type` CHECK `:208`, and the partial unique index `package_ledger_tenant_idempotency_uq` on `(tenant_id, idempotency_key)` `:225-227` — the same-session idempotency guarantee is **DB-enforced and real**. |
+| **Existing consumption tests** | [`lib/billing/__tests__/package-consumption-service.test.ts`](../../../../lib/billing/__tests__/package-consumption-service.test.ts) | Covers happy path, idempotent replay, independent sessions, `no_package`, **sequential** `no_balance`, expiry, selection order, tenant isolation, input validation, source invariants. **No concurrent last-unit race test** — the exact gap Phase 6 must add. |
 
 ---
 

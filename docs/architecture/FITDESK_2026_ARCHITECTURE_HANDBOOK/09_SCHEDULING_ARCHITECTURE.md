@@ -24,7 +24,7 @@ not deleted:
 calls the dead PT Session path (`getSessions` via `lib/business-data`), so the client detail page
 shows an empty session history even when live FD Sessions exist for that client. Rewiring this to
 `lib/scheduling/sessionRepository.ts` (`findSessionsInRange`) is scoped as **Phase 4** in
-[`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) — not
+[`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) — not
 done here. **Do not delete the PT Session stub before that rewire lands and is verified.**
 
 ## Scope
@@ -254,5 +254,5 @@ route through the dead layer instead of `sessionCompletionService.ts` / `session
 - Historical: run F0 (UX Archaeology) early; resolve the PT/FD Session decision; only then plan F1/G.
 - Current (2026-07-03): the PT/FD Session decision is resolved (see above). Next real work on this
   area is Phase 4 (client-detail-page FD Session rewire) in
-  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md);
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md);
   F0 (scheduler UX archaeology) remains a separate, still-open item for the scheduler-engine track.

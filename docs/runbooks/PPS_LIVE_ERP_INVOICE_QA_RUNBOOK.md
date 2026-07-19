@@ -28,7 +28,7 @@ The PPS completion path is fully implemented, routes exclusively through the app
 | Tests (mock-only) | [`lib/scheduling/sessionCompletionService.test.ts`](../../lib/scheduling/sessionCompletionService.test.ts), [`lib/erpnext/client.test.ts`](../../lib/erpnext/client.test.ts), [`lib/scheduling/__tests__/sessionInvoiceBuilder.test.ts`](../../lib/scheduling/__tests__/sessionInvoiceBuilder.test.ts), [`actions/schedulingActions.test.ts`](../../actions/schedulingActions.test.ts) | PPS create/submit/reuse/rate-validation/failure-propagation — **all mocked; zero live ERP coverage.** |
 | Prior QA + residual | [`docs/audits/C7_PPS_COMPLETION_QA_FREEZE_REPORT.md`](../audits/C7_PPS_COMPLETION_QA_FREEZE_REPORT.md) `:101-106` | Documents & accepts concurrent double-create at MVP. |
 | Failure closeout | [`docs/audits/PHASE_6E_BILLING_FAILURE_RECONCILE_CLOSEOUT.md`](../audits/PHASE_6E_BILLING_FAILURE_RECONCILE_CLOSEOUT.md) | CF-1 (PPS duplicate) carried forward as FW-1. |
-| Roadmap | [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md:388-417`](../plans/FITDESK_REMAINING_ROADMAP_V2.md) | Phase 7 scope/acceptance; test tenant only; C8 = Payment Entry. |
+| Roadmap | [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md:388-417`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) | Phase 7 scope/acceptance; test tenant only; C8 = Payment Entry. |
 
 ---
 
@@ -157,7 +157,7 @@ Forward: `custom_fd_session` on the Sales Invoice = FD Session docname (the idem
 
 ## Observations / cautions (not changes in this run)
 
-- **Manual invoice UI is currently reachable** (`/dashboard/invoices/new` via `QuickActions` "Invoice" and `InvoicesView` "New Invoice") — this is **separate** from the PPS auto-invoice path and does not affect PPS QA. The roadmap constraint "keep manual invoice creation hidden from normal trainer flows" ([roadmap `:514`](../plans/FITDESK_REMAINING_ROADMAP_V2.md), [gap audit `:165-170`](../audits/FITDESK_2026_HANDBOOK_FULL_CODE_GAP_AUDIT.md)) is a **product decision to confirm separately**; it is **not** a Phase 7 blocker and must not be conflated with the completion-triggered invoice.
+- **Manual invoice UI is currently reachable** (`/dashboard/invoices/new` via `QuickActions` "Invoice" and `InvoicesView` "New Invoice") — this is **separate** from the PPS auto-invoice path and does not affect PPS QA. The roadmap constraint "keep manual invoice creation hidden from normal trainer flows" ([roadmap `:514`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md), [gap audit `:165-170`](../audits/FITDESK_2026_HANDBOOK_FULL_CODE_GAP_AUDIT.md)) is a **product decision to confirm separately**; it is **not** a Phase 7 blocker and must not be conflated with the completion-triggered invoice.
 - PPS invoice creation is triggered **only** by session completion for a `pay_per_session` client with `rate > 0` — never auto-fired elsewhere.
 
 ---

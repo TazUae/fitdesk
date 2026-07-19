@@ -3,7 +3,7 @@
 > **Date:** 2026-07-04
 > **Phase:** FitDesk Remaining Roadmap v2.1 — Phase 1 (Re-open FitDesk safely) / Phase 1B (six reset-user onboarding validation)
 > **Status:** BLOCKED — data-state mismatch, no rows reset, no Start Workspace run
-> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../plans/FITDESK_REMAINING_ROADMAP_V2.md), [`docs/audits/FITDESK_2026_AUTH_ONBOARDING_PHASE_1_IMPLEMENTATION_SPEC.md`](FITDESK_2026_AUTH_ONBOARDING_PHASE_1_IMPLEMENTATION_SPEC.md) (D6 finding, dated 2026-06-25)
+> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md), [`docs/audits/FITDESK_2026_AUTH_ONBOARDING_PHASE_1_IMPLEMENTATION_SPEC.md`](FITDESK_2026_AUTH_ONBOARDING_PHASE_1_IMPLEMENTATION_SPEC.md) (D6 finding, dated 2026-06-25)
 
 ## Expected state
 

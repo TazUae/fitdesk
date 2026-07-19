@@ -3,7 +3,7 @@
 > **Date:** 2026-07-04
 > **Phase:** FitDesk Remaining Roadmap v2.1 — Phase 2 (BookingSheet portal/layout/z-index visual QA)
 > **Status:** **PASS**
-> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../plans/FITDESK_REMAINING_ROADMAP_V2.md)
+> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md)
 
 ## Final verdict
 

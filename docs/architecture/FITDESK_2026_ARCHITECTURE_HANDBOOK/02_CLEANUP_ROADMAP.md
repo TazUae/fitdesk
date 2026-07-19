@@ -2,7 +2,7 @@
 
 > **Purpose:** The phased program to remove architectural drift before resuming feature work.
 > **Last verified:** 2026-07-03 · **Companion:** `03_EXECUTION_PLAN.md` (order + gates).
-> **Superseded by:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md)
+> **Superseded by:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md)
 > for current-state phase planning. This file remains the historical cleanup record; see the
 > "Current known state" update below for what has actually shipped since 2026-06-25.
 
@@ -185,6 +185,6 @@ forward; see the roadmap linked above for the authoritative phase count.
 
 - Historical: read `03` for the execution order and gates; start at Phase A, then B0.
 - Current (2026-07-03): see
-  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) for
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) for
   the active phase plan — Phase 0 (this truth repair) → Phase 1 (re-open safely) → Phase 1.5
   (basic CI) → onward.

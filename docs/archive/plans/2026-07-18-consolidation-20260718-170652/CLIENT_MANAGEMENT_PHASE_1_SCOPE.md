@@ -1,3 +1,10 @@
+> **Status:** Archived - historical evidence only
+> **Replacement authority:** docs/adr/ADR-001-client-management-erp-authoritative-hybrid.md and docs/plans/ACTIVE_PLAN_INDEX.md
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+
+---
+
 # Client Management Phase 1 Scope
 
 ```text

@@ -1,3 +1,11 @@
+> **Status:** Completed and frozen - historical implementation plan
+> **Closeout authority:** Goal System closeout/freeze evidence and docs/plans/FITDESK_ACTIVE_ROADMAP_V3.md
+> **Archived date:** 2026-07-18
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+> **Note:** Relative link paths were depth-adjusted on 2026-07-19 for the archive location. No other content was modified.
+
+---
+
 # FitDesk Goal System — Functional Closure Plan
 
 | | |
@@ -29,9 +37,9 @@ The FitDesk Goal System has a **correct, well-tested storage and server-action c
 
 Three independent, code-confirmed defects each break the required user contract on their own:
 
-1. **Create-time data loss (P0).** With the production-default `GoalAccordion` selector (flag `NEXT_PUBLIC_GOAL_WORKSPACE` unset), the form forwards **only the primary goal** to the server ([`AddClientForm.tsx:378-390`](../../components/clients/AddClientForm.tsx)), and even that goal's per-goal note is hardcoded to `null` ([`actions/clients.ts:181`](../../actions/clients.ts); `GoalAccordion` has no notes field at all). A trainer who configures three goals persists one, silently.
-2. **Read-back loss (P1).** The Client Hub mapper strips `isPrimary`, `subGoalIds`, `trainerSubGoalIds`, `notes`, and `safetyFlags` before they reach the client ([`hub-map.ts:53-60`](../../lib/clients/hub-map.ts)), and the panel renders only the goal label + confidence ([`ClientHubPanel.tsx:397-408`](../../components/modules/ClientHubPanel.tsx)). `urgency` survives the mapping but is not rendered.
-3. **No update path (P1).** There is no repository method, server action, or reachable UI to change any goal field after creation. [`repository.ts`](../../lib/clients/repository.ts) has `listGoals` (read) and `createClientRow` (insert) only.
+1. **Create-time data loss (P0).** With the production-default `GoalAccordion` selector (flag `NEXT_PUBLIC_GOAL_WORKSPACE` unset), the form forwards **only the primary goal** to the server ([`AddClientForm.tsx:378-390`](../../../../components/clients/AddClientForm.tsx)), and even that goal's per-goal note is hardcoded to `null` ([`actions/clients.ts:181`](../../../../actions/clients.ts); `GoalAccordion` has no notes field at all). A trainer who configures three goals persists one, silently.
+2. **Read-back loss (P1).** The Client Hub mapper strips `isPrimary`, `subGoalIds`, `trainerSubGoalIds`, `notes`, and `safetyFlags` before they reach the client ([`hub-map.ts:53-60`](../../../../lib/clients/hub-map.ts)), and the panel renders only the goal label + confidence ([`ClientHubPanel.tsx:397-408`](../../../../components/modules/ClientHubPanel.tsx)). `urgency` survives the mapping but is not rendered.
+3. **No update path (P1).** There is no repository method, server action, or reachable UI to change any goal field after creation. [`repository.ts`](../../../../lib/clients/repository.ts) has `listGoals` (read) and `createClientRow` (insert) only.
 
 This plan closes all three, plus the supporting integrity gaps (no duplicate-goal constraint, primary invariant enforced only at the action layer, functionally divergent feature-flag behavior), using **additive, tenant-safe** changes that reuse the existing hardened backend. Goal editing is **local-only** (ADR-001 and Decision D3: `client_goal` is the canonical trainer-facing Goal System source; ERPNext Customer stays canonical for business identity and minimal; ERP `custom_fitness_goals` is a legacy fallback only), so update transactions are clean, single-transaction, all-or-nothing with no ERP-orphan risk.
 
@@ -41,7 +49,7 @@ This plan closes all three, plus the supporting integrity gaps (no duplicate-goa
 
 ## 3. Accepted Audit Baseline
 
-The accepted working verdict is **FAIL — MODERNIZATION BLOCKED**, from the Goal System functional-closure audit performed against this same HEAD and now persisted at [`docs/audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md`](../audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md) (Decision D6).
+The accepted working verdict is **FAIL — MODERNIZATION BLOCKED**, from the Goal System functional-closure audit performed against this same HEAD and now persisted at [`docs/audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md`](../../../audits/FITDESK_GOAL_SYSTEM_FUNCTIONAL_CLOSURE_AUDIT.md) (Decision D6).
 
 Accepted blocking findings (all re-verified against current code while writing this plan):
 

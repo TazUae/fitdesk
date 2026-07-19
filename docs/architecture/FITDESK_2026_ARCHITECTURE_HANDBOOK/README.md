@@ -5,7 +5,7 @@
 > **Truth-repair update (2026-07-03):** the "Next actions" below are stale — cleanup Phase A/B0/C
 > are closed, and the PT/FD Session decision is resolved (FD Session shipped, PT Session dead).
 > Product work has resumed; see
-> [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md) for
+> [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) for
 > the current phase plan, and `01`/`02`/`09` for the corrected per-topic truth.
 
 This folder is the **canonical architecture reference for FitDesk**. When a question about
@@ -99,7 +99,7 @@ and the live repository state.
 - Current (2026-07-03): **PT Session vs FD Session is resolved** (FD Session shipped, PT Session
   legacy/dead); **Phase A, B0 (Graphify), and C (design tokens) are done.** Cleanup is closed
   enough and product work has resumed — see
-  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../plans/FITDESK_REMAINING_ROADMAP_V2.md),
+  [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md),
   starting at its Phase 0 (this truth repair) → Phase 1 → Phase 1.5 (basic CI, still open).
 - Still open regardless of the above: `features/` migration (Phase E / roadmap Phase 8), CI
   (Phase H / roadmap Phase 1.5), and backfilling the **missing ADRs** listed in `14`.

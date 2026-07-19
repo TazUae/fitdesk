@@ -34,7 +34,7 @@ Phase 6's actual scope — **prevent negative package balance under concurrency*
 | Migration DDL | [`scripts/migrate-app.mjs`](../../scripts/migrate-app.mjs) | Confirms CHECK + partial-unique-index; **no** reconcile columns. |
 | Retry/idempotency tests | [`lib/scheduling/sessionCompletionService.test.ts`](../../lib/scheduling/sessionCompletionService.test.ts) `:315-343` (package retry), `:421-464` (PPS reuse) | Prove no double debit / no duplicate invoice on **sequential** retry. |
 | Prior gap record | [`docs/audits/C7_PPS_COMPLETION_QA_FREEZE_REPORT.md`](./C7_PPS_COMPLETION_QA_FREEZE_REPORT.md) `:101-106` | Documents & accepts the **concurrent** PPS duplicate-invoice TOCTOU at MVP. |
-| Plan (R5/R6/6E) | [`docs/plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md`](../plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md) `:126-134`, `:178-182` | R5 divergence, R6 no-auto-reconciler, 6E doc-first. |
+| Plan (R5/R6/6E) | [`docs/plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md) `:126-134`, `:178-182` | R5 divergence, R6 no-auto-reconciler, 6E doc-first. |
 | Path audit | [`docs/audits/PHASE_6D_SESSION_COMPLETION_PATH_AUDIT.md`](./PHASE_6D_SESSION_COMPLETION_PATH_AUDIT.md) | Confirms only two live consumption paths, both hardened. |
 
 ---

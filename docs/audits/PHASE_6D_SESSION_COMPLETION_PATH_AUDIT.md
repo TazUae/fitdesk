@@ -36,7 +36,7 @@ No reachable path bypasses package consumption, pay-per-session (PPS) invoicing,
 | Schedule page / view | [`app/dashboard/schedule/page.tsx`](../../app/dashboard/schedule/page.tsx), [`components/modules/ScheduleView.tsx:120`](../../components/modules/ScheduleView.tsx) | Mounts `SessionCompletionSheet` (canonical) |
 | Manual-consumption UI | [`components/clients/PackageDetailsSheet.tsx`](../../components/clients/PackageDetailsSheet.tsx) | Imports `usePackageSession as recordPackageSession` |
 | Tests | [`lib/scheduling/sessionCompletionService.test.ts`](../../lib/scheduling/sessionCompletionService.test.ts), [`actions/schedulingActions.test.ts`](../../actions/schedulingActions.test.ts), [`actions/sessions.test.ts`](../../actions/sessions.test.ts), [`actions/packages.test.ts`](../../actions/packages.test.ts), [`lib/billing/__tests__/package-consumption-service.test.ts`](../../lib/billing/__tests__/package-consumption-service.test.ts), [`lib/billing/__tests__/package-ledger-repository.test.ts`](../../lib/billing/__tests__/package-ledger-repository.test.ts) | Completion, scheduling, PPS, packages, billing coverage |
-| Prior plan | [`docs/plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md`](../plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md) | R7 dual-path risk; 6D audit gate |
+| Prior plan | [`docs/plans/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/PHASE_6_PACKAGE_LEDGER_HARDENING_PLAN.md) | R7 dual-path risk; 6D audit gate |
 
 ---
 

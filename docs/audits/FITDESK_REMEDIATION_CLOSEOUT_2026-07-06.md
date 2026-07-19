@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-06
 - **Author:** Claude Code (docs-only)
-- **Scope:** Closes the full remediation sequence tracked in [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../plans/FITDESK_REMAINING_ROADMAP_V2.md) (Phase 0 → Phase 10, including Phase 1.5)
+- **Scope:** Closes the full remediation sequence tracked in [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) (Phase 0 → Phase 10, including Phase 1.5)
 - **HEAD at closeout:** `15b2610` — `docs(onboarding): record Phase 1C current-user validation and close zero-row gap`
 
 ---

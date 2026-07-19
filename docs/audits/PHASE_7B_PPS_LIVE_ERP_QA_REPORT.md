@@ -3,7 +3,7 @@
 - **Date:** 2026-07-06
 - **Phase:** 7B (guarded live ERP QA — approval-gated)
 - **Author:** Claude Code
-- **Predecessor plan:** [`docs/plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md)
+- **Predecessor plan:** [`docs/plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../runbooks/PPS_LIVE_ERP_INVOICE_QA_RUNBOOK.md)
 - **Safety cross-reference:** [`docs/architecture/PAYMENT_SAFETY_GATES.md`](../architecture/PAYMENT_SAFETY_GATES.md)
 
 ---

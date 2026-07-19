@@ -3,7 +3,7 @@
 - **Date:** 2026-07-06
 - **Status:** Accepted for MVP / pilot. No runtime behavior changed by this document.
 - **Predecessor:** Phase 10C — payment safety audit (passed, no P0 blockers)
-- **Related:** [`docs/plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md), [`docs/architecture/FITDESK_BILLING_PACKAGE_ERP_DECISION.md`](FITDESK_BILLING_PACKAGE_ERP_DECISION.md)
+- **Related:** [`docs/plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../runbooks/PPS_LIVE_ERP_INVOICE_QA_RUNBOOK.md), [`docs/architecture/FITDESK_BILLING_PACKAGE_ERP_DECISION.md`](FITDESK_BILLING_PACKAGE_ERP_DECISION.md)
 
 ---
 
@@ -63,7 +63,7 @@ This record exists so a future contributor does not assume `PILOT_MODE` / `PILOT
 
 ## Phase 7B PPS live ERP QA conditions
 
-Phase 7B (executing the script in [`PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../plans/PHASE_7_PPS_LIVE_ERP_QA_PLAN.md)) may proceed only when **all** of the following hold:
+Phase 7B (executing the script in [`PHASE_7_PPS_LIVE_ERP_QA_PLAN.md`](../runbooks/PPS_LIVE_ERP_INVOICE_QA_RUNBOOK.md)) may proceed only when **all** of the following hold:
 
 1. **Explicit human approval** obtained for the specific run.
 2. **Confirmed non-production test tenant** — `CONTROL_PLANE_URL` host verified as the known QA host before any completion; never confirmed against production.

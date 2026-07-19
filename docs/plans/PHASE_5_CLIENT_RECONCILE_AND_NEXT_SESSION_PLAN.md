@@ -1,9 +1,170 @@
-# Phase 5 — Client Reconcile & `nextSessionAtUtc` Projection Plan (5A)
+# Phase 5 — Client Reconcile & `nextSessionAtUtc` Projection Plan v1.1
+
+> **Current status:** Active after repository revalidation
+> **Revision date:** 2026-07-18
+> **Supersedes:** the original 2026-07-04 Phase 5A baseline where conflicting
+> **Dashboard dependency:** `FITDESK_DASHBOARD_UI_UX_FULL_PLAN_V1_2.md`
+> **Roadmap authority:** `FITDESK_ACTIVE_ROADMAP_V3.md`
+> **Implementation posture:** existing repositories only; no new ERP surface
+
+---
+
+## Binding 2026-07-18 revalidation patch
+
+This section has precedence over any conflicting statement in the older audit body below.
+
+### 1. Why this plan remains active
+
+The dashboard v1.2 program requires honest scheduling state and explainable Client Pulse signals.
+`nextSessionAtUtc` is therefore no longer only a Client Hub convenience. It is a required shared
+projection for:
+
+- client roster truth;
+- Client Hub scheduling status;
+- Dashboard Needs Attention;
+- Client Pulse scheduling signals;
+- first-run and reactivation guidance.
+
+### 2. Required sequencing
+
+```text
+Dashboard operational-truth foundation
+→ nextSessionAtUtc projection and availability semantics
+→ Client Pulse v1
+```
+
+Do not implement Client Pulse scheduling classifications before this projection is revalidated.
+
+### 3. Existing-data boundary
+
+This phase may use only the existing approved paths:
+
+```text
+lib/scheduling/sessionRepository.ts
+lib/dashboard/fdSessionAdapter.ts
+lib/clients/repository.ts
+existing tenant and trainer resolution
+existing ERP client/proxy path
+```
+
+It must not add:
+
+- a new ERP endpoint;
+- a direct ERP call;
+- a new Control Plane contract;
+- ERP credentials in FitDesk;
+- scheduling logic outside the established engine/service/repository/action boundary.
+
+### 4. Availability is separate from value
+
+A `null` projection is not sufficient by itself to tell the UI that no session is booked.
+
+The projection/read contract must distinguish:
+
+```text
+available + nextSessionAtUtc value
+available + no valid future session
+unavailable
+partial or stale
+```
+
+The UI may render “Not booked” only when the session source was successfully checked and no valid
+future session exists.
+
+When session data is unavailable, the Dashboard and Client Hub must show an unavailable or unknown
+state and must not classify the client as At Risk due to missing data alone.
+
+### 5. v1 projection semantics
+
+When data is available, `nextSessionAtUtc` means:
+
+> the UTC start time of the earliest valid future FD Session for the client, relative to an injected
+> `now`, excluding cancelled, skipped, completed, and other terminal/non-upcoming states.
+
+The exact eligible status allowlist must be verified against the current FD Session taxonomy.
+Prefer an explicit allowlist such as `scheduled` and `confirmed` rather than a broad negative filter.
+
+### 6. Refresh and staleness rules
+
+The stored projection is a cache, not authoritative scheduling truth.
+
+Minimum refresh points:
+
+- after a successful booking;
+- after a successful reschedule;
+- after a cancellation affecting the projected next session;
+- after completion/no-show when it changes the earliest future session;
+- during the tenant-scoped reconcile run.
+
+A projection may become stale as time passes even without a mutation. The plan must therefore record:
+
+- `projectedAtUtc` or an equivalent freshness signal when available without schema change;
+- the stale-data UI behavior;
+- the manual reconcile path;
+- future scheduled reconciliation as hardening, not an MVP claim.
+
+Do not add a schema column in this phase without separate approval. When no freshness column exists,
+the service result must still carry availability/freshness context for the current request.
+
+### 7. Reconcile rules
+
+- Dry run defaults to `true`.
+- Scope is one verified tenant.
+- No ERP mutation.
+- No client deletion.
+- No billing, payment, invoice, package-ledger, or WhatsApp mutation.
+- Preserve all FitDesk-owned enrichment fields.
+- Update only the projection fields explicitly approved.
+- Per-client failures are isolated and reported.
+- Cross-tenant access fails closed.
+- The current Git diff and current repository methods must be re-audited before implementation.
+
+### 8. Client Pulse relationship
+
+Client Pulse v1 may consume this projection only after it can distinguish:
+
+- verified upcoming session;
+- verified no upcoming session;
+- unknown/unavailable;
+- stale/partial.
+
+A missing future session is only one signal. The final Healthy / Watch / At Risk classification
+requires owner-approved thresholds and precedence from the dashboard plan.
+
+### 9. Current implementation gate
+
+Before code changes, verify:
+
+1. whether `nextSessionAtUtc` is still never written;
+2. whether any modernization change already added a projection path;
+3. current consumers in Dashboard, Client Hub, and Directory;
+4. current `lib/dashboard/derive.ts` eligibility logic;
+5. current FD Session status taxonomy;
+6. whether the existing execution log explains changes in these files;
+7. that the working tree can be changed without overwriting unrelated modernization work.
+
+### 10. Updated recommended commits
+
+```text
+feat(clients): add tenant-safe next-session projection
+```
+
+```text
+fix(clients): distinguish unavailable and unbooked session state
+```
+
+```text
+chore(clients): add dry-run client session reconcile
+```
+
+Keep these separate when the diff allows it.
+
+---
 
 > **Date:** 2026-07-04
 > **Phase:** FitDesk Remaining Roadmap v2.1 — Phase 5A (audit + docs-only implementation plan)
 > **Deliverable of this run:** this plan only. **No runtime code, schema, or migration changed.**
-> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](./FITDESK_REMAINING_ROADMAP_V2.md) §Phase 5 ·
+> **Related:** [`docs/plans/FITDESK_REMAINING_ROADMAP_V2.md`](../archive/plans/2026-07-18-consolidation-20260718-170652/FITDESK_REMAINING_ROADMAP_V2.md) §Phase 5 ·
 > [`docs/architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/10_CLIENT_MANAGEMENT_ARCHITECTURE.md`](../architecture/FITDESK_2026_ARCHITECTURE_HANDBOOK/10_CLIENT_MANAGEMENT_ARCHITECTURE.md) ·
 > [`docs/adr/ADR-001-client-management-erp-authoritative-hybrid.md`](../adr/ADR-001-client-management-erp-authoritative-hybrid.md)
 
