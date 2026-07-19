@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useFocusTrap } from '@/components/ui/useFocusTrap'
 import { toast } from 'sonner'
 import { bookPlanAction, buildPlanAction } from '@/actions/schedulingActions'
 import { BookingStepper, type BookingStep } from '@/components/scheduling/booking/BookingStepper'
@@ -174,6 +175,19 @@ export function BookingSheet(props: BookingSheetProps) {
   // SSR / hydration guard for `createPortal(..., document.body)`.
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
+
+  // A11y: focus containment + restoration, and Escape-to-close (blocked while
+  // a booking mutation is in flight so the sheet can't vanish mid-save).
+  const dialogRef = useRef<HTMLElement>(null)
+  useFocusTrap(dialogRef, open && mounted)
+  useEffect(() => {
+    if (!open) return
+    function handler(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !isPending) onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, isPending, onClose])
 
   // Reset every time the sheet (re-)opens
   useEffect(() => {
@@ -394,9 +408,11 @@ export function BookingSheet(props: BookingSheetProps) {
         onClick={() => !isPending && onClose()}
       />
       <aside
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Book session"
+        tabIndex={-1}
         className={cn(
           'fixed z-50 flex flex-col overflow-hidden shadow-2xl',
           // mobile bottom sheet
@@ -405,7 +421,7 @@ export function BookingSheet(props: BookingSheetProps) {
           'md:inset-y-0 md:right-0 md:left-auto md:bottom-0 md:max-h-none',
           'md:w-[520px] md:max-w-[92vw] md:rounded-none md:rounded-l-2xl',
         )}
-        style={{ backgroundColor: '#FFFFFF' }}
+        style={{ backgroundColor: 'var(--fd-surface)' }}
       >
         {/* Header */}
         <header
