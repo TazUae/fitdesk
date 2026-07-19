@@ -1,3 +1,10 @@
+> **Status:** Archived - superseded journey map
+> **Replacement authority:** `docs/product/FITDESK_JOURNEY_MAP_V1.md` (v1.12, adopted 2026-07-19)
+> **Archived date:** 2026-07-19
+> **Instruction:** Do not execute this historical plan without a new current-state audit.
+
+---
+
 # FitDesk User Journey Map — Current MVP to Target 2026 Experience
 
 ```text
