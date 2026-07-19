@@ -25,11 +25,18 @@ instead of re-reading the entire `docs/` tree from scratch each session.
    forbidden commands, architecture boundaries, and safety rules. Nothing below this
    tier may override it.
 
-2. **`.claude/skills/fitdesk-spec/SKILL.md`** *(not yet built — see
-   `docs/audits/PRE_FLIGHT_INVENTORY_REPORT.md` §6)* — the future on-demand spec
-   router. Once built, this skill is what Claude Code invokes to find the correct
-   `docs/product/*` file for a given feature area, instead of loading the entire
-   documentation pack into every session. Until it exists, doc discovery is manual.
+2. **`.claude/skills/fitdesk-spec/SKILL.md`** — the on-demand spec router. **Now
+   built** (this line previously read "not yet built," which was stale — the file
+   exists and is tracked). This skill is what Claude Code invokes to find the
+   correct `docs/product/*` file for a given feature area, instead of loading the
+   entire documentation pack into every session.
+
+   A second, narrower skill, **`.claude/skills/fitdesk-guardrail/SKILL.md`**,
+   also exists as of the 2026-07-18 UI/UX modernization pass. It gates styling,
+   accessibility, responsive, design-system, React, and frontend-performance
+   proposals against active ADR-UX doctrine — a review gate, not a spec router.
+   As of this writing it is part of the still-uncommitted working-tree pass and
+   is not yet in Git history; treat it as real and current, not as historical.
 
 3. **`docs/product/*`** — canonical product truth, **once imported/aligned**. Today
    `docs/product/` contains real files (Client Area, Dashboard Command Center, Goal
@@ -50,10 +57,30 @@ instead of re-reading the entire `docs/` tree from scratch each session.
    this was and why*, but is not the source for current acceptance criteria once a
    story has a `docs/product/*` or `docs/execution/*` equivalent.
 
+   As of 2026-07-19, this tier is internally governed by
+   [`docs/plans/ACTIVE_PLAN_INDEX.md`](plans/ACTIVE_PLAN_INDEX.md) — that index,
+   not this map, is the deterministic answer to "which plan is currently active
+   for domain X." Superseded plans it names have been archived to
+   `docs/archive/plans/2026-07-18-consolidation-20260718-170652/` with zero
+   content loss (commit `a316c5d`, `docs(fitdesk): preserve plan history and
+   repair archival links`). `docs/plans/FITDESK_ACTIVE_ROADMAP_V3.md` is the
+   current program-level roadmap, superseding `FITDESK_REMAINING_ROADMAP_V2.md`.
+
 6. **`docs/audits/*`** — audit evidence and review reports (freeze reports, gap
    analyses, QA closeouts, this pre-flight inventory). Authoritative as a factual
    record of *what was found at the time of the audit*, not as a source of forward
    product intent. Audits document state; they do not define desired state.
+
+   **[`docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`](audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md)**
+   is, as of this writing, the single best current answer to this map's own
+   stated purpose — "what is actually true right now." It is a fresh,
+   evidence-cited, file:line-sourced snapshot of implementation status across
+   navigation, scheduling, billing, messaging/consent, AI surfaces, offline
+   behavior, and the ERP/Control Plane boundary. Any canonical product document
+   (Journey Map, Sitemap, PRD, or the rest of the documentation pack) adopted
+   into this repository must be read alongside this audit, not in place of it —
+   the canonical documents describe intended direction; this audit describes
+   what the code currently does.
 
 7. **Older phase docs** (anything under `docs/architecture/`, `docs/adr/`,
    `docs/research/`, `docs/security/`, `docs/prompts/` not explicitly referenced by
@@ -87,6 +114,19 @@ Handbook `10`/`14`, and itself `Approved`).
 
 *No ADRs are currently pending in this tier.*
 
+## Open decisions (unresolved — do not treat either side as active authority)
+
+- **Accent color: Indigo versus gold.** `docs/plans/FITDESK_DASHBOARD_UI_UX_FULL_PLAN_V1_2.md`
+  §14.1 states gold is deprecated in favor of an "Indigo re-accent." The
+  uncommitted working-tree `app/globals.css` and
+  `docs/architecture/PHASE_0B_SYSTEMIZATION/ADR-UX-012-DESIGN_TOKEN_GOVERNANCE.md`
+  (Status: Proposed) instead make gold the single brand accent app-wide. Both
+  positions are **Proposed, not approved** — neither is binding under this
+  map's hierarchy. Do not silently prefer one over the other in any future
+  commit; this must be resolved by explicit product-owner decision. See
+  `docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md` §13
+  for the full context.
+
 ## Rules
 
 - **Claude Code must not treat every doc as equally authoritative.** Always resolve
@@ -104,11 +144,25 @@ Handbook `10`/`14`, and itself `Approved`).
   trainer-ownership doc in `docs/execution/SPRINT_1_STORY_TRACEABILITY_MAP.md`, which
   is already known to be stale on at least one factual claim).
 
-## Current state (as of this writing)
+## Current state (as of this writing, 2026-07-19)
 
-- Tier 2 (`fitdesk-spec` skill) does not exist yet.
+- Tier 2 (`fitdesk-spec` skill) now exists and is tracked; `fitdesk-guardrail`
+  also exists (uncommitted).
 - Tier 3 (`docs/product/*`) exists but is not yet normalized to a US-ID structure.
 - Tier 4 (`docs/execution/*`) is new as of this file; only
   `SPRINT_1_STORY_TRACEABILITY_MAP.md` exists in it so far.
-- Tiers 5–7 are populated and stable, per the inventory in
+- Tier 5 (`docs/plans/*`) is now internally governed by `ACTIVE_PLAN_INDEX.md`
+  and `FITDESK_ACTIVE_ROADMAP_V3.md`; the 2026-07-18 plan consolidation
+  (10 files archived/relocated, zero content loss) and its archival link
+  repairs are committed (`a316c5d`).
+- Tier 6 (`docs/audits/*`) now includes
+  `FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`, the current
+  best answer to "what is actually true right now" (committed `d548ad1`).
+- Tier 7 is populated and stable, per the inventory in
   `docs/audits/PRE_FLIGHT_INVENTORY_REPORT.md`.
+- The canonical Journey Map v1.12, Application Sitemap v1.1, and the wider
+  10-document canonical pack are pending adoption into this repository as of
+  this writing — they are not yet present under `docs/product/`,
+  `docs/architecture/`, or `docs/testing/`.
+- The accent-color decision (Indigo vs. gold) and the 11 `ADR-UX-0NN` v2.0
+  proposed amendments remain open — see "Open decisions" above.
