@@ -2,6 +2,9 @@
 
 Status: Approved v1.1
 Date: 2026
+Amended: 2026-07-19 — manual invoice creation removed from Quick Actions per
+the brand/product-UI reconciliation audit; see
+`docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`.
 
 
 ## Context
@@ -104,8 +107,10 @@ Reduce navigation.
 Examples:
 - Add Client
 - Book Session
-- Create Invoice
-- Add Payment
+- Record Payment
+
+Manual invoice creation is not a dashboard Quick Action. It remains hidden
+from the normal trainer workflow (2026-07-19 audit correction).
 
 ## Triage Architecture
 

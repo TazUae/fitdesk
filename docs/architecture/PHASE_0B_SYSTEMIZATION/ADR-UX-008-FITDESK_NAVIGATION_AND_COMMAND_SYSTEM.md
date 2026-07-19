@@ -2,6 +2,12 @@
 
 Status: Approved v1.1
 Date: 2026
+Amended: 2026-07-19 — mobile/desktop navigation corrected to match the
+canonical Application Sitemap (Home/Schedule/Clients/Inbox/More;
+Dashboard/Schedule/Clients/Inbox/Billing/Settings); manual invoice creation
+removed from Command Palette and FAB. Current-implementation gaps are noted
+inline rather than presented as already built. See
+`docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`.
 
 
 ## Context
@@ -28,21 +34,29 @@ The goal is to minimize navigation effort while maximizing operational speed.
 
 Bottom navigation is the primary mobile navigation pattern.
 
-Approved tabs:
-1. Dashboard
-2. Clients
-3. Schedule
-4. Actions
+Approved tabs (target — corrected 2026-07-19 to match the canonical
+Application Sitemap):
+1. Home
+2. Schedule
+3. Clients
+4. Inbox
 5. More
 
-Messages live under Actions or More until messaging becomes a first-class daily workflow.
+**Current implementation** (as of the 2026-07-19 implementation-status
+audit) uses `Home, Clients, Schedule, Invoices, More` — Clients/Schedule
+order and the Invoices tab both differ from the target above. `/invoices`
+remains a fully operational compatibility route and must not be removed
+blindly when navigation is migrated toward the target; see
+`docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`.
+Global Search is persistent and is never demoted into More.
 
 ## More Menu
 
-The More tab acts as the expansion layer.
+The More tab acts as the expansion layer for secondary/settings-adjacent
+destinations, not for Search, Inbox, or frequent client actions — those stay
+in primary navigation or remain globally reachable.
 
 Examples:
-- Invoices
 - Packages
 - Payments
 - Reports
@@ -59,16 +73,25 @@ Critical actions must remain reachable within natural thumb zones.
 
 Desktop uses a persistent sidebar.
 
-Primary items:
+Primary items (target — corrected 2026-07-19):
 - Dashboard
-- Clients
 - Schedule
-- Actions
+- Clients
+- Inbox
+- Billing
+- Settings
+
+**Current implementation** uses `Home, Clients, Schedule, Invoices` inline,
+with Settings reachable via a footer/menu link rather than the primary list.
+`Billing` is the target destination name; `/invoices` is the current,
+fully operational route and is preserved as a compatibility path — it is not
+deleted or hard-renamed by this correction. `Inbox` does not exist as a
+route yet; do not present it as implemented in any UI built against this
+ADR until it is verified in code.
 
 Secondary items:
-- Invoices
 - Reports
-- Settings
+- Help
 
 ## Command System
 
@@ -82,10 +105,12 @@ Capabilities:
 - Open client
 - Create client
 - Book session
-- Create invoice
-- Add payment
+- Record payment
 - Navigate screens
 - Execute common actions
+
+Manual invoice creation is not a command-palette capability. It remains
+hidden from the normal trainer workflow (2026-07-19 audit correction).
 
 ## FAB Strategy
 
@@ -96,8 +121,12 @@ FAB opens the universal create sheet.
 Approved order:
 1. Add Client
 2. Book Session
-3. Create Invoice
-4. Add Payment
+3. Record Payment
+
+Manual invoice creation is not a FAB action. It remains hidden from the
+normal trainer workflow (2026-07-19 audit correction) — package invoices are
+created through package assignment, and pay-per-session invoices are created
+through confirmed session completion.
 
 ### Desktop
 

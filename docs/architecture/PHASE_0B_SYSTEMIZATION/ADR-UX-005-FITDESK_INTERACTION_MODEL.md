@@ -2,6 +2,9 @@
 
 Status: Approved v1.1
 Date: 2026
+Amended: 2026-07-19 — manual invoice creation removed from Pattern 1 per the
+brand/product-UI reconciliation audit; see
+`docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md`.
 
 
 ## Context
@@ -16,9 +19,15 @@ The same interaction principles must govern Add Client, Dashboard triage, Client
 
 Used for:
 - Add Client
-- Add Invoice
 - Create Program
 - Goal setup
+
+Manual invoice creation is not part of this pattern. It remains hidden from
+the normal trainer workflow (2026-07-19 audit correction) — package invoices
+are created through package assignment, and pay-per-session invoices are
+created through confirmed session completion. See
+`ADR-UX-013-FITDESK_BRAND_AND_PRODUCT_UI_FOUNDATION.md` §9 for the current
+authority on unimplemented-feature mockups vs. verified implementation.
 
 Rule:
 Operational workflows remain in one context. Complexity expands inline.
