@@ -11,7 +11,6 @@ import {
   Goal,
   Loader2,
   Package,
-  Shield,
   Sparkles,
   TrendingUp,
   X,
@@ -199,12 +198,16 @@ export function ClientHubPanel({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const { client, goals, hasGoalHistory, pendingActions, placeholders } = overview
+  const { client, goals, hasGoalHistory, pendingActions } = overview
   const [assignSheetOpen, setAssignSheetOpen]   = useState(false)
   const [detailsSheetOpen, setDetailsSheetOpen] = useState(false)
   const [goalEditorOpen, setGoalEditorOpen]     = useState(false)
   const [billingSyncMessage, setBillingSyncMessage] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  // Scroll-cut (modernization): secondary journal sections start collapsed so
+  // the Hub answers its five questions above the fold.
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
   const [isNotePending, startNoteTransition] = useTransition()
   const [progressDraft, setProgressDraft] = useState('')
   const [progressGoalId, setProgressGoalId] = useState(() => resolveInitialProgressGoalId(goals))
@@ -658,16 +661,30 @@ export function ClientHubPanel({
         )}
       </div>
 
-      {/* ── Recent activity ───────────────────────────────────────────────────── */}
+      {/* ── Recent activity — collapsed by default ───────────────────────────── */}
       <div
         className="rounded-2xl border p-4 space-y-3"
         style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
       >
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-          <SectionHeader>Recent activity</SectionHeader>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActivityOpen(v => !v)}
+          aria-expanded={activityOpen}
+          className="flex w-full items-center justify-between transition-opacity active:opacity-70"
+        >
+          <span className="flex items-center gap-2">
+            <Clock className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+            <SectionHeader>Recent activity</SectionHeader>
+            {recentNotes.length > 0 && (
+              <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>({recentNotes.length})</span>
+            )}
+          </span>
+          <span className="text-xs font-semibold" style={{ color: 'var(--fd-primary-text)' }}>
+            {activityOpen ? 'Hide' : 'Show'}
+          </span>
+        </button>
 
+        {activityOpen && (<>
         <div className="flex gap-2">
           <input
             type="text"
@@ -711,18 +728,33 @@ export function ClientHubPanel({
             No activity yet.
           </p>
         )}
+        </>)}
       </div>
 
-      {/* ── Progress (US-052) ───────────────────────────────────────────────── */}
+      {/* ── Progress (US-052) — collapsed by default ─────────────────────────── */}
       <div
         className="rounded-2xl border p-4 space-y-3"
         style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
       >
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-          <SectionHeader>Progress</SectionHeader>
-        </div>
+        <button
+          type="button"
+          onClick={() => setProgressOpen(v => !v)}
+          aria-expanded={progressOpen}
+          className="flex w-full items-center justify-between transition-opacity active:opacity-70"
+        >
+          <span className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+            <SectionHeader>Progress</SectionHeader>
+            {progressEntries.length > 0 && (
+              <span className="text-xs" style={{ color: 'var(--fd-muted)' }}>({progressEntries.length})</span>
+            )}
+          </span>
+          <span className="text-xs font-semibold" style={{ color: 'var(--fd-primary-text)' }}>
+            {progressOpen ? 'Hide' : 'Show'}
+          </span>
+        </button>
 
+        {progressOpen && (<>
         <div className="space-y-2">
           <textarea
             value={progressDraft}
@@ -784,23 +816,12 @@ export function ClientHubPanel({
             No progress entries yet.
           </p>
         )}
+        </>)}
       </div>
 
-      {/* ── Placeholders ──────────────────────────────────────────────────────── */}
-      <div
-        className="rounded-2xl border p-4 space-y-1"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-      >
-        <div className="flex items-center gap-1.5">
-          <Shield className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
-          <p className="text-xs font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Program
-          </p>
-        </div>
-        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
-          {placeholders.trainingProgram.label}
-        </p>
-      </div>
+      {/* Program placeholder card removed (modernization scroll-cut): an empty
+          "coming soon" box does not belong in the client workspace. The module
+          reappears here when training programs actually ship. */}
 
       {/* Assign Package sheet — mounted here so it can access the client context */}
       <AssignPackageSheet

@@ -119,7 +119,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
               style={{ backgroundColor: 'rgba(232,197,71,0.12)', color: 'var(--fd-accent)' }}
             >
               <CheckCircle2 className="h-4 w-4" />
-              Record Payment
+              Record payment
             </Link>
 
             <Link

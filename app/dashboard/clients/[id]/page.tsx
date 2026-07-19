@@ -290,13 +290,19 @@ export default async function ClientDetailPage({ params }: Props) {
               </div>
             ) : (
               <div className="space-y-2">
-                {sortedSessions.slice(0, 10).map(session => (
+                {/* Scroll-cut (modernization): 4 rows, not 10 — the full history
+                    lives in the Schedule, one tap away. */}
+                {sortedSessions.slice(0, 4).map(session => (
                   <SessionRow key={session.id} session={session} />
                 ))}
-                {sortedSessions.length > 10 && (
-                  <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    Showing 10 of {sortedSessions.length}
-                  </p>
+                {sortedSessions.length > 4 && (
+                  <Link
+                    href="/dashboard/schedule"
+                    className="block text-center text-xs font-semibold transition-opacity active:opacity-70"
+                    style={{ color: 'var(--fd-primary-text)' }}
+                  >
+                    View all {sortedSessions.length} sessions in Schedule →
+                  </Link>
                 )}
               </div>
             )}

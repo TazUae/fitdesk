@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { Banknote, ChevronRight, CreditCard, Landmark, Package, SlidersHorizontal } from 'lucide-react'
-import { Badge } from '@/components/ui/Badge'
 
 const PAYMENT_METHODS = [
   {
@@ -53,57 +52,6 @@ export default function SettingsPage() {
         <ChevronRight className="h-4 w-4 shrink-0 ml-2" style={{ color: 'var(--fd-muted)' }} />
       </Link>
 
-      {/* ── Business hours ─────────────────────────────────────────────────── */}
-      <section
-        className="rounded-2xl border p-4"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4" style={{ color: 'var(--fd-accent)' }} />
-            <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Business hours
-            </p>
-          </div>
-          <Badge variant="coming-soon" />
-        </div>
-        <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-          Set your working days and available time slots. Coming in a future update.
-        </p>
-      </section>
-
-      {/* ── Buffer time ────────────────────────────────────────────────────── */}
-      <section
-        className="rounded-2xl border p-4"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-      >
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Buffer time between sessions
-          </p>
-          <Badge variant="coming-soon" />
-        </div>
-        <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-          Add automatic gaps between bookings. Coming in a future update.
-        </p>
-      </section>
-
-      {/* ── WhatsApp reminders ─────────────────────────────────────────────── */}
-      <section
-        className="rounded-2xl border p-4"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
-      >
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-            WhatsApp reminders
-          </p>
-          <Badge variant="coming-soon" />
-        </div>
-        <p className="mt-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
-          Automate session reminders and payment nudges via WhatsApp. Coming soon.
-        </p>
-      </section>
-
       {/* ── Payment methods ────────────────────────────────────────────────── */}
       <section
         className="rounded-2xl border p-4"
@@ -127,6 +75,24 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* ── On the roadmap — compact list; real settings lead the page ────── */}
+      <section
+        className="rounded-2xl border p-4"
+        style={{ backgroundColor: 'var(--fd-card)', borderColor: 'var(--fd-border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4" style={{ color: 'var(--fd-muted)' }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--fd-muted)' }}>
+            On the roadmap
+          </p>
+        </div>
+        <ul className="mt-2 space-y-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
+          <li>Business hours — working days and available time slots</li>
+          <li>Buffer time between sessions — automatic gaps between bookings</li>
+          <li>WhatsApp reminders — automated session reminders and payment nudges</li>
+        </ul>
       </section>
 
     </div>

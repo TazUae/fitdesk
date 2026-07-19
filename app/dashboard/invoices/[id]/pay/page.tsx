@@ -36,7 +36,7 @@ function PaymentConfigUnavailable({ invoiceId, clientName }: { invoiceId: string
     <div className="p-4 space-y-5">
       <div>
         <h1 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-          Record Payment
+          Record payment
         </h1>
         <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
           {invoiceId} · {clientName}

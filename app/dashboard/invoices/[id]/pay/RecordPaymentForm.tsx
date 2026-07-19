@@ -61,7 +61,7 @@ export function RecordPaymentForm({ invoice, availableMethods }: RecordPaymentFo
         </button>
         <div>
           <h1 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-            Record Payment
+            Record payment
           </h1>
           <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
             {invoice.id} · {invoice.clientName}
@@ -158,7 +158,7 @@ export function RecordPaymentForm({ invoice, availableMethods }: RecordPaymentFo
           className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
           style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
         >
-          {isPending ? 'Recording…' : 'Record Payment'}
+          {isPending ? 'Recording…' : 'Record payment'}
         </button>
       </form>
     </div>

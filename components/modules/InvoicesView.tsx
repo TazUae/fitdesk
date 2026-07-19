@@ -13,7 +13,6 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
 import { getAvailablePaymentMethods, getPaymentLink, recordPayment } from '@/actions/invoices'
 import { PAYMENT_PROVIDERS } from '@/lib/whish'
 import { type PaymentMethod } from '@/lib/payments/methods'
@@ -27,6 +26,7 @@ import {
 import { isOutstandingInvoiceStatus } from '@/lib/invoices/status'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
+import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
 import type { BadgeVariant } from '@/components/ui/Badge'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { fmtMoney } from '@/lib/format/money'
@@ -129,11 +129,13 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
   const isActionable = invoice.status === 'sent' || invoice.status === 'overdue'
 
   return (
-    <div className="space-y-3">
+    <div
+      className="rounded-2xl border p-4"
+      style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+    >
       <Link
         href={`/dashboard/invoices/${invoice.id}`}
-        className="block rounded-2xl border p-4"
-        style={{ backgroundColor: 'var(--fd-surface)', borderColor: 'var(--fd-border)' }}
+        className="block transition-opacity active:opacity-70"
       >
         {/* Row 1: avatar + client info + amount + badge */}
         <div className="flex items-start gap-3">
@@ -177,25 +179,28 @@ function InvoiceCard({ invoice, onMarkPaid }: InvoiceCardProps) {
         </div>
       </Link>
 
-      {/* Row 2: actions (only for actionable invoices) — outside the Link to avoid nested elements */}
+      {/* Row 2: actions — inside the card border so ownership is unambiguous */}
       {isActionable && (
-        <div className="flex gap-2">
+        <div
+          className="mt-3 flex gap-2 border-t pt-3"
+          style={{ borderColor: 'var(--fd-border)' }}
+        >
           <button
             onClick={() => onMarkPaid(invoice)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold"
-            style={{ backgroundColor: 'rgba(232,197,71,0.12)', color: 'var(--fd-accent)' }}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-opacity active:opacity-70"
+            style={{ backgroundColor: 'rgba(232,197,71,0.12)', color: '#a07908' }}
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Mark Paid
+            Record payment
           </button>
 
           <Link
             href={`/dashboard/messages/${invoice.clientId}`}
-            className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold"
-            style={{ backgroundColor: 'rgba(78,203,160,0.10)', color: 'var(--fd-green)' }}
+            className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-opacity active:opacity-70"
+            style={{ backgroundColor: 'rgba(78,203,160,0.10)', color: '#1a9e72' }}
           >
             <MessageCircle className="h-3.5 w-3.5" />
-            Send
+            Remind
           </Link>
         </div>
       )}
@@ -336,43 +341,15 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   }
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        aria-hidden="true"
-        className={cn(
-          'fixed inset-0 z-40 bg-black/60 transition-opacity duration-300',
-          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-        onClick={handleClose}
-      />
-
-      {/* Sheet */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Record payment"
-        className={cn(
-          'fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2',
-          'rounded-t-3xl border-t transition-transform duration-300',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        )}
-        style={{
-          backgroundColor: 'var(--fd-surface)',
-          borderColor:     'var(--fd-border)',
-          paddingBottom:   'calc(env(safe-area-inset-bottom) + 1.5rem)',
-        }}
-      >
-        {/* Handle */}
-        <div className="flex justify-center pb-2 pt-3">
-          <div className="h-1 w-10 rounded-full" style={{ backgroundColor: 'var(--fd-border)' }} />
-        </div>
-
-        {/* Header */}
+    <WorkspaceShell
+      open={isOpen}
+      onClose={handleClose}
+      label="Record payment"
+      header={
         <div className="flex items-center justify-between px-5 pb-3">
           <div>
             <h2 className="text-base font-semibold" style={{ color: 'var(--fd-text)' }}>
-              Record Payment
+              Record payment
             </h2>
             {invoice && (
               <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
@@ -380,13 +357,16 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
               </p>
             )}
           </div>
-          <button type="button" onClick={handleClose} style={{ color: 'var(--fd-muted)' }}>
+          <button type="button" onClick={handleClose} aria-label="Close" style={{ color: 'var(--fd-muted)' }}>
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        {/* Scrollable body */}
-        <div className="max-h-[76vh] overflow-y-auto px-5">
+      }
+    >
+      <div
+        className="overflow-y-auto px-5"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
+      >
           {invoice && (
             <>
               {/* Invoice summary */}
@@ -564,16 +544,15 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
                   type="submit"
                   disabled={isPending || isSubmitBlockedByAvailability(avail)}
                   className="w-full rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+                  style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-text-on-primary)' }}
                 >
-                  {isPending ? 'Recording…' : 'Record Payment'}
+                  {isPending ? 'Recording…' : 'Record payment'}
                 </button>
               </form>
             </>
           )}
-        </div>
       </div>
-    </>
+    </WorkspaceShell>
   )
 }
 
@@ -698,7 +677,7 @@ export function InvoicesView({ invoices, error }: InvoicesViewProps) {
         </>
       )}
 
-      {/* Sheets */}
+      {/* Record-payment sheet (portaled via WorkspaceShell) */}
       <MarkPaidSheet
         invoice={payingInvoice}
         onClose={() => setPayingInvoice(null)}

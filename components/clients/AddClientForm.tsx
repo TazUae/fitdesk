@@ -247,9 +247,13 @@ function PageSuccessState({ client }: { client: Client }) {
 
 // ─── Main shared form ──────────────────────────────────────────────────────────
 
-// Feature flag: set NEXT_PUBLIC_GOAL_WORKSPACE=1 to enable the Pop-and-Split workspace.
-// When unset (or '0'), the legacy GoalAccordion renders unchanged.
-const GOAL_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_GOAL_WORKSPACE === '1'
+// Feature flag: the Pop-and-Split goal workspace is the DEFAULT (modernization
+// 2026-07) — it replaces the 19-accordion inline wall with select-then-configure,
+// cutting Add Client scroll depth dramatically. Set NEXT_PUBLIC_GOAL_WORKSPACE=0
+// to fall back to the legacy GoalAccordion. Both paths were verified by the
+// Goal System functional-closure freeze (both selector states emit complete
+// selectedGoals[]).
+const GOAL_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_GOAL_WORKSPACE !== '0'
 
 export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputRef }: AddClientFormProps) {
   const router = useRouter()
@@ -265,7 +269,12 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
   // Workspace reducer — always initialized (hooks must not be called conditionally)
   const [workspaceState, workspaceDispatch] = useReducer(workspaceReducer, INITIAL_WORKSPACE_STATE)
   const [notes,       setNotes]       = useState('')
-  const [detailsOpen, setDetailsOpen] = useState(false)
+
+  // ─── Approved 4-step linear flow (modernization 2026-07, plan §8.3):
+  // Identity → Billing → Goals & context → Review & create.
+  // Presentation-only: all state, validation, duplicate detection, and the
+  // create payload are unchanged — steps just gate what renders.
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   const [billingMode, setBillingMode] = useState<BillingMode>('unset')
   const [ppsRate,     setPpsRate]     = useState('')
@@ -287,7 +296,7 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     setGoalState(emptyGoalState())
     workspaceDispatch({ type: 'RESET' })
     setNotes('')
-    setDetailsOpen(false)
+    setStep(1)
     setError(null)
     setCreatedClient(null)
     setDuplicateMatches(null)
@@ -391,8 +400,42 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     }
   }
 
+  // ─── Step navigation ────────────────────────────────────────────────────────
+
+  function validateIdentity(): string | null {
+    if (!name.trim()) return 'Full name is required.'
+    if (!phoneValue?.phone_number) return 'Phone number is required.'
+    return null
+  }
+
+  function tryAdvance() {
+    setError(null)
+    if (step === 1) {
+      const v = validateIdentity()
+      if (v) { setError(v); return }
+    }
+    if (step === 3 && hardConflictBlocked) {
+      setError("These goals can’t be combined. Remove one of the conflicting goals to continue.")
+      return
+    }
+    setStep(s => (s < 4 ? ((s + 1) as typeof step) : s))
+  }
+
+  function goBack() {
+    setError(null)
+    setDuplicateMatches(null)
+    setStep(s => (s > 1 ? ((s - 1) as typeof step) : s))
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Enter on an earlier step advances — it must never create the client.
+    if (step < 4) {
+      tryAdvance()
+      return
+    }
+
     setError(null)
 
     if (!name.trim()) {
@@ -494,12 +537,47 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     return <PageSuccessState client={createdClient} />
   }
 
-  // ─── Form body ────────────────────────────────────────────────────────────
+  // ─── Step pieces ──────────────────────────────────────────────────────────
 
-  const formBody = (
-    <>
-      {/* Possible-duplicate warning */}
-      {duplicateMatches && duplicateMatches.length > 0 && (
+  const STEP_LABELS = ['Identity', 'Billing', 'Goals', 'Review'] as const
+
+  const stepIndicator = (
+    <div className="flex items-center gap-1" aria-label={`Step ${step} of 4: ${STEP_LABELS[step - 1]}`}>
+      {STEP_LABELS.map((label, i) => {
+        const n = (i + 1) as 1 | 2 | 3 | 4
+        const isActive = n === step
+        const isPast   = n < step
+        return (
+          <button
+            key={label}
+            type="button"
+            disabled={!isPast}
+            onClick={() => { if (isPast) { setError(null); setDuplicateMatches(null); setStep(n) } }}
+            className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-opacity disabled:cursor-default"
+            style={{
+              backgroundColor: isActive ? 'var(--fd-primary-soft)' : 'transparent',
+              color: isActive ? 'var(--fd-primary-text)' : isPast ? 'var(--fd-text)' : 'var(--fd-muted)',
+            }}
+            aria-current={isActive ? 'step' : undefined}
+          >
+            <span
+              className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
+              style={{
+                backgroundColor: isActive || isPast ? 'var(--fd-primary)' : 'var(--fd-border)',
+                color: isActive || isPast ? 'var(--fd-text-on-primary)' : 'var(--fd-muted)',
+              }}
+              aria-hidden="true"
+            >
+              {n}
+            </span>
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const duplicateWarning = duplicateMatches && duplicateMatches.length > 0 && (
         <div
           role="alertdialog"
           aria-label="Possible duplicate client"
@@ -558,9 +636,10 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
             </button>
           </div>
         </div>
-      )}
+  )
 
-      {/* AI parse review banners */}
+  const aiBanners = (
+    <>
       {aiState === 'partial_success' && (
         <div
           className="rounded-xl px-4 py-3 text-sm"
@@ -586,6 +665,13 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
           </p>
         </div>
       )}
+    </>
+  )
+
+  // Step 1 — Identity: minimal required fields + AI quick-add.
+  const identityStep = (
+    <>
+      {aiBanners}
 
       {/* Full name */}
       <div className="space-y-1.5">
@@ -613,52 +699,43 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
         required
         showWhatsApp
       />
+    </>
+  )
 
-      {/* Progressive disclosure (goals, age, notes, billing, AI) */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setDetailsOpen(p => !p)}
-          className="flex w-full items-center justify-between border-t pt-4 text-sm font-medium transition-opacity active:opacity-60"
-          style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
-        >
-          Add more details
-          <ChevronDown
-            className="h-4 w-4 transition-transform duration-200"
-            style={{
-              color:     'var(--fd-muted)',
-              transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-            }}
-          />
-        </button>
+  // Step 3 — Goals & context: optional and deferrable (plan §8.3).
+  const goalsStep = (
+    <>
+      {GOAL_WORKSPACE_ENABLED
+        ? <AddClientGoalWorkspace state={workspaceState} dispatch={workspaceDispatch} />
+        : <GoalAccordion value={goalState} onChange={setGoalState} />
+      }
 
-        {detailsOpen && (
-          <div className="pt-5 space-y-5">
-            {GOAL_WORKSPACE_ENABLED
-              ? <AddClientGoalWorkspace state={workspaceState} dispatch={workspaceDispatch} />
-              : <GoalAccordion value={goalState} onChange={setGoalState} />
-            }
+      <AgeInput value={ageValue} onChange={setAgeValue} />
 
-            <AgeInput value={ageValue} onChange={setAgeValue} />
+      <div className="space-y-1.5">
+        <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+          General client notes
+          <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
+            (optional)
+          </span>
+        </label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Health notes, goals, context…"
+          rows={3}
+          className="input-base resize-none"
+        />
+      </div>
+    </>
+  )
 
-            <div className="space-y-1.5">
-              <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                General client notes
-                <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
-                  (optional)
-                </span>
-              </label>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Health notes, goals, context…"
-                rows={3}
-                className="input-base resize-none"
-              />
-            </div>
-
-            {/* Billing mode */}
-            <div className="space-y-2">
+  // Step 2 — Commercial setup: explicit billing choice ("Decide later" is an
+  // explicit choice, never a silent default).
+  const billingStep = (
+    <>
+      {/* Billing mode */}
+      <div className="space-y-2">
               <label className="block text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
                 Billing
                 <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--fd-muted)' }}>
@@ -723,8 +800,11 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
                 </div>
               )}
             </div>
+    </>
+  )
 
-            {/* AI quick-add from text */}
+  // AI quick-add — rendered on Step 1 (it can pre-fill identity, goals, notes).
+  const aiQuickAdd = (
             <div
               className="rounded-2xl border overflow-hidden"
               style={{ borderColor: 'var(--fd-border)' }}
@@ -779,24 +859,135 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
                 </div>
               )}
             </div>
+  )
+
+  // Step 4 — Review & create: the business consequence, stated plainly.
+  const reviewGoalIds = GOAL_WORKSPACE_ENABLED
+    ? (workspaceState.primaryGoalId
+        ? [workspaceState.primaryGoalId, ...workspaceState.selectedGoalIds.filter(id => id !== workspaceState.primaryGoalId)]
+        : workspaceState.selectedGoalIds)
+    : (goalState.primaryGoalId
+        ? [goalState.primaryGoalId, ...goalState.selected.map(s => s.goalId).filter(id => id !== goalState.primaryGoalId)]
+        : goalState.selected.map(s => s.goalId))
+
+  const billingConsequence =
+    billingMode === 'package'
+      ? 'Package billing — after creating, assign a package from the profile. That flow creates the package invoice and session balance.'
+      : billingMode === 'pay_per_session'
+        ? (ppsRate && parseFloat(ppsRate) > 0
+            ? `Pay per session — each completed session will issue a ${ppsRate} invoice.`
+            : 'Pay per session — set the default rate now or later from the profile.')
+        : 'Billing to decide later — set it any time from the client profile.'
+
+  const reviewStep = (
+    <>
+      {duplicateWarning}
+
+      <div
+        className="rounded-2xl border divide-y"
+        style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-surface)' }}
+      >
+        {[
+          ['Name', name.trim() || '—'],
+          ['Phone', phoneValue?.phone_full
+            ? `${phoneValue.phone_full}${phoneValue.has_whatsapp ? ' · WhatsApp' : ''}`
+            : '—'],
+          ['Goals', reviewGoalIds.length > 0
+            ? reviewGoalIds.map(id => formatGoalLabel(id)).join(', ')
+            : 'None yet — add from the profile'],
+          ['Age', ageValue.age ? String(ageValue.age) : ageValue.date_of_birth ?? '—'],
+          ['Notes', notes.trim() ? 'Added' : '—'],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-start justify-between gap-3 px-4 py-2.5">
+            <span className="shrink-0 text-xs font-medium" style={{ color: 'var(--fd-muted)' }}>{label}</span>
+            <span className="min-w-0 text-right text-sm" style={{ color: 'var(--fd-text)' }}>{value}</span>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Inline error */}
-      {error && (
-        <div
-          className="rounded-xl px-4 py-3 text-sm"
-          style={{
-            backgroundColor: 'rgba(232,92,106,0.08)',
-            border:          '1px solid rgba(232,92,106,0.25)',
-            color:           'var(--fd-red)',
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {/* Business consequence — what creating will and will not do */}
+      <div
+        className="rounded-2xl border px-4 py-3 text-sm space-y-2"
+        style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)' }}
+      >
+        <p style={{ color: 'var(--fd-text)' }}>{billingConsequence}</p>
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          Creating this client does not send any WhatsApp message, book a session,
+          or create an invoice.
+        </p>
+      </div>
     </>
+  )
+
+  const inlineError = error && (
+    <div
+      className="rounded-xl px-4 py-3 text-sm"
+      style={{
+        backgroundColor: 'rgba(232,92,106,0.08)',
+        border:          '1px solid rgba(232,92,106,0.25)',
+        color:           'var(--fd-red)',
+      }}
+    >
+      {error}
+    </div>
+  )
+
+  const stepBody =
+    step === 1 ? <>{identityStep}{aiQuickAdd}</> :
+    step === 2 ? billingStep :
+    step === 3 ? goalsStep :
+    reviewStep
+
+  const primaryLabel = step !== 4 ? `Next: ${STEP_LABELS[step]}` : 'Create client'
+  const primaryDisabled = isPending || (step >= 3 && hardConflictBlocked)
+
+  // ─── Shared step footer buttons ────────────────────────────────────────────
+
+  const secondaryButton = step === 1 ? (
+    isSheet ? (
+      <button
+        type="button"
+        onClick={onClose}
+        className="flex-1 rounded-xl border py-3 text-sm font-semibold transition-opacity active:opacity-60"
+        style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+      >
+        Cancel
+      </button>
+    ) : null
+  ) : (
+    <button
+      type="button"
+      onClick={goBack}
+      disabled={isPending}
+      className="flex-1 rounded-xl border py-3 text-sm font-semibold transition-opacity active:opacity-60 disabled:opacity-50"
+      style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
+    >
+      Back
+    </button>
+  )
+
+  const primaryButton = step < 4 ? (
+    <button
+      type="button"
+      onClick={tryAdvance}
+      disabled={primaryDisabled}
+      className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-opacity active:opacity-60 disabled:opacity-50"
+      style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+    >
+      {primaryLabel}
+    </button>
+  ) : (
+    <button
+      type="submit"
+      disabled={primaryDisabled}
+      className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-opacity active:opacity-60 disabled:opacity-50"
+      style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
+    >
+      {isPending
+        ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
+        : 'Create client'
+      }
+    </button>
   )
 
   // ─── Sheet layout (scrollable body + sticky footer) ────────────────────────
@@ -805,7 +996,9 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
     return (
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {formBody}
+          {stepIndicator}
+          {stepBody}
+          {inlineError}
         </div>
 
         <div
@@ -815,51 +1008,25 @@ export function AddClientForm({ variant, onReset, onClose, onCreated, nameInputR
             paddingBottom: 'max(env(safe-area-inset-bottom), 20px)',
           }}
         >
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-xl border py-3 text-sm font-semibold transition-opacity active:opacity-60"
-            style={{
-              borderColor:     'var(--fd-border)',
-              color:           'var(--fd-text)',
-              backgroundColor: 'var(--fd-card)',
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isPending || hardConflictBlocked}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-opacity active:opacity-60 disabled:opacity-50"
-            style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-          >
-            {isPending
-              ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
-              : 'Create client'
-            }
-          </button>
+          {secondaryButton}
+          {primaryButton}
         </div>
       </form>
     )
   }
 
-  // ─── Page layout (flat scroll + bottom submit) ────────────────────────────
+  // ─── Page layout (flat scroll + bottom buttons) ────────────────────────────
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {formBody}
+      {stepIndicator}
+      {stepBody}
+      {inlineError}
 
-      <button
-        type="submit"
-        disabled={isPending || hardConflictBlocked}
-        className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-opacity disabled:opacity-50"
-        style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-bg)' }}
-      >
-        {isPending
-          ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
-          : 'Create Client'
-        }
-      </button>
+      <div className="flex gap-3">
+        {secondaryButton}
+        {primaryButton}
+      </div>
     </form>
   )
 }

@@ -60,9 +60,9 @@ function ClientCard({ card }: { card: ClientRosterCard }) {
           {card.phone || 'No phone'}
         </p>
         {card.goalLabel && (
-          <p className="mt-0.5 flex items-center gap-1 truncate text-xs" style={{ color: 'var(--fd-muted)' }}>
+          <p className="mt-0.5 flex items-center gap-1 text-xs" style={{ color: 'var(--fd-muted)' }}>
             <Target className="h-3 w-3 shrink-0" />
-            {card.goalLabel}
+            <span className="min-w-0 truncate" title={card.goalLabel}>{card.goalLabel}</span>
           </p>
         )}
       </div>

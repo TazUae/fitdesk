@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useId, useReducer, useState } from 'react'
+import { useEffect, useId, useReducer, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { useFocusTrap } from '@/components/ui/useFocusTrap'
 import {
   AddClientGoalWorkspace,
   workspaceReducer,
@@ -35,9 +37,13 @@ interface GoalEditorSheetProps {
 export function GoalEditorSheet({ open, clientIndexId, goals, onClose }: GoalEditorSheetProps) {
   const router = useRouter()
   const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [state, dispatch] = useReducer(workspaceReducer, goals, workspaceStateFromGoals)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Focus containment + restoration while open (a11y standard §2).
+  useFocusTrap(dialogRef, open)
 
   // Re-seed whenever the sheet is (re)opened, so it always reflects the latest
   // server state and discards any un-saved edits from a previous open.
@@ -89,19 +95,21 @@ export function GoalEditorSheet({ open, clientIndexId, goals, onClose }: GoalEdi
     }
   }
 
-  return (
+  return createPortal(
     <>
       <div
         onClick={() => { if (!pending) onClose() }}
         className="fixed inset-0 z-40 backdrop-blur-[2px]"
-        style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
+        style={{ backgroundColor: 'var(--fd-overlay)' }}
         aria-hidden="true"
       />
 
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className="fixed bottom-0 left-1/2 z-50 flex max-h-[90vh] w-full max-w-[560px] -translate-x-1/2 flex-col rounded-t-[28px] border-t"
         style={{
           backgroundColor: 'var(--fd-surface)',
@@ -157,6 +165,7 @@ export function GoalEditorSheet({ open, clientIndexId, goals, onClose }: GoalEdi
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

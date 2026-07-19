@@ -14,6 +14,7 @@ import {
 import { generateDraftMessage, sendMessage } from '@/actions/messages'
 import { DRAFT_TYPES } from '@/lib/claude'
 import { Avatar } from '@/components/ui/Avatar'
+import { ConfirmDialog } from '@/components/ui/primitives'
 import type { Client, MessageLog, DraftType } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ export function MessagesView({
 
   const [isGenerating, startGenerate] = useTransition()
   const [isSending,    startSend]     = useTransition()
+  const [confirmOpen,  setConfirmOpen] = useState(false)
 
   const busy = isGenerating || isSending
 
@@ -166,17 +168,19 @@ export function MessagesView({
   function handleSend() {
     if (!draftBody.trim()) return
 
-    // Financial messages need explicit confirmation before sending
+    // Financial messages need explicit confirmation before sending — via the
+    // product ConfirmDialog (full message visible, recipient stated), never
+    // the browser-native window.confirm.
     const isFinancial = selectedType === 'invoice' || selectedType === 'reminder'
-    if (
-      isFinancial &&
-      !window.confirm(
-        `Send this ${selectedType} message to ${client.name} via WhatsApp?\n\n"${draftBody.slice(0, 120)}${draftBody.length > 120 ? '…' : ''}"`,
-      )
-    ) {
+    if (isFinancial) {
+      setConfirmOpen(true)
       return
     }
+    doSend()
+  }
 
+  function doSend() {
+    setConfirmOpen(false)
     startSend(async () => {
       const result = await sendMessage({
         clientId:    client.id,
@@ -212,6 +216,29 @@ export function MessagesView({
 
   return (
     <div className="flex flex-col gap-6 p-4 pb-24">
+      <ConfirmDialog
+        open={confirmOpen}
+        title={`Send ${selectedType} message?`}
+        body={
+          <div className="space-y-2">
+            <p>
+              This will send via WhatsApp to{' '}
+              <span className="font-semibold">{client.name}</span>
+              {client.phone ? ` (${client.phone})` : ''}.
+            </p>
+            <div
+              className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl border p-3 text-xs"
+              style={{ borderColor: 'var(--fd-border)', backgroundColor: 'var(--fd-card)', color: 'var(--fd-muted)' }}
+            >
+              {draftBody}
+            </div>
+          </div>
+        }
+        confirmLabel="Send via WhatsApp"
+        loading={isSending}
+        onConfirm={doSend}
+        onClose={() => setConfirmOpen(false)}
+      />
 
       {/* Client header */}
       <div
