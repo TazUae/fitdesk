@@ -114,16 +114,21 @@ Handbook `10`/`14`, and itself `Approved`).
 
 *No ADRs are currently pending in this tier.*
 
-## Open decisions (unresolved — do not treat either side as active authority)
+## Resolved decisions
 
-- **Accent color: Indigo versus gold.** `docs/plans/FITDESK_DASHBOARD_UI_UX_FULL_PLAN_V1_2.md`
-  §14.1 states gold is deprecated in favor of an "Indigo re-accent." The
-  uncommitted working-tree `app/globals.css` and
+- **Accent color and brand identity — resolved 2026-07-19.** Explicit
+  product-owner decision dated 2026-07-19: Midnight `#0B1020` and Indigo
+  `#635BFF` are approved for the FitDesk application; Gold is rejected as the
+  default application accent. Geist Sans and Geist Mono remain the current
+  application typography — no typeface change was approved. The supplied
+  FitDesk wordmark, F+D icon, and "FitDesk by Novarra" endorsed lockup are
+  approved brand assets.
   `docs/architecture/PHASE_0B_SYSTEMIZATION/ADR-UX-012-DESIGN_TOKEN_GOVERNANCE.md`
-  (Status: Proposed) instead make gold the single brand accent app-wide. Both
-  positions are **Proposed, not approved** — neither is binding under this
-  map's hierarchy. Do not silently prefer one over the other in any future
-  commit; this must be resolved by explicit product-owner decision. See
+  already reflects Indigo internally (Status: Proposed v2.0) but still
+  requires the governance reconciliation identified by the 2026-07-19 brand
+  audit before it carries binding force. Detailed brand rules, logo usage,
+  semantic-token roles, contrast rules, and asset locations remain pending a
+  future `ADR-UX-013`, not yet authored. See
   `docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md` §13
   for the full context.
 

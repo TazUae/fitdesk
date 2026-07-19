@@ -450,7 +450,9 @@ Immediate:
 1. Approve the active-plan consolidation.
 2. Approve branch reconciliation.
 3. Approve the exact modernization checkpoint scope.
-4. Approve FitDesk Indigo values.
+4. Approve FitDesk Indigo values. **Resolved 2026-07-19** — Midnight `#0B1020`
+   and Indigo `#635BFF` approved; Gold rejected as the default application
+   accent. See `docs/DOCUMENTATION_AUTHORITY_MAP.md` "Resolved decisions."
 5. Decide idle-rail behavior.
 6. Approve tabular numerals as the standard for money and counts.
 

@@ -6,11 +6,10 @@
 **Known branch:** `feat/ui-ux-modernization`  
 **Known baseline HEAD:** `e027365`  
 **Status:** Proposed implementation plan — implementation not yet authorized  
-**Accent-color status:** Proposed — accent-color decision unresolved. §14.1 below
-proposes an Indigo re-accent with gold deprecated; this conflicts with the
-uncommitted working-tree `app/globals.css` and `ADR-UX-012` (also Proposed),
-which instead make gold the single brand accent. Neither position is approved.
-See `docs/DOCUMENTATION_AUTHORITY_MAP.md` "Open decisions" and
+**Accent-color status:** Resolved — Midnight #0B1020 and Indigo #635BFF approved;
+Gold rejected as the default application accent, per product-owner decision
+dated 2026-07-19. §14.1's Indigo re-accent direction is confirmed. See
+`docs/DOCUMENTATION_AUTHORITY_MAP.md` "Resolved decisions" and
 `docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md` §13.  
 **Date:** 2026-07-18  
 **Supersedes:** `FITDESK_DASHBOARD_UI_UX_FULL_PLAN_V1_1.md`
