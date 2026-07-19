@@ -185,7 +185,7 @@ export function DashboardView({
       </div>
 
       {/* ── AI Copilot Rail — xl+ only (hidden below xl) ──────────────────── */}
-      <AiCopilotRail />
+      <AiCopilotRail items={attentionItems} />
 
     </div>
   )

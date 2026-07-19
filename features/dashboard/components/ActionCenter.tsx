@@ -19,12 +19,43 @@
  */
 
 import Link from 'next/link'
-import { AlertTriangle, ArrowRight, CalendarX, Clock } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CalendarX, CheckCircle2, Clock, MessageCircle } from 'lucide-react'
 import { fmtMoneyCompact } from '@/lib/format/money'
 import type { AttentionItem } from '@/lib/dashboard/derive'
 
 interface ActionCenterProps {
   items: AttentionItem[]
+}
+
+/**
+ * Inline resolve row for invoice attention cards — link-only (no mutation
+ * here): "Record payment" deep-links straight into the existing pay flow and
+ * "Remind" into the client's message composer, so an overdue invoice is one
+ * tap from resolution instead of navigate → find → tap again.
+ */
+function InvoiceResolveRow({ item }: { item: AttentionItem }) {
+  return (
+    <div className="mt-2 flex gap-2">
+      <Link
+        href={`${item.href}/pay`}
+        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-bold transition-opacity active:opacity-70"
+        style={{ backgroundColor: 'rgba(232,197,71,0.14)', color: '#a07908' }}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+        Record payment
+      </Link>
+      {item.clientId && (
+        <Link
+          href={`/dashboard/messages/${item.clientId}`}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-bold transition-opacity active:opacity-70"
+          style={{ backgroundColor: 'rgba(78,203,160,0.12)', color: '#1a9e72' }}
+        >
+          <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+          Remind
+        </Link>
+      )}
+    </div>
+  )
 }
 
 export function ActionCenter({ items }: ActionCenterProps) {
@@ -57,33 +88,38 @@ export function ActionCenter({ items }: ActionCenterProps) {
         if (item.type === 'pending_invoice') {
           const hasMeta = item.outstandingAmount !== undefined && !!item.currency
           return (
-            <Link
+            <div
               key={idx}
-              href={item.href}
-              aria-label={item.label}
-              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-opacity active:opacity-70"
+              className="rounded-xl border px-4 py-3"
               style={{
                 backgroundColor: 'rgba(232,197,71,0.07)',
                 borderColor:     'rgba(232,197,71,0.28)',
               }}
             >
-              <Clock
-                className="h-4 w-4 shrink-0"
-                style={{ color: 'var(--fd-accent)' }}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
-                  {item.clientName ?? item.label}
-                </p>
-                {hasMeta && (
-                  <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
-                    {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
-                    {' · To collect'}
+              <Link
+                href={item.href}
+                aria-label={item.label}
+                className="flex items-center gap-3 transition-opacity active:opacity-70"
+              >
+                <Clock
+                  className="h-4 w-4 shrink-0"
+                  style={{ color: 'var(--fd-accent)' }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
+                    {item.clientName ?? item.label}
                   </p>
-                )}
-              </div>
-              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
-            </Link>
+                  {hasMeta && (
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--fd-muted)' }}>
+                      {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
+                      {' · To collect'}
+                    </p>
+                  )}
+                </div>
+                <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-muted)' }} />
+              </Link>
+              <InvoiceResolveRow item={item} />
+            </div>
           )
         }
 
@@ -146,38 +182,43 @@ export function ActionCenter({ items }: ActionCenterProps) {
         const hasMeta = item.outstandingAmount !== undefined && !!item.currency
 
         return (
-          <Link
+          <div
             key={idx}
-            href={item.href}
-            aria-label={item.label}
-            className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-opacity active:opacity-70"
+            className="rounded-xl border px-4 py-3"
             style={{
               backgroundColor: isHigh ? 'rgba(232,92,106,0.10)' : 'rgba(232,92,106,0.07)',
               borderColor:     isHigh ? 'rgba(232,92,106,0.30)' : 'rgba(232,92,106,0.20)',
             }}
           >
-            <AlertTriangle
-              className="h-4 w-4 shrink-0"
-              style={{ color: 'var(--fd-red)' }}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-red)' }}>
-                {item.clientName ?? item.label}
-              </p>
-              {hasMeta && (
-                <p
-                  className="mt-0.5 text-xs"
-                  style={{ color: isHigh ? 'var(--fd-red)' : 'var(--fd-muted)' }}
-                >
-                  {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
-                  {item.ageDays !== undefined && item.ageDays > 0 && (
-                    <> · {item.ageDays} day{item.ageDays !== 1 ? 's' : ''} overdue</>
-                  )}
+            <Link
+              href={item.href}
+              aria-label={item.label}
+              className="flex items-center gap-3 transition-opacity active:opacity-70"
+            >
+              <AlertTriangle
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--fd-red)' }}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold" style={{ color: 'var(--fd-red)' }}>
+                  {item.clientName ?? item.label}
                 </p>
-              )}
-            </div>
-            <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-red)' }} />
-          </Link>
+                {hasMeta && (
+                  <p
+                    className="mt-0.5 text-xs"
+                    style={{ color: isHigh ? 'var(--fd-red)' : 'var(--fd-muted)' }}
+                  >
+                    {fmtMoneyCompact(item.outstandingAmount!, item.currency!)}
+                    {item.ageDays !== undefined && item.ageDays > 0 && (
+                      <> · {item.ageDays} day{item.ageDays !== 1 ? 's' : ''} overdue</>
+                    )}
+                  </p>
+                )}
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--fd-red)' }} />
+            </Link>
+            <InvoiceResolveRow item={item} />
+          </div>
         )
       })}
     </div>

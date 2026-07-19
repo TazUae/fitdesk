@@ -111,9 +111,10 @@ export function DashboardClientShell({ children, banner }: Props) {
       {/* ── Content column ────────────────────────────────────────────────── */}
       {/*   Mobile (all routes):   centered 480px column                       */}
       {/*   Desktop /dashboard:    fills remaining space (wide command center) */}
-      {/*   Desktop sub-routes:    stays max-w-[480px] centered beside sidebar */}
+      {/*   Desktop sub-routes:    comfortable 760px reading column — avoids   */}
+      {/*   the stretched-mobile dead-canvas look on large screens.            */}
       <div className={cn(
-        'flex min-h-dvh flex-col mx-auto w-full max-w-[480px] lg:flex-1 lg:min-w-0',
+        'flex min-h-dvh flex-col mx-auto w-full max-w-[480px] lg:flex-1 lg:min-w-0 lg:max-w-[760px]',
         isWideCanvas && 'lg:mx-0 lg:max-w-none',
       )}>
 

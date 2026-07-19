@@ -62,6 +62,8 @@ export interface AttentionItem {
   href: string
   /** Present on 'overdue_invoice' and 'pending_invoice' items. */
   clientName?: string
+  /** Client id for inline resolve links (reminder message). Invoice items only. */
+  clientId?: string
   outstandingAmount?: number
   currency?: string
   dueDate?: string
@@ -202,6 +204,7 @@ export function getAttentionItems(invoices: Invoice[], today?: string): Attentio
       label:             `${inv.clientName} — ${inv.outstandingAmount} ${inv.currency} overdue ${ageDays} day${ageDays !== 1 ? 's' : ''}`,
       href:              `/dashboard/invoices/${inv.id}`,
       clientName:        inv.clientName,
+      clientId:          inv.clientId,
       outstandingAmount: inv.outstandingAmount,
       currency:          inv.currency,
       dueDate:           inv.dueDate,
@@ -215,6 +218,7 @@ export function getAttentionItems(invoices: Invoice[], today?: string): Attentio
     label:             `${inv.clientName} — ${inv.outstandingAmount} ${inv.currency} to collect`,
     href:              `/dashboard/invoices/${inv.id}`,
     clientName:        inv.clientName,
+    clientId:          inv.clientId,
     outstandingAmount: inv.outstandingAmount,
     currency:          inv.currency,
     dueDate:           inv.dueDate,
