@@ -50,10 +50,10 @@ export function BookingStepper({ step, onJump, hidePattern }: BookingStepperProp
             )}
             style={{
               backgroundColor: isActive
-                ? 'var(--fd-blue-subtle)'
+                ? 'var(--fd-primary-soft)'
                 : 'transparent',
               color: isActive
-                ? 'var(--fd-blue)'
+                ? 'var(--fd-primary-text)'
                 : isPast
                   ? 'var(--fd-text)'
                   : 'var(--fd-muted)',
@@ -65,7 +65,7 @@ export function BookingStepper({ step, onJump, hidePattern }: BookingStepperProp
               className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
               style={{
                 backgroundColor: isActive
-                  ? 'var(--fd-blue)'
+                  ? 'var(--fd-primary-text)'
                   : isPast
                     ? 'var(--fd-green)'
                     : 'var(--fd-border)',

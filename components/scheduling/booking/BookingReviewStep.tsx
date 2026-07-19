@@ -74,7 +74,7 @@ export function BookingReviewStep({
       >
         <div
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-          style={{ backgroundColor: 'var(--fd-blue-subtle)', color: 'var(--fd-blue)' }}
+          style={{ backgroundColor: 'var(--fd-primary-soft)', color: 'var(--fd-primary-text)' }}
         >
           <CalendarDays className="h-5 w-5" />
         </div>
@@ -101,6 +101,20 @@ export function BookingReviewStep({
       )}
 
       {packageBalance && <PackageBalanceGate state={packageBalance} />}
+
+      {/* Financial consequence — always stated, never implied (doctrine). */}
+      {clientBillingMode === 'unset' && (
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          No billing mode set for this client — booking never invoices, and
+          completed sessions won&apos;t invoice automatically until billing is set
+          on the profile.
+        </p>
+      )}
+      {isPPS && fee !== null && fee > 0 && (
+        <p className="text-xs" style={{ color: 'var(--fd-muted)' }}>
+          Booking creates no invoice. Each session invoices {fee} on completion.
+        </p>
+      )}
 
       {(plan.conflicts.length > 0 || plan.outOfHours.length > 0) && (
         <ConflictBanner plan={plan} onSelectDifferentTime={onSelectDifferentTime} />
@@ -167,9 +181,9 @@ export function BookingReviewStep({
                     onClick={() => onChange({ sessionType: active ? null : type })}
                     className="flex h-8 items-center justify-center rounded-full border px-3 text-xs font-medium"
                     style={{
-                      backgroundColor: active ? 'var(--fd-blue-subtle)' : 'var(--fd-surface)',
-                      borderColor:     active ? 'var(--fd-blue)' : 'var(--fd-border)',
-                      color:           active ? 'var(--fd-blue)' : 'var(--fd-text)',
+                      backgroundColor: active ? 'var(--fd-primary-soft)' : 'var(--fd-surface)',
+                      borderColor:     active ? 'var(--fd-primary-strong)' : 'var(--fd-border)',
+                      color:           active ? 'var(--fd-primary-text)' : 'var(--fd-text)',
                     }}
                   >
                     {type}

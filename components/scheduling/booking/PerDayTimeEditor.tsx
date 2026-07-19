@@ -117,8 +117,8 @@ export function PerDayTimeEditor({ patternSlots, durationMinutes, onChange }: Pe
         <button
           type="button"
           onClick={addSlot}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--fd-blue-subtle)]"
-          style={{ color: 'var(--fd-blue)' }}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--fd-primary-soft)]"
+          style={{ color: 'var(--fd-primary-text)' }}
         >
           <Plus className="h-3.5 w-3.5" />
           Add a day

@@ -1,45 +1,48 @@
 /*
- * FitDesk overrides for Schedule-X default theme (light mode, Phase 5.0).
+ * FitDesk overrides for Schedule-X default theme (light mode).
  * Loaded after `@schedule-x/theme-default/dist/index.css`.
  *
- * Visual target: Google Calendar — flat, light surfaces, soft grid lines,
- * blue primary, red current-time line.
+ * Visual target: the FitDesk design tokens — the planner wears the same
+ * identity as the rest of the app. Indigo primary (resolved 2026-07-19;
+ * was gold during the 2026-07 modernization exploration, since rejected),
+ * shared neutrals/borders, danger-red current-time line. No hardcoded
+ * palette values; everything routes through --fd-* tokens.
  */
 
 /* ── Calendar token overrides (light) ──────────────────────────────── */
 .fd-sx-wrap .sx__calendar,
 .fd-sx-wrap .sx__calendar.is-light {
   /* Surfaces */
-  --sx-color-background:               #FFFFFF;
-  --sx-color-surface:                  #FFFFFF;
-  --sx-color-surface-dim:              #F8F9FA;
-  --sx-color-surface-bright:           #FFFFFF;
-  --sx-color-surface-container:        #FFFFFF;
-  --sx-color-surface-container-low:    #F8F9FA;
-  --sx-color-surface-container-high:   #F1F3F4;
+  --sx-color-background:               var(--fd-surface);
+  --sx-color-surface:                  var(--fd-surface);
+  --sx-color-surface-dim:              var(--fd-bg);
+  --sx-color-surface-bright:           var(--fd-surface);
+  --sx-color-surface-container:        var(--fd-surface);
+  --sx-color-surface-container-low:    var(--fd-bg);
+  --sx-color-surface-container-high:   var(--fd-card);
 
   /* Foreground */
-  --sx-color-on-background:            #3C4043;
-  --sx-color-on-surface:               #3C4043;
+  --sx-color-on-background:            var(--fd-text);
+  --sx-color-on-surface:               var(--fd-text);
 
-  /* Primary — Google blue */
-  --sx-color-primary:                  #1A73E8;
-  --sx-color-on-primary:               #FFFFFF;
-  --sx-color-primary-container:        #E8F0FE;
-  --sx-color-on-primary-container:     #174EA6;
-  --sx-color-surface-tint:             #1A73E8;
+  /* Primary — FitDesk brand Indigo */
+  --sx-color-primary:                  var(--fd-primary);
+  --sx-color-on-primary:               var(--fd-text-on-primary);
+  --sx-color-primary-container:        var(--fd-primary-soft);
+  --sx-color-on-primary-container:     var(--fd-text);
+  --sx-color-surface-tint:             var(--fd-primary);
 
   /* Outlines */
-  --sx-color-outline:                  #DADCE0;
-  --sx-color-outline-variant:          #E8EAED;
+  --sx-color-outline:                  var(--fd-border);
+  --sx-color-outline-variant:          var(--fd-border);
 
-  --sx-internal-color-text:            #3C4043;
+  --sx-internal-color-text:            var(--fd-text);
 }
 
 /* Calendar root — clean white background */
 .fd-sx-wrap .sx__calendar,
 .fd-sx-wrap .sx-react-calendar-wrapper {
-  background-color: #FFFFFF !important;
+  background-color: var(--fd-surface) !important;
   border: none !important;
 }
 
@@ -69,42 +72,42 @@
 
 /* ── Header bar (date nav + view switcher) ────────────────────────── */
 .fd-sx-wrap .sx__calendar-header {
-  border-bottom: 1px solid #DADCE0;
-  background-color: #FFFFFF;
+  border-bottom: 1px solid var(--fd-border);
+  background-color: var(--fd-surface);
   padding: 12px 16px;
   gap: 8px;
 }
 
 .fd-sx-wrap .sx__date-input {
-  background-color: #FFFFFF;
-  color: #3C4043;
-  border: 1px solid #DADCE0;
+  background-color: var(--fd-surface);
+  color: var(--fd-text);
+  border: 1px solid var(--fd-border);
   border-radius: 6px;
   font-weight: 500;
 }
 
 .fd-sx-wrap .sx__view-selection-selected-item,
 .fd-sx-wrap .sx__view-selection-item {
-  background-color: #FFFFFF;
-  color: #3C4043;
-  border: 1px solid #DADCE0;
+  background-color: var(--fd-surface);
+  color: var(--fd-text);
+  border: 1px solid var(--fd-border);
   border-radius: 6px;
   font-weight: 500;
 }
 
 .fd-sx-wrap .sx__view-selection-items {
-  background-color: #FFFFFF;
-  border: 1px solid #DADCE0;
+  background-color: var(--fd-surface);
+  border: 1px solid var(--fd-border);
   border-radius: 6px;
   box-shadow: 0 2px 6px rgba(60,64,67,0.10), 0 4px 12px rgba(60,64,67,0.15);
 }
 
 .fd-sx-wrap .sx__view-selection-item:hover {
-  background-color: #F1F3F4;
+  background-color: var(--fd-card);
 }
 
 .fd-sx-wrap .sx__chevron-wrapper {
-  color: #5F6368;
+  color: var(--fd-muted);
   background-color: transparent;
   border-radius: 999px;
   width: 36px;
@@ -115,20 +118,20 @@
 }
 
 .fd-sx-wrap .sx__chevron-wrapper:hover {
-  background-color: #F1F3F4;
+  background-color: var(--fd-card);
 }
 
 .fd-sx-wrap .sx__today-button {
-  background-color: #FFFFFF;
-  color: #3C4043;
-  border: 1px solid #DADCE0;
+  background-color: var(--fd-surface);
+  color: var(--fd-text);
+  border: 1px solid var(--fd-border);
   border-radius: 999px;
   padding: 6px 14px;
   font-weight: 500;
 }
 
 .fd-sx-wrap .sx__today-button:hover {
-  background-color: #F1F3F4;
+  background-color: var(--fd-card);
 }
 
 /* ── Time grid: subtle gridlines, Google-style ────────────────────── */
@@ -136,34 +139,34 @@
 .fd-sx-wrap .sx__time-grid-hour,
 .fd-sx-wrap .sx__week-grid__date-number,
 .fd-sx-wrap .sx__week-grid__week-day {
-  border-color: #E8EAED !important;
+  border-color: var(--fd-border) !important;
 }
 
 /* Day-boundary border slightly stronger */
 .fd-sx-wrap .sx__time-grid-day {
-  border-right: 1px solid #E8EAED !important;
+  border-right: 1px solid var(--fd-border) !important;
 }
 
 .fd-sx-wrap .sx__time-grid-hour-text,
 .fd-sx-wrap .sx__week-grid__week-day {
-  color: #70757A;
+  color: var(--fd-muted);
   font-size: 11px;
   letter-spacing: 0.02em;
   font-weight: 500;
 }
 
 .fd-sx-wrap .sx__week-grid__date-number {
-  color: #3C4043;
+  color: var(--fd-text);
   font-weight: 500;
   font-size: 22px;
   line-height: 1;
 }
 
-/* "Today" highlight — solid blue circle, white text */
+/* "Today" highlight — solid Indigo circle, white text */
 .fd-sx-wrap .sx__week-grid__date-number--today,
 .fd-sx-wrap .sx__week-grid__date-number.is-today {
-  background-color: #1A73E8 !important;
-  color: #FFFFFF !important;
+  background-color: var(--fd-primary) !important;
+  color: var(--fd-text-on-primary) !important;
   border-radius: 999px;
   width: 36px;
   height: 36px;
@@ -176,8 +179,8 @@
 /* ── Current-time marker (Google red) ─────────────────────────────── */
 .fd-sx-wrap .sx__time-grid-now-line,
 .fd-sx-wrap .sx__current-time-indicator {
-  background-color: #D93025 !important;
-  border-color: #D93025 !important;
+  background-color: var(--fd-danger) !important;
+  border-color: var(--fd-danger) !important;
   height: 2px !important;
   z-index: 5;
 }
@@ -203,19 +206,19 @@
 
 /* ── Month-view cells ─────────────────────────────────────────────── */
 .fd-sx-wrap .sx__month-grid-day {
-  border-color: #E8EAED !important;
-  background-color: #FFFFFF !important;
+  border-color: var(--fd-border) !important;
+  background-color: var(--fd-surface) !important;
 }
 
 .fd-sx-wrap .sx__month-grid-day--today .sx__month-grid-day__header-day-name {
-  background-color: #1A73E8 !important;
-  color: #FFFFFF !important;
+  background-color: var(--fd-primary) !important;
+  color: var(--fd-text-on-primary) !important;
   border-radius: 999px;
 }
 
-/* ── Focus ring — accessible blue ─────────────────────────────────── */
+/* ── Focus ring — brand, accessible ───────────────────────────────── */
 .fd-sx-wrap *:focus-visible {
-  outline: 2px solid #1A73E8;
+  outline: 2px solid var(--fd-primary-strong);
   outline-offset: 2px;
 }
 

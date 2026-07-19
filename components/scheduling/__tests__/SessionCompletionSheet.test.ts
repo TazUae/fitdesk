@@ -312,10 +312,12 @@ describe('SessionCompletionSheet source — reschedule UI (US-039)', () => {
     expect(SHEET_SRC).not.toContain('BookingSheet')
   })
 
-  it('requires both date and time before the Confirm control appears', () => {
-    // The Confirm button in the reschedule footer is only rendered when both
-    // newDate and newTime are set — not a single always-visible submit button.
-    expect(SHEET_SRC).toContain('newDate && newTime && (')
+  it('requires both date and time before the Confirm control is enabled', () => {
+    // Disabled-with-reason: the Confirm button is always rendered (no layout
+    // jump) but stays disabled, with an inline reason, until both newDate and
+    // newTime are set.
+    expect(SHEET_SRC).toContain('disabled={!newDate || !newTime}')
+    expect(SHEET_SRC).toContain('Pick a new date and time to confirm.')
     expect(SHEET_SRC).toContain('Confirm reschedule')
   })
 

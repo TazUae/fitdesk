@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { CheckCircle2, ChevronLeft, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
+import { Button } from '@/components/ui/primitives'
 import {
   completeSessionAction,
   markNoShowAction,
@@ -24,6 +25,7 @@ import {
   type NoShowFinancialAction,
   type NoShowFinancialChoice,
 } from '@/lib/scheduling/completionUI'
+import type { SessionCompletionPreview } from '@/lib/scheduling/sessionCompletionPreview'
 import type { FDSession } from '@/types/scheduling'
 
 export { mapCompletionError, canComplete }
@@ -71,6 +73,24 @@ export function SessionCompletionSheet({
 }: SessionCompletionSheetProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError]            = useState<string | null>(null)
+
+  // ─── Consequence preview (doctrine: show the exact business effect before
+  // the trainer confirms). Fetched via the same US-057 billing preview the
+  // no-show path already trusts — one session id, no new server surface.
+  const [completionPreview, setCompletionPreview] = useState<SessionCompletionPreview | null>(null)
+  useEffect(() => {
+    if (!open || !session || !canComplete(session)) {
+      setCompletionPreview(null)
+      return
+    }
+    let cancelled = false
+    previewBatchCompletionAction([session.id]).then(result => {
+      if (cancelled) return
+      const item = result.success ? result.data[0] : undefined
+      setCompletionPreview(item?.preview ?? null)
+    })
+    return () => { cancelled = true }
+  }, [open, session])
 
   // ─── No-show sub-view state (US-017) ───────────────────────────────────────
   // A focused section inside this same sheet, not a separate flow — swapping
@@ -339,79 +359,63 @@ export function SessionCompletionSheet({
             className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
             style={{ borderColor: 'var(--fd-border)' }}
           >
-            {previewStatus === 'ready' && noShowChoice && !noShowChoice.blocked && selectedAction && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleConfirmNoShow}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
-                style={{ backgroundColor: 'var(--fd-blue)', color: '#fff' }}
-              >
-                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Confirm no-show
-              </button>
+            {/* Disabled-with-reason (a11y standard §7): the confirm control is
+                always present — no layout jump — and states why it's disabled. */}
+            {previewStatus === 'ready' && noShowChoice && !noShowChoice.blocked && !selectedAction && (
+              <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
+                Choose how to handle billing above to confirm.
+              </p>
             )}
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={handleBackFromNoShow}
-              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
-              style={{ color: 'var(--fd-muted)' }}
-            >
+            {!(previewStatus === 'ready' && noShowChoice?.blocked) && (
+              <Button
+                size="lg"
+                block
+                loading={isPending}
+                disabled={previewStatus !== 'ready' || !noShowChoice || noShowChoice.blocked || !selectedAction}
+                onClick={handleConfirmNoShow}
+              >
+                Confirm no-show
+              </Button>
+            )}
+            <Button variant="ghost" block disabled={isPending} onClick={handleBackFromNoShow}>
               Back
-            </button>
+            </Button>
           </div>
         ) : cancelOpen ? (
           <div
             className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
             style={{ borderColor: 'var(--fd-border)' }}
           >
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={handleConfirmCancel}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
-              style={{ backgroundColor: 'var(--fd-red)', color: '#fff' }}
-            >
-              {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button variant="destructive" size="lg" block loading={isPending} onClick={handleConfirmCancel}>
               Confirm cancellation
-            </button>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={handleBackFromCancel}
-              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
-              style={{ color: 'var(--fd-muted)' }}
-            >
+            </Button>
+            <Button variant="ghost" block disabled={isPending} onClick={handleBackFromCancel}>
               Back
-            </button>
+            </Button>
           </div>
         ) : rescheduleOpen ? (
           <div
             className="flex flex-col gap-2 border-t px-5 pb-5 pt-3"
             style={{ borderColor: 'var(--fd-border)' }}
           >
-            {newDate && newTime && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleConfirmReschedule}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
-                style={{ backgroundColor: 'var(--fd-blue)', color: '#fff' }}
-              >
-                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Confirm reschedule
-              </button>
+            {/* Disabled-with-reason: always rendered, no layout jump. */}
+            {(!newDate || !newTime) && (
+              <p className="text-center text-xs" style={{ color: 'var(--fd-muted)' }}>
+                Pick a new date and time to confirm.
+              </p>
             )}
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={handleBackFromReschedule}
-              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
-              style={{ color: 'var(--fd-muted)' }}
+            <Button
+              size="lg"
+              block
+              loading={isPending}
+              disabled={!newDate || !newTime}
+              onClick={handleConfirmReschedule}
             >
+              Confirm reschedule
+            </Button>
+            <Button variant="ghost" block disabled={isPending} onClick={handleBackFromReschedule}>
               Back
-            </button>
+            </Button>
           </div>
         ) : (
           <div
@@ -422,61 +426,29 @@ export function SessionCompletionSheet({
             }}
           >
             {eligible && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleComplete}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-opacity disabled:opacity-40"
-                style={{ backgroundColor: 'var(--fd-green)', color: '#fff' }}
-              >
-                {isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <CheckCircle2 className="h-4 w-4" />}
+              <Button variant="success" size="lg" block loading={isPending} onClick={handleComplete}>
+                {!isPending && <CheckCircle2 className="h-4 w-4" />}
                 Complete session
-              </button>
+              </Button>
             )}
             {noShowEligible && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleOpenNoShow}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-              >
+              <Button variant="secondary" size="lg" block disabled={isPending} onClick={handleOpenNoShow}>
                 Mark as no-show
-              </button>
+              </Button>
             )}
             {cancelEligible && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleOpenCancel}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-              >
+              <Button variant="secondary" size="lg" block disabled={isPending} onClick={handleOpenCancel}>
                 Cancel session
-              </button>
+              </Button>
             )}
             {rescheduleEligible && (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleOpenReschedule}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
-                style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-text)', backgroundColor: 'var(--fd-card)' }}
-              >
+              <Button variant="secondary" size="lg" block disabled={isPending} onClick={handleOpenReschedule}>
                 Reschedule session
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={handleClose}
-              className="w-full rounded-xl py-2.5 text-sm font-medium disabled:opacity-40"
-              style={{ color: 'var(--fd-muted)' }}
-            >
+            <Button variant="ghost" block disabled={isPending} onClick={handleClose}>
               Close
-            </button>
+            </Button>
           </div>
         )
       }
@@ -562,8 +534,8 @@ export function SessionCompletionSheet({
                         onClick={() => handleSelectNoShowAction(option.action)}
                         className="flex flex-col items-start gap-0.5 rounded-2xl border p-4 text-left transition-opacity active:opacity-70"
                         style={{
-                          borderColor:     selectedAction === option.action ? 'var(--fd-blue)' : 'var(--fd-border)',
-                          backgroundColor: selectedAction === option.action ? 'rgba(59,130,246,0.06)' : 'var(--fd-card)',
+                          borderColor: selectedAction === option.action ? 'var(--fd-primary-strong)' : 'var(--fd-border)',
+                          backgroundColor: selectedAction === option.action ? 'color-mix(in oklch, var(--fd-primary) 10%, transparent)' : 'var(--fd-card)',
                         }}
                       >
                         <span className="text-sm font-semibold" style={{ color: 'var(--fd-text)' }}>
@@ -786,7 +758,7 @@ export function SessionCompletionSheet({
                   {session.isTrialSession && (
                     <span
                       className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
-                      style={{ backgroundColor: 'var(--fd-blue)', color: '#fff' }}
+                      style={{ backgroundColor: 'var(--fd-primary)', color: 'var(--fd-text-on-primary)' }}
                     >
                       Trial
                     </span>
@@ -807,17 +779,38 @@ export function SessionCompletionSheet({
                 </div>
               </div>
 
-              {/* PPS invoice hint — visible when completing will trigger invoice creation */}
-              {eligible && session.rate > 0 && !session.isTrialSession && !session.sessionConsumedPackage && !session.invoiceId && (
+              {/* Consequence preview — exact business effect of completing,
+                  from the server-side billing preview (never a client guess). */}
+              {eligible && completionPreview?.kind === 'package' && (
+                <div
+                  className="rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: 'rgba(78,203,160,0.08)',
+                    color:           'var(--fd-text)',
+                    border:          '1px solid rgba(78,203,160,0.30)',
+                  }}
+                >
+                  Completing uses 1 package session — balance{' '}
+                  <span className="font-semibold">
+                    {completionPreview.balanceAfter + 1} → {completionPreview.balanceAfter}
+                  </span>{' '}
+                  session{completionPreview.balanceAfter !== 1 ? 's' : ''} left.
+                </div>
+              )}
+
+              {eligible && completionPreview?.kind === 'pay_per_session' && (
                 <div
                   className="rounded-xl px-4 py-3 text-sm"
                   style={{
                     backgroundColor: 'var(--fd-card)',
-                    color:           'var(--fd-muted)',
-                    border:          '1px solid var(--fd-border)',
+                    color: 'var(--fd-text)',
+                    border: '1px solid var(--fd-border)',
                   }}
                 >
-                  Completing this session will issue an invoice for {session.rate.toLocaleString()}.
+                  Completing this session will issue an invoice for{' '}
+                  <span className="font-semibold">
+                    {completionPreview.amount.toLocaleString()} {completionPreview.currency}
+                  </span>.
                 </div>
               )}
 
@@ -827,8 +820,8 @@ export function SessionCompletionSheet({
                   className="rounded-xl px-4 py-3 text-sm"
                   style={{
                     backgroundColor: 'var(--fd-card)',
-                    color:           'var(--fd-muted)',
-                    border:          '1px solid var(--fd-border)',
+                    color: 'var(--fd-muted)',
+                    border: '1px solid var(--fd-border)',
                   }}
                 >
                   This session hasn&apos;t started yet and cannot be completed.
@@ -840,8 +833,8 @@ export function SessionCompletionSheet({
                   className="rounded-xl px-4 py-3 text-sm"
                   style={{
                     backgroundColor: 'var(--fd-card)',
-                    color:           'var(--fd-muted)',
-                    border:          '1px solid var(--fd-border)',
+                    color: 'var(--fd-muted)',
+                    border: '1px solid var(--fd-border)',
                   }}
                 >
                   This session is already finalized.

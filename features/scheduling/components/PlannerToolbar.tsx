@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Menu, HelpCircle, Settings, Plus } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
+import { useSession } from '@/lib/auth-client'
 
 interface PlannerToolbarProps {
   sidebarOpen:      boolean
@@ -13,6 +14,11 @@ interface PlannerToolbarProps {
 }
 
 export function PlannerToolbar({ sidebarOpen, onToggleSidebar, onCreate }: PlannerToolbarProps) {
+  // Same identity as the app shell — never a placeholder avatar (the planner
+  // previously showed a hardcoded "TR" while the shell showed the real user).
+  const { data: session } = useSession()
+  const userName = session?.user?.name || 'Trainer'
+
   return (
     <header
       className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4"
@@ -58,7 +64,7 @@ export function PlannerToolbar({ sidebarOpen, onToggleSidebar, onCreate }: Plann
           aria-label="Book session"
           className="ml-2 hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 active:scale-95 md:flex"
           style={{
-            backgroundColor: 'var(--fd-blue)',
+            backgroundColor: 'var(--fd-primary)',
             color:           'var(--fd-text-on-primary)',
           }}
         >
@@ -87,7 +93,7 @@ export function PlannerToolbar({ sidebarOpen, onToggleSidebar, onCreate }: Plann
         <Settings className="h-5 w-5" />
       </Link>
       <div className="ml-1">
-        <Avatar name="Trainer" size="sm" />
+        <Avatar name={userName} size="sm" />
       </div>
     </header>
   )

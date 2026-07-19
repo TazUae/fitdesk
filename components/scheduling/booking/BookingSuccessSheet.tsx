@@ -75,7 +75,7 @@ export function BookingSuccessSheet({ plan, clientName, sessionIds, onDone }: Bo
             <li key={`${r.weekday}-${r.time}`} className="flex items-center justify-between gap-3">
               <span
                 className="rounded-md px-2 py-1 text-xs font-bold uppercase"
-                style={{ backgroundColor: 'var(--fd-blue-subtle)', color: 'var(--fd-blue)' }}
+                style={{ backgroundColor: 'var(--fd-primary-soft)', color: 'var(--fd-primary-text)' }}
               >
                 {WEEKDAY_LABELS[r.weekday]}
               </span>
@@ -94,7 +94,7 @@ export function BookingSuccessSheet({ plan, clientName, sessionIds, onDone }: Bo
               type="button"
               onClick={() => downloadICS(event, `sessions-${event.start.toISOString().slice(0, 10)}.ics`)}
               className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold"
-              style={{ backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }}
+              style={{ backgroundColor: 'var(--fd-primary)', color: 'var(--fd-text-on-primary)' }}
             >
               <CalendarDays className="h-4 w-4" />
               Add to Calendar

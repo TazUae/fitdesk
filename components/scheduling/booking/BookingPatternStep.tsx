@@ -171,9 +171,9 @@ function ChipToggle({
       onClick={onClick}
       className="flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium transition-colors"
       style={{
-        backgroundColor: active ? 'var(--fd-blue-subtle)' : 'var(--fd-surface)',
-        borderColor:     active ? 'var(--fd-blue)' : 'var(--fd-border)',
-        color:           active ? 'var(--fd-blue)' : 'var(--fd-text)',
+        backgroundColor: active ? 'var(--fd-primary-soft)' : 'var(--fd-surface)',
+        borderColor:     active ? 'var(--fd-primary-strong)' : 'var(--fd-border)',
+        color:           active ? 'var(--fd-primary-text)' : 'var(--fd-text)',
       }}
       aria-pressed={active}
     >

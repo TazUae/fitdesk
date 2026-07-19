@@ -254,7 +254,7 @@ export function SchedulerXAdapter({
             className="flex-1 rounded-full px-3 py-1 text-sm font-medium transition-colors"
             style={
               currentView === v
-                ? { backgroundColor: 'var(--fd-blue)', color: 'var(--fd-text-on-primary)' }
+                ? { backgroundColor: 'var(--fd-primary)', color: 'var(--fd-text-on-primary)' }
                 : { backgroundColor: 'transparent', color: 'var(--fd-muted)', border: '1px solid var(--fd-border)' }
             }
           >

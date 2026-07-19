@@ -78,7 +78,7 @@ export function CompactSessionPreview({ occurrences, conflictTimes }: CompactSes
           type="button"
           onClick={() => setExpanded(e => !e)}
           className="flex items-center gap-1 text-xs font-medium"
-          style={{ color: 'var(--fd-blue)' }}
+          style={{ color: 'var(--fd-primary-text)' }}
         >
           {expanded ? (
             <>

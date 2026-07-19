@@ -76,7 +76,7 @@ export function BookingStickyFooter({
         disabled={!enabled || isPending}
         className="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
         style={{
-          backgroundColor: 'var(--fd-blue)',
+          backgroundColor: 'var(--fd-primary)',
           color: 'var(--fd-text-on-primary)',
         }}
       >
