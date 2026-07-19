@@ -2,18 +2,21 @@ import { cn } from '@/lib/utils'
 
 // ─── Variant definitions ──────────────────────────────────────────────────────
 
+// Token-driven, contrast-safe (a11y standard §5): status text uses the darker
+// semantic tones (--fd-information/-success-like darks), never the pastel
+// legacy accents, so every chip clears 4.5:1 on its tint.
 const VARIANTS = {
-  active:        { bg: 'var(--fd-blue-subtle)',  text: 'var(--fd-blue)',    label: 'Active'      },
-  inactive:      { bg: 'var(--fd-card-hover)',   text: 'var(--fd-muted)',   label: 'Inactive'    },
-  upcoming:      { bg: 'var(--fd-blue-subtle)',  text: 'var(--fd-blue)',    label: 'Upcoming'    },
-  completed:     { bg: '#E6F4EA',                text: 'var(--fd-green)',   label: 'Completed'   },
-  cancelled:     { bg: 'var(--fd-card-hover)',   text: 'var(--fd-muted)',   label: 'Cancelled'   },
-  missed:        { bg: '#FCE8E6',                text: 'var(--fd-red)',     label: 'Missed'      },
-  paid:          { bg: '#E6F4EA',                text: 'var(--fd-green)',   label: 'Paid'        },
-  pending:       { bg: 'rgba(227,116,0,0.10)',   text: 'var(--fd-warning)', label: 'Pending'     },
-  overdue:       { bg: '#FCE8E6',                text: 'var(--fd-red)',     label: 'Overdue'     },
-  draft:         { bg: 'var(--fd-card-hover)',   text: 'var(--fd-muted)',   label: 'Draft'       },
-  'coming-soon': { bg: 'var(--fd-card-hover)',   text: 'var(--fd-muted)',   label: 'Coming soon' },
+  active:        { bg: 'var(--fd-blue-subtle)',      text: 'var(--fd-information)', label: 'Active'      },
+  inactive:      { bg: 'var(--fd-card-hover)',       text: 'var(--fd-muted)',       label: 'Inactive'    },
+  upcoming:      { bg: 'var(--fd-blue-subtle)',      text: 'var(--fd-information)', label: 'Upcoming'    },
+  completed:     { bg: 'rgba(78,203,160,0.15)',      text: '#157a58',               label: 'Completed'   },
+  cancelled:     { bg: 'var(--fd-card-hover)',       text: 'var(--fd-muted)',       label: 'Cancelled'   },
+  missed:        { bg: 'rgba(232,92,106,0.12)',      text: 'var(--fd-danger)',      label: 'Missed'      },
+  paid:          { bg: 'rgba(78,203,160,0.15)',      text: '#157a58',               label: 'Paid'        },
+  pending:       { bg: 'rgba(232,197,71,0.18)',      text: '#8a6508',               label: 'Pending'     },
+  overdue:       { bg: 'rgba(232,92,106,0.12)',      text: 'var(--fd-danger)',      label: 'Overdue'     },
+  draft:         { bg: 'var(--fd-card-hover)',       text: 'var(--fd-muted)',       label: 'Draft'       },
+  'coming-soon': { bg: 'var(--fd-card-hover)',       text: 'var(--fd-muted)',       label: 'Coming soon' },
 } as const
 
 export type BadgeVariant = keyof typeof VARIANTS

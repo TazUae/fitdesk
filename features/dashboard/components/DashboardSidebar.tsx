@@ -88,20 +88,20 @@ export function DashboardSidebar() {
           href="/dashboard/settings"
           className={cn(
             'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-            pathname === '/dashboard/settings'
+            isActive(pathname, '/dashboard/settings')
               ? 'bg-[rgba(232,197,71,0.08)]'
               : 'hover:bg-[rgba(255,255,255,0.03)]',
           )}
           style={{
             color:
-              pathname === '/dashboard/settings'
+              isActive(pathname, '/dashboard/settings')
                 ? 'var(--fd-accent)'
                 : 'var(--fd-muted)',
           }}
         >
           <Settings
             className="h-[18px] w-[18px] shrink-0"
-            strokeWidth={pathname === '/dashboard/settings' ? 2.5 : 1.75}
+            strokeWidth={isActive(pathname, '/dashboard/settings') ? 2.5 : 1.75}
           />
           Settings
         </Link>

@@ -2,7 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* FITDESK DESIGN TOKENS — ADR-UX-004 / ADR-UX-006 v1.1
+/* FITDESK DESIGN TOKENS — ADR-UX-012 (Indigo/Midnight brand), ADR-UX-004 /
+   ADR-UX-006 v1.1 (surfaces/signals, retained where accurate — see ADR-UX-006
+   §Reconciliation), ADR-UX-013 (brand identity, logo placement).
    OKLCH is canonical. HEX values are legacy references only.
 */
 :root {
@@ -15,27 +17,51 @@
   --fd-muted: oklch(0.53 0.012 245);          /* #71717A */
   --fd-border: oklch(0.92 0.008 240);         /* #E4E4E7 */
 
-  /* Actions */
-  --fd-primary: oklch(0.54 0.22 260);         /* #2563EB */
-  --fd-primary-soft: oklch(0.93 0.04 255);    /* #DBEAFE */
+  /* Deep-ink brand role (ADR-UX-012 §1b) — not a replacement for --fd-text;
+     used for the highest-emphasis heading tier and the wordmark reference. */
+  --fd-midnight: oklch(0.16 0.045 265.75);    /* #0B1020 */
+
+  /* Actions — RESOLVED 2026-07-19 (product-owner decision): FitDesk Indigo is
+     the single brand/action accent app-wide. Gold is rejected as default.
+     Blue remains demoted to informational + scheduling semantics only.
+     Values per ADR-UX-012 §1. */
+  --fd-primary: oklch(0.5784 0.2346 278.29);       /* #635BFF */
+  --fd-primary-strong: oklch(0.4890 0.2013 279.87); /* #5145CD — hover/pressed */
+  --fd-primary-soft: oklch(0.9576 0.0214 288.86);   /* #F0EFFF — soft surface */
+  --fd-primary-border: oklch(0.8483 0.0790 287);    /* #C9C6FF */
+  --fd-primary-text: oklch(0.4890 0.2013 279.87);   /* = --fd-primary-strong; text/link on light */
+  --fd-on-primary: oklch(1 0 0);                    /* #FFFFFF — text/icon ON a filled Indigo surface */
+  --fd-focus: oklch(0.4890 0.2013 279.87);          /* = --fd-primary-strong; default focus ring on light */
+  --fd-focus-soft: oklch(0.6887 0.1695 283.30);     /* #8F89FF — dark/tinted surfaces only (ADR-UX-012 Correction 2026-07-18) */
+
+  /* Disabled states (ADR-UX-012 §3b) — never a reduced-opacity copy of --fd-primary. */
+  --fd-disabled-bg: oklch(0.96 0.004 80);           /* = --fd-card */
+  --fd-disabled-text: oklch(0.53 0.012 245);        /* = --fd-muted */
+  --fd-disabled-border: oklch(0.92 0.008 240);      /* = --fd-border */
 
   /* Signals */
   --fd-success: oklch(0.63 0.17 145);         /* #16A34A */
   --fd-warning: oklch(0.76 0.15 75);          /* #F59E0B */
   --fd-danger: oklch(0.57 0.21 25);           /* #DC2626 */
-  --fd-information: oklch(0.58 0.16 235);     /* #0284C7 */
+  --fd-information: oklch(0.58 0.16 235);     /* #0284C7 — also scheduling accent */
 
   --fd-card-hover: oklch(0.94 0.006 80);
   --fd-blue-subtle: oklch(0.93 0.04 255);
 
+  /* Overlay backdrop — single source for all sheets/dialogs. Value per
+     ADR-UX-012 §4 (was rgba(15,23,42,0.55); functionally equivalent dark
+     backdrop, now token-canonical in OKLCH). */
+  --fd-overlay: oklch(0.2077 0.0398 265.75 / 0.48);
+
   /* Legacy FitDesk UI compatibility aliases.
-     Keep these stable until component-level token usage is migrated. */
-  --fd-accent: #E8C547;
+     Keep these stable until component-level token usage is migrated.
+     --fd-accent === --fd-primary by definition; --fd-blue is informational. */
+  --fd-accent: #635BFF;
   --fd-green: #4ECBA0;
   --fd-red: #E85C6A;
   --fd-blue: #5B9CF6;
   --fd-border-strong: oklch(0.86 0.01 240);
-  --fd-text-on-primary: #0F1117;
+  --fd-text-on-primary: #FFFFFF; /* white on Indigo fill — was #0F1117 (dark), correct only for the prior gold fill */
 }
 
 @layer base {
@@ -49,7 +75,7 @@
     --popover: 1 0 0;
     --popover-foreground: 0.19 0.008 240;
 
-    --primary: 0.54 0.22 260;
+    --primary: 0.5784 0.2346 278.29;
     --primary-foreground: 1 0 0;
 
     --secondary: 0.96 0.004 80;
@@ -66,7 +92,7 @@
 
     --border: 0.92 0.008 240;
     --input: 0.92 0.008 240;
-    --ring: 0.54 0.22 260;
+    --ring: 0.5784 0.2346 278.29;
 
     --radius: 0.5rem;
   }

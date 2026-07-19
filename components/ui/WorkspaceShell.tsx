@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CSSProperties, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +26,24 @@ export interface WorkspaceShellProps {
   mobileOnly?: boolean
 }
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+/**
+ * Unified sheet/drawer primitive.
+ *
+ * Rendered through a portal on document.body so it can never be clipped by an
+ * ancestor stacking context or overflow container (this was the cause of the
+ * mid-list "Record Payment" rendering defect). While closed the dialog is
+ * removed from the accessibility tree and made inert; while open, focus is
+ * trapped inside and restored to the invoking element on close.
+ */
 export function WorkspaceShell({
   open,
   onClose,
@@ -35,6 +54,12 @@ export function WorkspaceShell({
   mobileOnly = false,
 }: WorkspaceShellProps) {
   const [isDesktop, setIsDesktop] = useState(false)
+  const [mounted, setMounted]     = useState(false)
+  const dialogRef                 = useRef<HTMLDivElement>(null)
+  const restoreFocusRef           = useRef<HTMLElement | null>(null)
+
+  // Portal target only exists client-side.
+  useEffect(() => { setMounted(true) }, [])
 
   // Detect lg breakpoint (1024px). Skipped entirely when mobileOnly.
   useEffect(() => {
@@ -52,11 +77,55 @@ export function WorkspaceShell({
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  // ESC key closes
+  // A11y open/close lifecycle: inert while closed, focus capture on open,
+  // focus restoration on close.
+  useEffect(() => {
+    const el = dialogRef.current
+    if (!el) return
+    // `inert` removes the closed (visually offscreen but mounted) dialog from
+    // both the tab order and the accessibility tree.
+    el.inert = !open
+    if (open) {
+      restoreFocusRef.current = (document.activeElement as HTMLElement) ?? null
+      // Focus the first focusable control, falling back to the dialog itself.
+      const first = el.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      ;(first ?? el).focus({ preventScroll: true })
+    } else if (restoreFocusRef.current) {
+      restoreFocusRef.current.focus({ preventScroll: true })
+      restoreFocusRef.current = null
+    }
+  }, [open])
+
+  // ESC closes; Tab is trapped inside the dialog while open.
   useEffect(() => {
     if (!open) return
     function handler(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const el = dialogRef.current
+      if (!el) return
+      const focusables = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+        .filter(f => f.offsetParent !== null || f === document.activeElement)
+      if (focusables.length === 0) {
+        e.preventDefault()
+        el.focus()
+        return
+      }
+      const first = focusables[0]
+      const last  = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey) {
+        if (active === first || !el.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else if (active === last || !el.contains(active)) {
+        e.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -75,6 +144,8 @@ export function WorkspaceShell({
     backgroundColor: 'var(--fd-surface)',
     borderColor:     'var(--fd-border)',
     transition:      'transform 300ms cubic-bezier(0.32,0.72,0,1)',
+    visibility:      open ? 'visible' : 'hidden',
+    transitionProperty: 'transform, visibility',
     ...(showDesktopDrawer
       ? { transform: `translateX(${open ? '0%' : '100%'})` }
       : {
@@ -84,7 +155,9 @@ export function WorkspaceShell({
     ),
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -94,7 +167,7 @@ export function WorkspaceShell({
           mobileOnly && 'lg:hidden',
         )}
         style={{
-          backgroundColor: 'rgba(15,23,42,0.55)',
+          backgroundColor: 'var(--fd-overlay)',
           opacity:         open ? 1 : 0,
           pointerEvents:   open ? 'auto' : 'none',
         }}
@@ -103,9 +176,12 @@ export function WorkspaceShell({
 
       {/* Sheet / Drawer */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={label}
+        aria-hidden={open ? undefined : true}
+        tabIndex={-1}
         className={containerClass}
         style={containerStyle}
       >
@@ -135,6 +211,7 @@ export function WorkspaceShell({
           </div>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
