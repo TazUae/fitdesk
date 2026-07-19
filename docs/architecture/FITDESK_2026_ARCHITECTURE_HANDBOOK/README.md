@@ -89,7 +89,9 @@ Several earlier documents are referenced across these files under the heading
 (e.g. a "Master Recovery Plan," "Deployment Readiness Report," "Scheduling Archaeology Audit,"
 or `FITDESK_2026_ARCHITECTURE_CLEANUP_MASTER_PLAN.md`) is **not present on disk**, it is labeled
 as **planning-context only** and is never cited as an on-disk source. The on-disk sources of
-record are: this handbook, the `ADR-UX-001…011` suite, `ADR-001`, the project `CLAUDE.md` files,
+record are: this handbook, the `ADR-UX-001…013` suite (`012` Design Token
+Governance and `013` Brand and Product UI Foundation added 2026-07-19),
+`ADR-001`, the project `CLAUDE.md` files,
 and the live repository state.
 
 ## Next actions

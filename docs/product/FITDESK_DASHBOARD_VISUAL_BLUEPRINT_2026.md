@@ -1,7 +1,20 @@
+> **Status:** Superseded — historical evidence only.
+> **Replacement authority:** `docs/product/FITDESK_DASHBOARD_VISUAL_BLUEPRINT_V2.md`
+> **Superseded date:** 2026-07-19
+> **Reason:** Sidebar/wireframes used Home/Clients/Schedule/Invoices/Messages
+> instead of the canonical Dashboard/Schedule/Clients/Inbox/Billing/Settings
+> terminology; Quick Actions/FAB exposed "Create Invoice" as a normal-workflow
+> action; "Inbox Zero" copy implied working inbound-reply tracking that isn't
+> implemented; predates the Midnight/Indigo brand decision.
+> **Instruction:** Do not execute this historical plan without a new
+> current-state audit. Do not cite as current visual authority.
+
+---
+
 # FitDesk Dashboard — Command Center Visual Blueprint 2026
 
 **Document type:** Visual / UX Blueprint (design specification, no code)
-**Status:** Draft for Approval — v2 (QA fixes applied 2026-06-13)
+**Status:** Draft for Approval — v2 (QA fixes applied 2026-06-13) — historical, see banner above
 **Source of truth:** [`FITDESK_DASHBOARD_COMMAND_CENTER_V1_1.md`](./FITDESK_DASHBOARD_COMMAND_CENTER_V1_1.md) (Approved)
 **Owner:** FitDesk Product
 **Date:** 2026-06-13

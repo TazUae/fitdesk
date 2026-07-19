@@ -14,7 +14,11 @@ FitDesk code conventions and the architecture-decision record set.
 - Server-side-only integrations; normalize/validate external payloads at the boundary.
 - Typed `ActionResult<T>` success/error pattern (see `actions/sessions.ts`, `actions/clients.ts`).
 - Tests use vitest (`lib/clients` ~150 tests; scheduling engine tested).
-- On-disk ADRs: `ADR-001` and `ADR-UX-001…011`. **No `ADR-SCH-*`**, no source-control/token/deploy/program ADRs.
+- On-disk ADRs: `ADR-001`, `ADR-MKT-001`, and `ADR-UX-001…013` (`012` Design Token Governance and
+  `013` Brand and Product UI Foundation added 2026-07-19). **No `ADR-SCH-*`**, no source-control/
+  deploy/program ADRs. The Tailwind/shadcn bridge-defect policy (below, formerly tracked as
+  `ADR-TOK-001`) also remains unwritten — `ADR-UX-012` covers brand-token values, not that bridge
+  defect.
 - On-disk product specs (non-ADR but authoritative for target architecture):
   - `docs/product/FITDESK_GOAL_SYSTEM.md` — 19-goal taxonomy, sub-goals, safety, ProgramGoal mapping, Smart Accordion UX. Status: spec written 2026-06-16; **pending product owner confirmation**.
   - `docs/product/FITDESK_GOAL_SYSTEM_RECOVERY_FINAL_PLAN.md` — implementation plan Phases 4.1–4.8. Status: draft pending approval.
@@ -50,13 +54,15 @@ FitDesk code conventions and the architecture-decision record set.
 | ADR-UX-009 | Dashboard Command Center | `11` |
 | ADR-UX-010 | Client Hub Workspace | `10` |
 | ADR-UX-011 | 2026 Frontend Architecture Amendments | `06` (controlling frontend blueprint) |
+| ADR-UX-012 | Design Token Governance (Indigo/Midnight brand tokens) | `07` |
+| ADR-UX-013 | Brand and Product UI Foundation (logo, identity, endorsement, typography posture) | `06`, `07` |
 
 ### Missing ADRs (should be written)
 | Proposed ADR | Purpose | Handbook home |
 |---|---|---|
 | **ADR-SCH-001 — Scheduling/Session Truth** | Canonical scheduler engine + PT/FD Session identity + recovered UX requirements | `09` (write in F1) |
 | **ADR-SRC-001 — Source Control / Worktree Policy** | Worktree lifecycle, branch cleanup, untracked-ERP, push rules | `04` |
-| **ADR-TOK-001 — Design Token Governance** | One bridge/one color space; arbitrary-value prohibition; lint enforcement | `07` |
+| **ADR-TOK-001 — Tailwind/shadcn Bridge Policy** | One bridge/one color space (the `hsl(var(--x))`-wraps-OKLCH defect in `07`); arbitrary-value prohibition; lint enforcement. Narrowed 2026-07-19: brand-token *values* and roles are now governed by `ADR-UX-012`; this remaining item is the bridge-wiring defect specifically. | `07` |
 | **ADR-DEP-001 — Production Deployment Policy** | Dokploy-from-Git, push gating, no prod mutation, read-only debugging | `13` |
 | **ADR-PROG-001 — Goal System & Program Design Architecture** | Canonical IntakeGoal/ProgramGoal model; sub-goal normalization path; `intake_goal_program_mapping` as sole mapping authority; safety-gate timing; `client_program` chain target | `10` (write after `FITDESK_GOAL_SYSTEM.md` is product-owner confirmed) |
 
@@ -81,4 +87,5 @@ FitDesk code conventions and the architecture-decision record set.
 
 ## Next actions
 
-- Write `ADR-SCH-001` during F1; backfill `ADR-SRC-001`, `ADR-TOK-001`, `ADR-DEP-001`.
+- Write `ADR-SCH-001` during F1; backfill `ADR-SRC-001`, `ADR-DEP-001`, and the narrowed
+  `ADR-TOK-001` bridge-defect policy (see above — not the same scope as `ADR-UX-012`).

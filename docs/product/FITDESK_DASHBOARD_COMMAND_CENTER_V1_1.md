@@ -1,7 +1,19 @@
+> **Status:** Superseded — historical evidence only.
+> **Replacement authority:** `docs/product/FITDESK_DASHBOARD_VISUAL_BLUEPRINT_V2.md`
+> **Superseded date:** 2026-07-19
+> **Reason:** Quick Actions listed "Create Invoice" as a normal-workflow action
+> (contradicts the hidden-manual-invoice policy); navigation used
+> Home/Invoices/Messages instead of the canonical Dashboard/Billing/Inbox
+> terminology; predates the Midnight/Indigo brand decision.
+> **Instruction:** Do not execute this historical plan without a new
+> current-state audit. Do not cite as current visual authority.
+
+---
+
 # FitDesk Dashboard Command Center v1.1
 ## Official Product Blueprint
 
-Status: Approved for Visual Blueprint Phase
+Status: Approved for Visual Blueprint Phase (historical — see banner above)
 
 ---
 

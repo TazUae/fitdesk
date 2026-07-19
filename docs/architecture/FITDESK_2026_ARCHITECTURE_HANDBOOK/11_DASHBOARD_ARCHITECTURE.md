@@ -29,12 +29,17 @@ Every widget must answer one of four questions, in this priority order:
 
 ### Structure
 - **Daily Brief** (sessions today, revenue today, new clients, open attention) — session counts gated.
-- **Needs Attention** (unpaid invoices, expiring packages, missed sessions, AI risk) — sorted by
-  urgency, triage-in-place. Missed-session items gated on session truth.
+- **Needs Attention** (unpaid invoices, expiring packages, missed sessions) — sorted by
+  urgency, triage-in-place. Missed-session items gated on session truth. Attention items are
+  **deterministic/rule-derived**, not model-scored; do not label them "AI risk" — the current
+  `AiCopilotRail` implementation makes zero model calls (verified 2026-07-19, see
+  `docs/audits/FITDESK_IMPLEMENTATION_STATUS_RECONCILIATION_2026-07-19.md` §9).
 - **Today Timeline** — upcoming sessions/appointments/gaps — **gated** until sessions are real.
-- **AI Copilot** — advisory only; never auto-acts.
+- **AI Copilot** — link-only presentation of the deterministic attention items above; advisory only;
+  never auto-acts; must not be described as model-generated.
 - **Business Health / Client Pulse** — analytics, **never outrank action**.
-- **Quick Actions** — Add Client, Book Session, Create Invoice, Add Payment.
+- **Quick Actions** — Add Client, Book Session, Record Payment. Manual invoice creation is not a
+  Quick Action; it remains hidden from the normal trainer workflow (2026-07-19 audit correction).
 
 ### Dashboard Laws
 1. Action before analytics. 2. **No dead cards.** 3. Triage in place. 4. Context preservation

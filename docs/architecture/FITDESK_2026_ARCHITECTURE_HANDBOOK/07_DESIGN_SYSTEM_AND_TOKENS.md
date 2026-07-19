@@ -13,11 +13,14 @@
 
 There are **two parallel token systems** in `app/globals.css`:
 
-1. **`--fd-*` variables** in **OKLCH** (e.g. `--fd-primary: oklch(0.54 0.22 260)`) — the canonical
-   ADR-UX-004/006 tokens. Used **directly and correctly** via `var(--fd-*)` in body styles and most
+1. **`--fd-*` variables** in **OKLCH** — the canonical token architecture (naming convention),
+   governed by `ADR-UX-012-DESIGN_TOKEN_GOVERNANCE.md` for the Indigo `#635BFF` / Midnight `#0B1020`
+   brand-primary and deep-ink values (2026-07-19; supersedes the earlier blue `oklch(0.54 0.22 260)`
+   example this section previously cited, which was itself an orphaned identity, never a shipped
+   brand color). Used **directly and correctly** via `var(--fd-*)` in body styles and most
    components (e.g. `style={{ backgroundColor: 'var(--fd-bg)' }}`).
 2. **shadcn-style variables** (`--primary`, `--background`, `--border`, …) defined as **raw OKLCH
-   triplets** (e.g. `--primary: 0.54 0.22 260;`).
+   triplets**.
 
 **The defect (🟥 VERIFIED PROBLEM):** `tailwind.config.ts` consumes the shadcn variables as
 `hsl(var(--primary))`, i.e. `hsl(0.54 0.22 260)`. Wrapping an **OKLCH triplet** in `hsl()` (and with
@@ -71,8 +74,12 @@ utility (`bg-primary`, `bg-background`, `border-border`, `text-foreground`, …)
 
 ## Related ADRs
 
-- `ADR-UX-001`, `ADR-UX-004`, `ADR-UX-006`, `ADR-UX-007`. A **Design-Token Governance ADR** is still
-  missing (see `14`) — it should encode rules #2–#3 as enforceable policy.
+- `ADR-UX-001`, `ADR-UX-004`, `ADR-UX-006` (superseded on Actions/Primary/Ring — see `ADR-UX-012`),
+  `ADR-UX-007`. `ADR-UX-012-DESIGN_TOKEN_GOVERNANCE.md` (2026-07-19) is the Design-Token Governance
+  ADR previously noted as missing here — it does not yet encode rules #2–#3 (the bridge defect) as
+  enforceable policy; that remains open work for whoever executes Phase C.
+  `ADR-UX-013-FITDESK_BRAND_AND_PRODUCT_UI_FOUNDATION.md` governs logo/identity, out of this
+  chapter's scope.
 
 ## Next actions
 
