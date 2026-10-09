@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Calendar,
   LayoutDashboard,
@@ -69,9 +69,11 @@ export function DashboardClientShell({ children, banner }: Props) {
   // back/forward, a hard <a href> elsewhere such as ClientWorkspaceOverlay's
   // "Open full profile" CTA, router.back(), etc.). Opening the menu does not
   // change pathname, so this never fires on open — only on an actual route change.
-  useEffect(() => {
+  const [previousPathname, setPreviousPathname] = useState(pathname)
+  if (previousPathname !== pathname) {
+    setPreviousPathname(pathname)
     setMenuOpen(false)
-  }, [pathname])
+  }
 
   const { data: session } = useSession()
   const userName  = session?.user?.name  ?? ''

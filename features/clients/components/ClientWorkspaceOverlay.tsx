@@ -29,7 +29,11 @@ export function ClientWorkspaceOverlay({ client, hub, nextSessionLabel }: Client
   const [isOpen, setIsOpen] = useState(false)
 
   // Trigger entrance animation after first render
-  useEffect(() => { setIsOpen(true) }, [])
+  useEffect(() => {
+    // Entrance transitions are coordinated with the browser animation frame.
+    const frame = requestAnimationFrame(() => setIsOpen(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   const handleClose = useCallback(() => {
     setIsOpen(false)

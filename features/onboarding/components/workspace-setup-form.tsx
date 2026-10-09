@@ -15,7 +15,9 @@ export function WorkspaceSetupForm() {
 
   // Detect locale client-side only — safe for SSR (no window access during render)
   useEffect(() => {
-    setLocale(detectLocale())
+    // Browser locale is an external input; resolve it after hydration.
+    const frame = requestAnimationFrame(() => setLocale(detectLocale()))
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   const slug = slugifyWorkspaceName(workspaceName)

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { Plus } from 'lucide-react'
 import { GoalSystemAlerts } from './GoalSystemAlerts'
 import { GoalCommandDialog } from './GoalCommandDialog'
@@ -15,20 +16,10 @@ interface AddClientGoalWorkspaceProps {
   dispatch: React.Dispatch<GoalWorkspaceAction>
 }
 
-function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)')
-    setIsDesktop(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
-  return isDesktop
-}
+
 
 export function AddClientGoalWorkspace({ state, dispatch }: AddClientGoalWorkspaceProps) {
-  const isDesktop = useIsDesktop()
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
   const conflicts  = getWorkspaceConflicts(state)
   const safetyFlags = getWorkspaceSafetyFlags(state)
 

@@ -28,8 +28,10 @@ function NewInvoiceForm() {
     { description: 'PT Sessions', qty: 1, rate: 0 },
   ])
 
-  const today = new Date().toISOString().slice(0, 10)
-  const defaultDue = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+  // Fix form defaults at mount rather than sampling the clock on every render.
+  const [formOpenedAt] = useState(() => new Date())
+  const today = formOpenedAt.toISOString().slice(0, 10)
+  const defaultDue = new Date(formOpenedAt.getTime() + 7 * 86_400_000).toISOString().slice(0, 10)
 
   useEffect(() => {
     getClients().then(res => {

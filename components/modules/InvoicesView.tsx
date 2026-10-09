@@ -229,10 +229,15 @@ function MarkPaidSheet({ invoice, onClose, onPaid }: MarkPaidSheetProps) {
   // 'ready' list renders a recoverable configuration-unavailable state.
   const [avail, setAvail] = useState<SelectorAvailState>({ phase: 'loading' })
 
+  const [previousInvoiceId, setPreviousInvoiceId] = useState(invoice?.id ?? null)
+  if ((invoice?.id ?? null) !== previousInvoiceId) {
+    setPreviousInvoiceId(invoice?.id ?? null)
+    setAvail({ phase: 'loading' })
+  }
+
   useEffect(() => {
     if (!invoice) return
     let cancelled = false
-    setAvail({ phase: 'loading' })
     getAvailablePaymentMethods(invoice.id).then((res) => {
       if (cancelled) return
       const methods = deriveSelectableMethodOptions(res)

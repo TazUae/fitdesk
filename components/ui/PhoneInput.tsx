@@ -400,27 +400,36 @@ export function PhoneInput({
   const [hasWhatsApp,  setHasWhatsApp]  = useState(true)
 
   const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const suppressSync = useRef(false)
+  // The local edit echo is short-lived UI state rather than a render-time ref.
+  const [suppressSync, setSuppressSync] = useState(false)
 
   const emit = useCallback(
     (c: CountryCode, digits: string, wa: boolean) => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => {
-        suppressSync.current = true
+        setSuppressSync(true)
         onChange(buildPhoneValue(c, digits, wa))
-        requestAnimationFrame(() => { suppressSync.current = false })
+        requestAnimationFrame(() => { setSuppressSync(false) })
       }, 150)
     },
     [onChange],
   )
 
-  useEffect(() => {
-    if (!value || suppressSync.current) return
-    const c = (value.phone_country?.toUpperCase() as CountryCode) ?? resolvedDefault
-    if (COUNTRY_NAMES[c]) setCountry(c)
-    setDisplayValue(formatNational(c, value.phone_number ?? ''))
-    setHasWhatsApp(value.has_whatsapp ?? true)
-  }, [value, resolvedDefault])
+  // A new controlled source value is reconciled during render only once.
+  // Suppress locally echoed values while the debounce callback is settling.
+  const incomingFingerprint = JSON.stringify([
+    resolvedDefault, value?.phone_country, value?.phone_number, value?.has_whatsapp,
+  ])
+  const [previousFingerprint, setPreviousFingerprint] = useState<string | null>(null)
+  if (incomingFingerprint !== previousFingerprint) {
+    setPreviousFingerprint(incomingFingerprint)
+    if (value && !suppressSync) {
+      const c = (value.phone_country?.toUpperCase() as CountryCode) ?? resolvedDefault
+      if (COUNTRY_NAMES[c]) setCountry(c)
+      setDisplayValue(formatNational(c, value.phone_number ?? ''))
+      setHasWhatsApp(value.has_whatsapp ?? true)
+    }
+  }
 
   const handleCountryChange = useCallback(
     (newCountry: CountryCode) => {

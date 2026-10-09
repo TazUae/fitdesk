@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import type { CSSProperties, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -34,17 +35,8 @@ export function WorkspaceShell({
   footer,
   mobileOnly = false,
 }: WorkspaceShellProps) {
-  const [isDesktop, setIsDesktop] = useState(false)
-
-  // Detect lg breakpoint (1024px). Skipped entirely when mobileOnly.
-  useEffect(() => {
-    if (mobileOnly) return
-    const mq = window.matchMedia('(min-width: 1024px)')
-    setIsDesktop(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [mobileOnly])
+  // Browser breakpoint is an external store, never effect-mirrored state.
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
 
   // Body scroll lock
   useEffect(() => {

@@ -20,9 +20,11 @@ export function UserMenuSheet({ open, onClose, userName, userEmail }: UserMenuSh
 
   const cancelBtnRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
+  const [previousOpen, setPreviousOpen] = useState(open)
+  if (open !== previousOpen) {
+    setPreviousOpen(open)
     if (!open) setConfirmingSignOut(false)
-  }, [open])
+  }
 
   useEffect(() => {
     if (confirmingSignOut) cancelBtnRef.current?.focus()

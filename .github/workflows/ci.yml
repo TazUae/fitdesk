@@ -49,6 +49,8 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Compile isolated React 19 booking/browser fixture (no server actions)
+        run: timeout 120s ./node_modules/.bin/vite build --config scripts/verification/vite.react19.config.mjs
       - name: Run all first-party tests
         run: timeout 600s npm test
 
@@ -85,8 +87,43 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: timeout 600s npm run build:verify
-      - name: Verify image builds (no push/deploy)
-        run: docker build -t fitdesk:ci .
+      - name: Verify default Docker image builds (no push/deploy)
+        # Deliberately use the Dockerfile DEFAULT base rather than a CI-only override.
+        run: docker build --pull -t fitdesk:ci .
+      - name: Phase 2 live authentication and cookie smoke (disposable SQLite fixture)
+        env:
+          PHASE2_FIXTURE_ORIGIN: http://127.0.0.1:3000
+        run: |
+          set -euo pipefail
+          fixture_secret="$(openssl rand -hex 32)"
+          docker run --rm -d --name fitdesk-phase2-smoke \
+            --network host --tmpfs /app/data:rw,uid=1001,gid=1001,size=32m \
+            -e DATABASE_URL=file:/app/data/auth.db \
+            -e BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            -e INTERNAL_API_URL=http://127.0.0.1:3000 \
+            -e BETTER_AUTH_SECRET="$fixture_secret" \
+            fitdesk:ci >/dev/null
+          trap 'docker logs --tail 45 fitdesk-phase2-smoke; docker stop fitdesk-phase2-smoke >/dev/null 2>&1 || true' EXIT
+          timeout 180s node scripts/verification/phase2-http-auth-smoke.mjs
+      - name: React 19 real Chromium behavior (isolated Vite client fixture)
+        run: |
+          set -euo pipefail
+          CHROME_BINARY="$(command -v google-chrome || command -v chromium)"
+          test -n "$CHROME_BINARY"
+          export CHROME_BINARY
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
+          timeout 180s node scripts/verification/phase2-react19-browser.mjs
+          # Separate disposable auth fixture for real Chromium SameSite behavior.
+          fixture_secret="$(openssl rand -hex 32)"
+          docker run --rm -d --name fitdesk-phase2-browser \
+            --network host --tmpfs /app/data:rw,uid=1001,gid=1001,size=32m \
+            -e DATABASE_URL=file:/app/data/auth.db \
+            -e BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            -e INTERNAL_API_URL=http://127.0.0.1:3000 \
+            -e BETTER_AUTH_SECRET="$fixture_secret" \
+            fitdesk:ci >/dev/null
+          trap 'docker logs --tail 40 fitdesk-phase2-browser; docker stop fitdesk-phase2-browser >/dev/null 2>&1 || true' EXIT
+          timeout 180s node scripts/verification/phase2-browser-csrf.mjs
 
   supply-chain:
     name: CycloneDX inventory and critical advisory gate
