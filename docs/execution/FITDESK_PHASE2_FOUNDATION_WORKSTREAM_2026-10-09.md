@@ -41,10 +41,10 @@
 | Vitest | existing lockfile, currently 4.1.7 in inspected security branch | Unit/test runner |
 | npm audit | installed npm CLI | Critical runtime vulnerability gate |
 | npm sbom | installed npm CLI, CycloneDX JSON | Dependency inventory |
-| Trivy | GitHub action tag 0.33.1 | Filesystem source secret detection |
+| Trivy | GitHub action v0.36.0 pinned to commit ed142fd0673e97e23eac54620cfb913e5ce36c25 | Filesystem source secret detection |
 | GitHub Actions | checkout/setup-node/upload-artifact v4 tags | CI execution/artifact retention |
 
-Licenses, full third-party action pinning, artifact signing/provenance, branch-protection settings, and runtime dependency advisories require independent follow-up verification. Workflow tags are **not** immutable SHA pins.
+Licenses, full third-party action pinning, artifact signing/provenance, branch-protection settings, and runtime dependency advisories require independent follow-up verification. All third-party actions in this workflow are pinned to SHA commits, verified against the public GitHub refs at the time of review; action runtime dependencies and license compliance still require independent assessment.
 
 ## Exit checklist
 
@@ -68,3 +68,7 @@ Licenses, full third-party action pinning, artifact signing/provenance, branch-p
 - Reproduce a clean `npm ci` on an isolated Linux environment with only synthetic fixtures, no production data or credentials.
 - Rollback, if needed: revert this isolated PR's CI, package-script and documentation commits (or close the draft PR unmerged). Do **not** clean, reset or prune the original Git worktrees; do not delete the encrypted OneDrive recovery archives.
 - Record a new workstream decision/ADR if the locked plan scope or security controls must change. Do not make changes by silently broadening this PR.
+
+## GitHub Actions empirical baseline — 2026-10-09
+
+PR #46 originally exposed a 354-file historical merge-base mismatch; its head was safely re-anchored to the current main commit, leaving only three reviewed files. Initial Actions run 37935293101 showed: Ubuntu Node20 clean npm ci PASS, CycloneDX generation/upload PASS, TypeScript check FAIL due pre-existing TypeScript diagnostics, npm audit FAIL with 24 production vulnerabilities (2 critical, 15 high, 7 moderate), Trivy setup FAIL due misspelled/unavailable action tag. The workflow was subsequently updated to a verified immutable Trivy action commit SHA and independently scheduled quality jobs. Do not treat this paragraph as evidence the subsequent run passed; inspect current Actions runs and job logs.
