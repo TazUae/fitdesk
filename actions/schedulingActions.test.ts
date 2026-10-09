@@ -863,7 +863,7 @@ describe('completeSessionAction', () => {
 
     await completeSessionAction('fds-001', 1)
 
-    const [deps] = mockCompleteSession.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    const [deps] = mockCompleteSession.mock.calls[0] as unknown as [Record<string, unknown>, ...unknown[]]
     expect(typeof deps.findInvoiceBySession).toBe('function')
     expect(typeof deps.createInvoice).toBe('function')
     expect(typeof deps.submitSalesInvoice).toBe('function')
@@ -1066,7 +1066,7 @@ describe('markNoShowAction', () => {
 
     await markNoShowAction('fds-001', 1, 'charge')
 
-    const [deps] = mockMarkNoShow.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    const [deps] = mockMarkNoShow.mock.calls[0] as unknown as [Record<string, unknown>, ...unknown[]]
     expect(typeof deps.findInvoiceBySession).toBe('function')
     expect(typeof deps.createInvoice).toBe('function')
     expect(typeof deps.submitSalesInvoice).toBe('function')
@@ -1384,7 +1384,7 @@ describe('rescheduleSessionAction', () => {
 
     await rescheduleSessionAction('fds-001', 1, '2026-01-06', '10:00')
 
-    const [deps] = mockRescheduleSession.mock.calls[0] as [Record<string, unknown>, ...unknown[]]
+    const [deps] = mockRescheduleSession.mock.calls[0] as unknown as [Record<string, unknown>, ...unknown[]]
     expect(typeof deps.findSessionById).toBe('function')
     expect(typeof deps.findSessionsInRange).toBe('function')
     expect(typeof deps.updateSession).toBe('function')

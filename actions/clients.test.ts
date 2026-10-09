@@ -9,6 +9,7 @@
 
 import { createClient as createLibsqlClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
+import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -17,7 +18,7 @@ import * as schema from '@/lib/db/schema'
 import type { Client } from '@/types'
 
 // Hoisted holder so the @/lib/db mock returns a per-test temp database.
-const h = vi.hoisted(() => ({ db: null as unknown as ReturnType<typeof drizzle> }))
+const h = vi.hoisted(() => ({ db: null as unknown as LibSQLDatabase<typeof schema> }))
 
 vi.mock('@/lib/db', () => ({ get db() { return h.db } }))
 vi.mock('next/headers', () => ({ headers: () => ({}) }))
