@@ -36,10 +36,16 @@ export function bookingComponentMocks() {
    name:'fitdesk-phase2-no-write-booking-mocks',
    enforce:'pre',
    resolveId(source){
-     if(source==='@/actions/schedulingActions')return virtual+'actions'
-     if(source.startsWith('@/components/scheduling/booking/')){
-       const part=source.split('/').pop()
-       if(part in childModules)return virtual+part
+     // Vite's built-in alias plugin may have resolved @/ to an absolute path
+     // before this hook. Match BOTH source and resolved paths, never let
+     // server actions or transport-only step components enter this fixture.
+     const normalized=source.replaceAll('\\','/')
+     if(/(?:^@\/|\/)actions\/schedulingActions(?:\.(?:ts|tsx))?$/.test(normalized)){
+       return virtual+'actions'
+     }
+     if(normalized.includes('/components/scheduling/booking/') || normalized.startsWith('@/components/scheduling/booking/')){
+       const part=normalized.split('/').pop()?.replace(/\.(?:ts|tsx)$/,'')
+       if(part && part in childModules)return virtual+part
      }
    },
    load(id){
