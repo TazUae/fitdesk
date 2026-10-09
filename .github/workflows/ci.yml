@@ -5,29 +5,86 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+# Least privilege: these jobs do not use repository secrets or write code.
+permissions:
+  contents: read
+
+concurrency:
+  group: fitdesk-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Node 20 reproducibility, tests and build
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
+          cache: npm
+      - name: Install from lockfile
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck (no emission, fail closed)
+        run: timeout 240s npm run typecheck
+      - name: Run first-party tests (no suppressed failures)
+        run: timeout 300s npm test
       - name: Lint
-        run: npm run lint
-
-      - name: Build verify
-        run: npm run build:verify
-
-      - name: Docker build (verify only — no push, no run)
+        run: timeout 180s npm run lint
+      - name: Build verification
+        run: timeout 300s npm run build:verify
+      - name: Docker build verification (no push or deployment)
         run: docker build -t fitdesk:ci .
+
+  supply-chain:
+    name: Dependency inventory and critical-advisory gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx > fitdesk-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fitdesk-cyclonedx-sbom
+          path: fitdesk-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Block critical runtime dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
+
+  secrets:
+    name: Source secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: '1'
+          hide-progress: true
