@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { CheckCircle2, ChevronLeft, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceShell } from '@/components/ui/WorkspaceShell'
@@ -278,12 +278,21 @@ export function SessionCompletionSheet({
     })
   }
 
+  // Clock is state sampled when mounted and refreshed while the sheet remains
+  // active; consequential session commands are revalidated server-side.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!open) return
+    const interval = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(interval)
+  }, [open])
+
   const eligible           = !!session && canComplete(session)
   const noShowEligible     = !!session && canMarkNoShow(session)
   const cancelEligible     = !!session && canCancel(session)
   const rescheduleEligible = !!session && canReschedule(session)
   const isTerminal = !!session && !['scheduled', 'confirmed'].includes(session.status)
-  const isFuture   = !!session && !isTerminal && session.startAt.getTime() > Date.now()
+  const isFuture   = !!session && !isTerminal && session.startAt.getTime() > now
 
   const selectedOption = noShowChoice?.options.find(o => o.action === selectedAction) ?? null
 
