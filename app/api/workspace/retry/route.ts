@@ -5,11 +5,15 @@ import { auth } from "@/lib/auth";
 import { retryJob } from "@/lib/controlplane/client";
 import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
+import { isTrustedMutationOrigin } from "@/lib/security/trusted-mutation-origin";
 
-export async function POST() {
+export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isTrustedMutationOrigin(request)) {
+    return NextResponse.json({ success: false, error: "Forbidden origin" }, { status: 403 });
   }
 
   const latestFailed = await db.query.workspaceProvisioning.findFirst({

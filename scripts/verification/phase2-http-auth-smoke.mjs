@@ -38,8 +38,11 @@ assert.equal(r.status,307);assert.equal(loc(r).pathname,'/onboarding')
 pass('Authenticated but not provisioned','307 onboarding')
 for(const route of ['/api/workspace/retry','/api/controlplane/jobs/no-such-job']){
  const r=await http(route,{method:'POST',headers:{cookie,origin:'https://foreign-origin.invalid'}})
- assert.ok([403,404].includes(r.status),'unexpected state mutation response '+route+': '+r.status)
- console.log('CROSS_ORIGIN_DIAGNOSTIC | '+route+' | HTTP '+r.status)
+ assert.equal(r.status,403,'authenticated cross-origin POST must be explicitly blocked '+route)
+ pass('Authenticated cross-origin POST denied '+route,'HTTP 403 strict Origin enforcement')
+ const sameOrigin=await http(route,{method:'POST',headers:{cookie,origin}})
+ assert.equal(sameOrigin.status,404,'authorized same-origin request should reach owner-scoped record lookup')
+ pass('Authenticated same-origin nonexistent job '+route,'HTTP 404 owner-scoped lookup')
 }
 console.log('CAUTION | Manually injecting Cookie bypasses browser SameSite; 404 does not prove CSRF rejected.')
 console.log('PASSED_CHECKS='+checks.length)

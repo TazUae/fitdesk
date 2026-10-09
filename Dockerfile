@@ -25,7 +25,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # next.config.mjs must set output: 'standalone'
-RUN npm run build
+# A fresh temporary auth secret is available ONLY to this build RUN command;
+# the runtime image does not set or persist BETTER_AUTH_SECRET.
+RUN BETTER_AUTH_SECRET="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')" npm run build
 
 # ─── Stage 3: Production runtime ──────────────────────────────────────────────
 FROM base AS runner

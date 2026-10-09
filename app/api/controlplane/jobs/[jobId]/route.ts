@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
 import { getJob, retryJob } from "@/lib/controlplane/client";
+import { isTrustedMutationOrigin } from "@/lib/security/trusted-mutation-origin";
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -45,10 +46,13 @@ export async function GET(_: Request, context: RouteContext) {
   return NextResponse.json(job);
 }
 
-export async function POST(_: Request, context: RouteContext) {
+export async function POST(request: Request, context: RouteContext) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isTrustedMutationOrigin(request)) {
+    return NextResponse.json({ error: "Forbidden origin" }, { status: 403 });
   }
 
   const { jobId } = (await context.params);
