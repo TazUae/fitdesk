@@ -18,16 +18,16 @@ function internalApiOrigin(): string {
 }
 
 /**
- * Route protection middleware.
+ * Route protection proxy (Next.js 16 Node runtime).
  *
  * Protected prefix: /dashboard (all nested routes)
  * Unprotected:      /auth/*, /api/auth/*, /api/health, public assets
  *
  * Strategy: fetch session from the local Better Auth endpoint using the
  * request cookie. No JWT decoding — session validity is checked server-side.
- * Runs on the Edge runtime (no DB access, pure HTTP).
+ * Runs in the Node.js proxy runtime (no direct DB access, pure HTTP).
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const baseURL = internalApiOrigin()
   const cookie = req.headers.get('cookie') ?? ''
 

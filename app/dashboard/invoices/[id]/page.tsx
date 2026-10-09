@@ -22,10 +22,11 @@ function statusVariant(s: InvoiceStatus): BadgeVariant {
   return map[s]
 }
 
-type Props = { params: { id: string } }
+type Props = { params: Promise<{ id: string }> }
 
 export default async function InvoiceDetailPage({ params }: Props) {
-  const result = await getInvoiceById(params.id)
+  const routeParams = await params
+  const result = await getInvoiceById(routeParams.id)
   if (!result.success) notFound()
 
   const invoice = result.data

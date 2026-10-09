@@ -19,7 +19,7 @@ export type TenantContext = {
  * No ERP calls are made here.
  */
 export async function getTenantContext(): Promise<TenantContext | null> {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) return null;
 
   const latest = await db.query.workspaceProvisioning.findFirst({

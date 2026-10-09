@@ -7,18 +7,16 @@ import { workspaceProvisioning } from "@/lib/db/schema";
 import { getJob, retryJob } from "@/lib/controlplane/client";
 
 type RouteContext = {
-  params: {
-    jobId: string;
-  };
+  params: Promise<{ jobId: string }>;
 };
 
 export async function GET(_: Request, context: RouteContext) {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { jobId } = context.params;
+  const { jobId } = (await context.params);
   const record = await db.query.workspaceProvisioning.findFirst({
     where: and(
       eq(workspaceProvisioning.userId, session.user.id),
@@ -48,12 +46,12 @@ export async function GET(_: Request, context: RouteContext) {
 }
 
 export async function POST(_: Request, context: RouteContext) {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { jobId } = context.params;
+  const { jobId } = (await context.params);
   const record = await db.query.workspaceProvisioning.findFirst({
     where: and(
       eq(workspaceProvisioning.userId, session.user.id),

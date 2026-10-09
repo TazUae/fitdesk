@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
 
 export async function POST() {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
