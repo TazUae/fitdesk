@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -161,6 +161,12 @@ function canPreviewCurrentPattern(draft: BookingDraft, previewPlan: BookingPlan 
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+function subscribeMounted(): () => void {
+  return () => {}
+}
+function getMountedSnapshot(): boolean { return true }
+function getServerMountedSnapshot(): boolean { return false }
+
 export function BookingSheet(props: BookingSheetProps) {
   const { open, clients, existingSessions, trainerConfig, onClose, onBooked } = props
 
@@ -172,33 +178,41 @@ export function BookingSheet(props: BookingSheetProps) {
   const [isPending, startTransition] = useTransition()
 
   // SSR / hydration guard for `createPortal(..., document.body)`.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
+  const mounted = useSyncExternalStore(
+    subscribeMounted, getMountedSnapshot, getServerMountedSnapshot,
+  )
 
-  // Reset every time the sheet (re-)opens
-  useEffect(() => {
-    if (!open) return
-    const d = deriveInitialDraft(props)
-    setDraft(d)
-    setStep(deriveInitialStep(d))
-    setSuccessIds(null)
-    setError(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  // Reconcile a genuinely reopened wizard before painting edited state.
+  const [previousOpen, setPreviousOpen] = useState(open)
+  if (open !== previousOpen) {
+    setPreviousOpen(open)
+    if (open) {
+      const d = deriveInitialDraft(props)
+      const client = d.clientId ? clients.find(c => c.id === d.clientId) : null
+      d.fee = client?.billingMode === 'pay_per_session' && (client.defaultSessionRate ?? 0) > 0
+        ? client.defaultSessionRate!
+        : null
+      setDraft(d)
+      setStep(deriveInitialStep(d))
+      setSuccessIds(null)
+      setError(null)
+    }
+  }
 
-  // When the selected client changes: reset fee and re-seed from the client's
-  // default session rate when billing mode is pay_per_session.
-  // Package balance stays null until C4 wires remainingSessions into ClientIndex.
-  useEffect(() => {
-    const client = draft.clientId ? clients.find(c => c.id === draft.clientId) : null
+  // A change of selected client must reset package assumptions and seed
+  // the trainer-visible rate; server-authoritative billing guards remain.
+  const [previousClientId, setPreviousClientId] = useState<string | null>(null)
+  if (draft.clientId !== previousClientId) {
+    setPreviousClientId(draft.clientId)
     setPkgBalance(null)
+    const client = draft.clientId ? clients.find(c => c.id === draft.clientId) : null
     const seedRate =
       client?.billingMode === 'pay_per_session' && (client.defaultSessionRate ?? 0) > 0
         ? client.defaultSessionRate!
         : null
-    updateDraft({ fee: seedRate })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.clientId])
+    setDraft(prev => ({ ...prev, fee: seedRate }))
+    setError(null)
+  }
 
   // ── Client-side preview plan (pure engine) ───────────────────────────────
   const previewPlan: BookingPlan | null = useMemo(() => {
@@ -213,9 +227,8 @@ export function BookingSheet(props: BookingSheetProps) {
     return buildBookingPlan(input)
   }, [draft, trainerConfig, existingSessions])
 
-  // Recompute willConsume side of pkg balance whenever plan changes
-  useEffect(() => {
-    if (!pkgBalance || pkgBalance.remainingSessions == null) return
+  // Update derived consumption only when its actual amount or status changes.
+  if (pkgBalance && pkgBalance.remainingSessions != null) {
     const willConsume = previewPlan?.occurrences.length ?? 0
     const remaining = pkgBalance.remainingSessions
     const status: PackageBalanceState['status'] =
@@ -225,7 +238,7 @@ export function BookingSheet(props: BookingSheetProps) {
     if (pkgBalance.willConsume !== willConsume || pkgBalance.status !== status) {
       setPkgBalance({ remainingSessions: remaining, willConsume, status })
     }
-  }, [previewPlan, pkgBalance])
+  }
 
   // ── Validity state machine ──────────────────────────────────────────────
   const validity: BookingValidity = useMemo(() => {
