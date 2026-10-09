@@ -85,14 +85,24 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: timeout 600s npm run build:verify
-      - name: Verify image builds (no push/deploy)
-        # Docker's official Node image via AWS Public ECR, pinned to a Linux/amd64
-        # digest. Avoid Docker Hub anonymous 429 failures on ephemeral CI runners.
-        # Dockerfile's default official node:20-slim remains unchanged.
+      - name: Verify default Docker image builds (no push/deploy)
+        # Deliberately use the Dockerfile DEFAULT base rather than a CI-only override.
+        run: docker build --pull -t fitdesk:ci .
+      - name: Phase 2 live authentication and cookie smoke (disposable SQLite fixture)
+        env:
+          PHASE2_FIXTURE_ORIGIN: http://127.0.0.1:3000
         run: |
-          docker build -t fitdesk:ci \
-            --build-arg NODE_BASE_IMAGE=public.ecr.aws/docker/library/node@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c \
-            .
+          set -euo pipefail
+          fixture_secret="$(openssl rand -hex 32)"
+          docker run --rm -d --name fitdesk-phase2-smoke \
+            --network host --tmpfs /app/data:rw,uid=1001,gid=1001,size=32m \
+            -e DATABASE_URL=file:/app/data/auth.db \
+            -e BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            -e INTERNAL_API_URL=http://127.0.0.1:3000 \
+            -e BETTER_AUTH_SECRET="$fixture_secret" \
+            fitdesk:ci >/dev/null
+          trap 'docker logs --tail 45 fitdesk-phase2-smoke; docker stop fitdesk-phase2-smoke >/dev/null 2>&1 || true' EXIT
+          timeout 180s node scripts/verification/phase2-http-auth-smoke.mjs
 
   supply-chain:
     name: CycloneDX inventory and critical advisory gate

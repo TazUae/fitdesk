@@ -1,6 +1,7 @@
-# Use Docker Hub official Node image by default.
-# You can override NODE_BASE_IMAGE at build time if needed.
-ARG NODE_BASE_IMAGE=node:20-slim
+# Reproducible Node 20 Linux/amd64 baseline: same pinned official image for
+# CI and default deployment builds. Re-pin only through reviewed supply-chain PRs.
+# The official Node image is mirrored by AWS Public ECR to avoid Docker Hub 429s.
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c
 FROM ${NODE_BASE_IMAGE} AS base
 WORKDIR /app
 
