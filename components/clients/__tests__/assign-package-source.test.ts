@@ -280,7 +280,7 @@ describe('ClientHubPanel — assign package integration invariants', () => {
     // The literal 'session' and 'available' are present; contiguous 'sessions available'
     // is not a source literal due to the inline expression.
     expect(HUB_SRC).toContain('available')
-    expect(HUB_SRC).toMatch(/session.*available/s)
+    expect(HUB_SRC).toMatch(/session[\s\S]*available/)
   })
 
   it('shows Assign another package button label when package balance is present', () => {

@@ -10,6 +10,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit --incremental false --pretty false",
     "migrate:auth": "node scripts/migrate.mjs",
     "migrate:app": "node scripts/migrate-app.mjs",
     "migrate": "npm run migrate:auth && npm run migrate:app"

@@ -12,6 +12,7 @@
 
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
+import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -21,7 +22,7 @@ import type { ActionResult, Client } from '@/types'
 import type { ClientCreateDraft } from '@/types/clients'
 
 // Hoisted holder so the @/lib/db mock can return a per-test temp database.
-const h = vi.hoisted(() => ({ db: null as unknown as ReturnType<typeof drizzle> }))
+const h = vi.hoisted(() => ({ db: null as unknown as LibSQLDatabase<typeof schema> }))
 
 vi.mock('@/lib/db', () => ({ get db() { return h.db } }))
 vi.mock('@/lib/tenant/context', () => ({ getTenantContext: vi.fn() }))
@@ -85,7 +86,7 @@ function enableLocal(tenants?: string) {
 }
 
 async function seedClient(
-  database: ReturnType<typeof drizzle>,
+  database: LibSQLDatabase<typeof schema>,
   tenantId: string,
   overrides: Partial<ClientCreateDraft> = {},
 ) {

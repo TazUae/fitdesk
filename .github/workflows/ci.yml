@@ -5,29 +5,130 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+# Required quality and security gates are independent and fail closed.
+permissions:
+  contents: read
+
+concurrency:
+  group: fitdesk-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  typecheck:
+    name: Node20 typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck without outputs (fail on errors/timeouts)
+        run: timeout 240s npm run typecheck
 
-      - name: Install dependencies
-        run: npm ci
+  tests:
+    name: Node20 test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Run all first-party tests
+        run: timeout 600s npm test
 
-      - name: Run tests
-        run: npm test
+  lint:
+    name: Node20 lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: timeout 240s npm run lint
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Build verify
-        run: npm run build:verify
-
-      - name: Docker build (verify only — no push, no run)
+  build:
+    name: Node20 and Docker build verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: timeout 600s npm run build:verify
+      - name: Verify image builds (no push/deploy)
         run: docker build -t fitdesk:ci .
+
+  supply-chain:
+    name: CycloneDX inventory and critical advisory gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx > fitdesk-sbom.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fitdesk-cyclonedx-sbom
+          path: fitdesk-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Block critical runtime dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
+
+  secrets:
+    name: Trivy source secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # verified v0.36.0 commit
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: '1'
+          hide-progress: true
