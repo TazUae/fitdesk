@@ -9,6 +9,16 @@ import type { TrainerConfig } from '@/types/scheduling'
 function App() {
   const [phone, setPhone] = useState<PhoneValue | undefined>()
   const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 9, 10))
+  const [bookingOpen, setBookingOpen] = useState(false)
+  const clients = [
+    { id: 'client-a', name: 'Alex', billingMode: 'pay_per_session', defaultSessionRate: 75 },
+    { id: 'client-b', name: 'Blair', billingMode: 'pay_per_session', defaultSessionRate: 125 },
+  ] as unknown as Client[]
+  const trainerConfig = {
+    trainerId: 'synthetic-trainer', timezone: 'UTC',
+    workingDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+    startTime: '09:00', endTime: '20:00', bufferMinutes: 0,
+  } as TrainerConfig
   return (
     <main>
       <h1>FitDesk React19 isolated client-side behavior fixture</h1>

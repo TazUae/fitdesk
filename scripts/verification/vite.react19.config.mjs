@@ -11,5 +11,8 @@ export default defineConfig({
   resolve:{alias:{'@':repoRoot}},
   esbuild:{jsx:'automatic'},
   server:{host:'127.0.0.1',port:35793,strictPort:true,fs:{allow:[repoRoot]}},
-  build:{outDir:path.join(fixtureDirectory,'dist-react19'),emptyOutDir:true},
+  build:{
+    outDir:path.join(fixtureDirectory,'dist-react19'),emptyOutDir:true,
+    rollupOptions:{input:path.join(fixtureDirectory,'react19-fixture.html')},
+  },
 })

@@ -49,6 +49,8 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Compile isolated React 19 booking/browser fixture (no server actions)
+        run: timeout 120s ./node_modules/.bin/vite build --config scripts/verification/vite.react19.config.mjs
       - name: Run all first-party tests
         run: timeout 600s npm test
 
