@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Camera, Check, Loader2, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient, signOut, useSession } from '@/lib/auth-client'
@@ -39,13 +39,21 @@ export default function AccountPage() {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    if (!session?.user) return
-    const u = session.user
-    setName(u.name ?? '')
-    setPhone((u as { phone?: string }).phone ?? '')
-    setPhotoUrl(u.image ?? '')
-  }, [session])
+  // When the authenticated server profile changes, reconcile editable fields
+  // during render (guarded by the previous source snapshot), not in an effect.
+  const sourceUser = session?.user
+  const profileStamp = sourceUser
+    ? JSON.stringify([sourceUser.id, sourceUser.name, (sourceUser as { phone?: string }).phone, sourceUser.image])
+    : null
+  const [lastProfileStamp, setLastProfileStamp] = useState<string | null>(null)
+  if (profileStamp !== lastProfileStamp) {
+    setLastProfileStamp(profileStamp)
+    if (sourceUser) {
+      setName(sourceUser.name ?? '')
+      setPhone((sourceUser as { phone?: string }).phone ?? '')
+      setPhotoUrl(sourceUser.image ?? '')
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -219,13 +219,18 @@ export function ClientHubPanel({
   const [recentNotes, setRecentNotes] = useState(overview.recentNotes)
   const [progressEntries, setProgressEntries] = useState(overview.progressEntries)
 
-  useEffect(() => {
+  // Refresh local optimistic-but-server-confirmed state only when new server
+  // projection arrays arrive. Guarded render adjustment avoids effect cascades.
+  const [previousServerNotes, setPreviousServerNotes] = useState(overview.recentNotes)
+  const [previousServerProgress, setPreviousServerProgress] = useState(overview.progressEntries)
+  if (overview.recentNotes !== previousServerNotes) {
+    setPreviousServerNotes(overview.recentNotes)
     setRecentNotes(overview.recentNotes)
-  }, [overview.recentNotes])
-
-  useEffect(() => {
+  }
+  if (overview.progressEntries !== previousServerProgress) {
+    setPreviousServerProgress(overview.progressEntries)
     setProgressEntries(overview.progressEntries)
-  }, [overview.progressEntries])
+  }
 
   function handleComplete(intentId: string) {
     startTransition(async () => {
