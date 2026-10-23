@@ -35,3 +35,11 @@ Use existing subscriptions only, $0 incremental API-billed spending. Do not ask 
 - FitDesk source baseline at last checkpoint: `3fdf1aa51873887b36e9ec9a82c9a3214cc1e434` (reverify every run).
 - Original Project Pack v0.6.2 is the requirement baseline; October 19 audit is **historical evidence**, not live service status.
 - Graphify earlier code-only audit: `docs/audits/PHASE_B0_GRAPHIFY_KNOWLEDGE_GRAPH_AUDIT.md`.
+
+## Evidence templates (from Project Pack v0.6.2)
+- [Issue intake](templates/ISSUE_TEMPLATE.md) — bounded task contract and approver.
+- [Mandatory G1–G5 report](templates/GATE_REPORT.md) — PASS/FAIL/NOT_RUN with exact evidence.
+- [Factory Learning Loop record](templates/LEARNING_RECORD.md) — failure, repair, cost and held-out evaluation.
+- [Versioned requirements baseline](PROJECT_PACK_BASELINE.md) — source-derived v0.6.2 requirements and conflict precedence.
+
+The templates remain **blank** until a real task/trial produces evidence. They do not certify anything by their presence.
