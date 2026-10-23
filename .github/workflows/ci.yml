@@ -111,7 +111,7 @@ jobs:
           CHROME_BINARY="$(command -v google-chrome || command -v chromium)"
           test -n "$CHROME_BINARY"
           export CHROME_BINARY
-          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
+          # Browser tooling is pinned in package-lock.json and installed by npm ci above.
           timeout 180s node scripts/verification/phase2-react19-browser.mjs
           # Separate disposable auth fixture for real Chromium SameSite behavior.
           fixture_secret="$(openssl rand -hex 32)"
