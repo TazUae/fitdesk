@@ -8,55 +8,59 @@
 import { describe, expect, it } from 'vitest'
 import { isExternalPaymentsAllowed, isPilotMode, matchAllowlist } from '@/lib/pilot'
 
+// Synthetic flag fixtures intentionally omit unrelated runtime environment values.
+const fixtureEnv = (flags: Record<string, string>): NodeJS.ProcessEnv =>
+  flags as unknown as NodeJS.ProcessEnv
+
 describe('isPilotMode', () => {
   it('returns false when PILOT_MODE is unset', () => {
-    expect(isPilotMode({})).toBe(false)
+    expect(isPilotMode(fixtureEnv({}))).toBe(false)
   })
 
   it('returns true for "1"', () => {
-    expect(isPilotMode({ PILOT_MODE: '1' })).toBe(true)
+    expect(isPilotMode(fixtureEnv({ PILOT_MODE: '1' }))).toBe(true)
   })
 
   it('returns true for "true"', () => {
-    expect(isPilotMode({ PILOT_MODE: 'true' })).toBe(true)
+    expect(isPilotMode(fixtureEnv({ PILOT_MODE: 'true' }))).toBe(true)
   })
 
   it('returns false for "0"', () => {
-    expect(isPilotMode({ PILOT_MODE: '0' })).toBe(false)
+    expect(isPilotMode(fixtureEnv({ PILOT_MODE: '0' }))).toBe(false)
   })
 
   it('returns false for "false"', () => {
-    expect(isPilotMode({ PILOT_MODE: 'false' })).toBe(false)
+    expect(isPilotMode(fixtureEnv({ PILOT_MODE: 'false' }))).toBe(false)
   })
 
   it('returns false for an unrelated/other value', () => {
-    expect(isPilotMode({ PILOT_MODE: 'yes' })).toBe(false)
+    expect(isPilotMode(fixtureEnv({ PILOT_MODE: 'yes' }))).toBe(false)
   })
 })
 
 describe('isExternalPaymentsAllowed', () => {
   it('returns false when PILOT_ALLOW_EXTERNAL_PAYMENTS is unset (safe default)', () => {
-    expect(isExternalPaymentsAllowed({})).toBe(false)
+    expect(isExternalPaymentsAllowed(fixtureEnv({}))).toBe(false)
   })
 
   it('returns true for "1"', () => {
-    expect(isExternalPaymentsAllowed({ PILOT_ALLOW_EXTERNAL_PAYMENTS: '1' })).toBe(true)
+    expect(isExternalPaymentsAllowed(fixtureEnv({ PILOT_ALLOW_EXTERNAL_PAYMENTS: '1' }))).toBe(true)
   })
 
   it('returns true for "true"', () => {
-    expect(isExternalPaymentsAllowed({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'true' })).toBe(true)
+    expect(isExternalPaymentsAllowed(fixtureEnv({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'true' }))).toBe(true)
   })
 
   it('returns false for "0"', () => {
-    expect(isExternalPaymentsAllowed({ PILOT_ALLOW_EXTERNAL_PAYMENTS: '0' })).toBe(false)
+    expect(isExternalPaymentsAllowed(fixtureEnv({ PILOT_ALLOW_EXTERNAL_PAYMENTS: '0' }))).toBe(false)
   })
 
   it('returns false for "false"', () => {
-    expect(isExternalPaymentsAllowed({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'false' })).toBe(false)
+    expect(isExternalPaymentsAllowed(fixtureEnv({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'false' }))).toBe(false)
   })
 
   it('returns false for an unrelated/other value', () => {
-    expect(isExternalPaymentsAllowed({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'enabled' })).toBe(false)
+    expect(isExternalPaymentsAllowed(fixtureEnv({ PILOT_ALLOW_EXTERNAL_PAYMENTS: 'enabled' }))).toBe(false)
   })
 })
 
