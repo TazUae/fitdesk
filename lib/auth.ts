@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { nextCookies } from 'better-auth/next-js'
 import { userAdditionalFields } from './auth-user-fields'
+import { requireAuthSecret } from './auth-secret'
 import { db } from './db'
 
 /**
@@ -14,22 +15,9 @@ import { db } from './db'
  *   npx better-auth generate   → outputs SQL
  *   npx better-auth migrate    → applies it to DATABASE_URL
  */
-/**
- * During `next build`, Next sets NEXT_PHASE=phase-production-build and evaluates
- * server modules while collecting page data — often without deployment secrets
- * (e.g. Docker build). Use a dummy secret only in that phase; runtime must set
- * BETTER_AUTH_SECRET (e.g. in Dokploy / compose).
- */
-function resolveAuthSecret(): string {
-  const s = process.env.BETTER_AUTH_SECRET
-  if (s && s.length >= 32) return s
-  if (process.env.NEXT_PHASE === 'phase-production-build') {
-    return 'build-only-placeholder-not-for-production-min-32-chars'
-  }
-  throw new Error('BETTER_AUTH_SECRET must be set and at least 32 chars')
-}
-
-const secret = resolveAuthSecret()
+// Build scripts supply a process-scoped random compile secret if needed.
+// Running servers always require their own configured, strong runtime secret.
+const secret = requireAuthSecret()
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {

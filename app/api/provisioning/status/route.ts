@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
 
 export async function GET() {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return NextResponse.json({ status: null }, { status: 401 });
   }

@@ -134,10 +134,12 @@ describe('NO_FEE wiring — source invariants', () => {
   })
 
   it('BookingSheet resets and re-seeds fee when client changes (a)', () => {
-    // Verify the effect seeds fee from defaultSessionRate and resets on change
+    // The guarded client transition must re-seed the default fee and clear
+    // stale package-balance assumptions before the trainer can proceed.
     expect(BOOKING_SHEET_SRC).toContain('defaultSessionRate')
-    expect(BOOKING_SHEET_SRC).toContain('seedRate')
-    expect(BOOKING_SHEET_SRC).toContain("updateDraft({ fee: seedRate })")
+    expect(BOOKING_SHEET_SRC).toContain('if (draft.clientId !== previousClientId)')
+    expect(BOOKING_SHEET_SRC).toContain('setPkgBalance(null)')
+    expect(BOOKING_SHEET_SRC).toContain('setDraft(prev => ({ ...prev, fee: seedRate }))')
   })
 
   it('BookingSheet does NOT pass draft.fee ?? 0 as the only rate path (c)', () => {

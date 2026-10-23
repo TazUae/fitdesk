@@ -110,16 +110,25 @@ export function PackageDetailsSheet({
     selectedReason !== null &&
     (selectedReason !== 'Other' || otherDetails.trim() !== '')
 
+  // Reset UI-only void state whenever the visible client changes or reopens.
+  const currentVisibleClient = open ? clientIndexId : null
+  const [previousVisibleClient, setPreviousVisibleClient] = useState<string | null>(null)
+  if (currentVisibleClient !== previousVisibleClient) {
+    setPreviousVisibleClient(currentVisibleClient)
+    if (open) {
+      setLoadState('loading')
+      setVoidingId(null)
+      setSelectedReason(null)
+      setOtherDetails('')
+      setVoidError(null)
+    }
+  }
+
   // ── Load purchases when opened ──────────────────────────────────────────────
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setLoadState('loading')
-    setVoidingId(null)
-    setSelectedReason(null)
-    setOtherDetails('')
-    setVoidError(null)
     getClientPackageSummary(clientIndexId).then(result => {
       if (cancelled) return
       if (!result.success) { setLoadState('error'); return }

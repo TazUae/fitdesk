@@ -8,7 +8,7 @@ import { getNextUp } from '@/lib/dashboard/derive'
 import { todayInTimezone, localTimeString } from '@/lib/dashboard/fdSessionAdapter'
 import type { Session } from '@/types'
 
-type Props = { params: { id: string } }
+type Props = { params: Promise<{ id: string }> }
 
 /**
  * Intercepting overlay route: (.)clients/[id]
@@ -24,7 +24,8 @@ type Props = { params: { id: string } }
  * crashes the parent dashboard layout.
  */
 export default async function ClientOverlayPage({ params }: Props) {
-  const clientId = decodeURIComponent(params.id)
+  const routeParams = await params
+  const clientId = decodeURIComponent(routeParams.id)
 
   // Same pattern as the canonical client detail page (app/dashboard/clients/[id]/page.tsx):
   // resolve trainer/timezone so the "Next session" chip can be derived live

@@ -5,29 +5,167 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+# Required quality and security gates are independent and fail closed.
+permissions:
+  contents: read
+
+concurrency:
+  group: fitdesk-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  typecheck:
+    name: Node20 typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck without outputs (fail on errors/timeouts)
+        run: timeout 240s npm run typecheck
 
-      - name: Install dependencies
-        run: npm ci
+  tests:
+    name: Node20 test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Compile isolated React 19 booking/browser fixture (no server actions)
+        run: timeout 120s ./node_modules/.bin/vite build --config scripts/verification/vite.react19.config.mjs
+      - name: Run all first-party tests
+        run: timeout 600s npm test
 
-      - name: Run tests
-        run: npm test
+  lint:
+    name: Node20 lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: timeout 240s npm run lint
 
-      - name: Lint
-        run: npm run lint
+  build:
+    name: Node20 and Docker build verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: timeout 600s npm run build:verify
+      - name: Verify default Docker image builds (no push/deploy)
+        # Deliberately use the Dockerfile DEFAULT base rather than a CI-only override.
+        run: docker build --pull -t fitdesk:ci .
+      - name: Phase 2 live authentication and cookie smoke (disposable SQLite fixture)
+        env:
+          PHASE2_FIXTURE_ORIGIN: http://127.0.0.1:3000
+        run: |
+          set -euo pipefail
+          fixture_secret="$(openssl rand -hex 32)"
+          docker run --rm -d --name fitdesk-phase2-smoke \
+            --network host --tmpfs /app/data:rw,uid=1001,gid=1001,size=32m \
+            -e DATABASE_URL=file:/app/data/auth.db \
+            -e BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            -e INTERNAL_API_URL=http://127.0.0.1:3000 \
+            -e BETTER_AUTH_SECRET="$fixture_secret" \
+            fitdesk:ci >/dev/null
+          trap 'docker logs --tail 45 fitdesk-phase2-smoke; docker stop fitdesk-phase2-smoke >/dev/null 2>&1 || true' EXIT
+          timeout 180s node scripts/verification/phase2-http-auth-smoke.mjs
+      - name: React 19 real Chromium behavior (isolated Vite client fixture)
+        run: |
+          set -euo pipefail
+          CHROME_BINARY="$(command -v google-chrome || command -v chromium)"
+          test -n "$CHROME_BINARY"
+          export CHROME_BINARY
+          # Browser tooling is pinned in package-lock.json and installed by npm ci above.
+          timeout 180s node scripts/verification/phase2-react19-browser.mjs
+          # Separate disposable auth fixture for real Chromium SameSite behavior.
+          fixture_secret="$(openssl rand -hex 32)"
+          docker run --rm -d --name fitdesk-phase2-browser \
+            --network host --tmpfs /app/data:rw,uid=1001,gid=1001,size=32m \
+            -e DATABASE_URL=file:/app/data/auth.db \
+            -e BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            -e INTERNAL_API_URL=http://127.0.0.1:3000 \
+            -e BETTER_AUTH_SECRET="$fixture_secret" \
+            fitdesk:ci >/dev/null
+          trap 'docker logs --tail 40 fitdesk-phase2-browser; docker stop fitdesk-phase2-browser >/dev/null 2>&1 || true' EXIT
+          timeout 180s node scripts/verification/phase2-browser-csrf.mjs
 
-      - name: Build verify
-        run: npm run build:verify
+  supply-chain:
+    name: CycloneDX inventory and critical advisory gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx > fitdesk-sbom.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fitdesk-cyclonedx-sbom
+          path: fitdesk-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Block critical runtime dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
 
-      - name: Docker build (verify only — no push, no run)
-        run: docker build -t fitdesk:ci .
+  secrets:
+    name: Trivy source secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # verified v0.36.0 commit
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: '1'
+          hide-progress: true

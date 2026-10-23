@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { use, useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -27,9 +27,10 @@ function parsePhoneValue(phone: string): PhoneValue | undefined {
   }
 }
 
-type Props = { params: { id: string } }
+type Props = { params: Promise<{ id: string }> }
 
 export default function EditClientPage({ params }: Props) {
+  const routeParams = use(params)
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [client, setClient] = useState<Client | null>(null)
@@ -40,7 +41,7 @@ export default function EditClientPage({ params }: Props) {
   const [goal, setGoal] = useState('')
   const [notes, setNotes] = useState('')
 
-  const clientId = decodeURIComponent(params.id)
+  const clientId = decodeURIComponent(routeParams.id)
 
   useEffect(() => {
     getClientById(clientId).then(result => {
@@ -185,7 +186,7 @@ export default function EditClientPage({ params }: Props) {
           <p className="text-[11px]" style={{ color: 'var(--fd-muted)' }}>
             Goals are managed in the{' '}
             <Link
-              href={`/dashboard/clients/${params.id}`}
+              href={`/dashboard/clients/${routeParams.id}`}
               className="font-semibold underline"
               style={{ color: 'var(--fd-accent)' }}
             >

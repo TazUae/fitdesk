@@ -6,10 +6,11 @@ import { deriveSelectableMethodOptions } from '@/lib/payments/selector-view'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 import { RecordPaymentForm } from './RecordPaymentForm'
 
-type Props = { params: { id: string } }
+type Props = { params: Promise<{ id: string }> }
 
 export default async function PayPage({ params }: Props) {
-  const result = await getInvoiceById(params.id)
+  const routeParams = await params
+  const result = await getInvoiceById(routeParams.id)
   if (!result.success) {
     if (isErpUnavailableError(result.error)) redirect('/dashboard/invoices')
     notFound()
@@ -21,7 +22,7 @@ export default async function PayPage({ params }: Props) {
   // Tenant-aware availability: show only what this tenant's ERP site can accept.
   // A failed probe (or no configured method) yields a recoverable
   // configuration-unavailable state — never a wrong or assumed method.
-  const availability = await getAvailablePaymentMethods(params.id)
+  const availability = await getAvailablePaymentMethods(routeParams.id)
   const availableMethods = deriveSelectableMethodOptions(availability)
 
   if (availableMethods.length === 0) {

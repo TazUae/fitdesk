@@ -128,7 +128,7 @@ describe('generateDraftMessage — invoice ownership gate', () => {
     const result = await generateDraftMessage('invoice', CLIENT_ID, INVOICE_ID)
 
     expect(result.success).toBe(true)
-    expect(result.data).toBe('Hello Test Client!')
+    if (result.success) expect(result.data).toBe('Hello Test Client!')
 
     // Must use the gated helper — never the ungated getInvoiceById
     expect(getInvoiceByIdForTrainer).toHaveBeenCalledWith(INVOICE_ID, TRAINER_ID)
@@ -145,7 +145,7 @@ describe('generateDraftMessage — invoice ownership gate', () => {
     const result = await generateDraftMessage('invoice', CLIENT_ID, INVOICE_ID)
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain('Invoice does not belong to this trainer.')
+    if (!result.success) expect(result.error).toContain('Invoice does not belong to this trainer.')
 
     // Draft must NOT have been generated with cross-trainer invoice data
     expect(generateMessage).not.toHaveBeenCalledWith(
@@ -155,12 +155,12 @@ describe('generateDraftMessage — invoice ownership gate', () => {
   })
 
   it('builds draft without invoice context when no invoiceId is supplied', async () => {
-    const result = await generateDraftMessage('session_reminder', CLIENT_ID)
+    const result = await generateDraftMessage('reminder', CLIENT_ID)
 
     expect(result.success).toBe(true)
     expect(getInvoiceByIdForTrainer).not.toHaveBeenCalled()
     expect(generateMessage).toHaveBeenCalledWith(
-      'session_reminder',
+      'reminder',
       expect.not.objectContaining({ invoiceId: expect.anything() }),
     )
   })
