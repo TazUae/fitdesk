@@ -215,3 +215,16 @@ Client → Server Action / Route Handler → Typed Adapter → External Service
 - Duplicate financial data outside ERPNext
 - Complex agentic AI in MVP
 - Auto-sending any message or payment action without user confirmation
+
+
+---
+
+## Zaidan AI Software Factory v0.6.2 — Conditional Pilot Instructions
+
+For **factory qualification tasks only**, also read `docs/factory/README.md`, `.claude/rules/zaidan-factory-governance.md` and `docs/factory/OWNER_DECISIONS.md`. Existing FitDesk product/security rules above remain in force; this section does not authorize unrelated FitDesk rebuilds or production.
+
+- Owner already approved PPS business behavior G1-DEC-01..08, Q1–Q14 choices and subscription-only limits: **$0 incremental API spend**, 8 turns/10 min per task, 12/25 per trial, 36/75 batch, 120s/prompt, one retry and one confirmed usage-limit handoff.
+- Do not confuse these decisions with approval of the **final protected acceptance-test SHA**, protected CI changes, actual authenticated worker containment, first FitDesk staging release or production/commercial launch; those remain gated.
+- For multi-file change analysis **use local, code-only Graphify first** via `/graphify` (repo skill `.claude/skills/graphify/SKILL.md`); verify its source references and keep `graphify-out/` ignored. No hosted MCP or installer hooks without review.
+- Forge and GitHub provide checkpoints, caps, required tests and independent review. Claude Code is a single constrained executor, not gate/release authority. Use `/factory-resume` to reconcile, `/factory-qualify` to inspect evidence, and the docs under `docs/factory/` for complete rules.
+- Mandatory G1–G5 or three fresh adversarial qualification trials lacking PASS = factory-wide **NO-GO**. Never auto-merge or deploy without exact approval and check evidence.

@@ -1,0 +1,13 @@
+# Feature / Task Intake
+- Issue ID:
+- Product/repository:
+- Business objective:
+- Scope / out of scope:
+- Human-approved acceptance criteria:
+- Protected acceptance suite reference:
+- Risk tier and sensitive data:
+- Allowed paths / prohibited paths:
+- Budget cap:
+- Staging target:
+- Required evidence:
+- Approver / approval date:
