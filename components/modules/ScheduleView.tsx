@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Plus } from 'lucide-react'
@@ -10,6 +10,17 @@ import { BookingSheet } from '@/components/scheduling/BookingSheet'
 import { SessionCompletionSheet } from '@/components/scheduling/SessionCompletionSheet'
 import type { CalendarSession, FDSession, TrainerConfig } from '@/types/scheduling'
 import type { Client } from '@/types'
+
+function subscribeBrowserTimeZone(onChange: () => void): () => void {
+  document.addEventListener('visibilitychange', onChange)
+  return () => document.removeEventListener('visibilitychange', onChange)
+}
+function getBrowserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+function getServerTimeZone(): string {
+  return 'UTC'
+}
 
 const SchedulerXAdapter = dynamic(
   () => import('@/components/scheduling/SchedulerXAdapter').then(mod => ({ default: mod.SchedulerXAdapter })),
@@ -48,13 +59,13 @@ export function ScheduleView({ sessions, clients, trainerConfig, error }: Schedu
   const [selectedSlots, setSelectedSlots]     = useState<Date[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
 
-  // Seed timezone from trainerConfig if available; fall back to browser locale.
-  const [timezone, setTimezone] = useState(trainerConfig?.timezone ?? 'UTC')
-  useEffect(() => {
-    if (!trainerConfig?.timezone) {
-      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
-    }
-  }, [trainerConfig?.timezone])
+  // The browser timezone is an external environment value, not form state.
+  const browserTimeZone = useSyncExternalStore(
+    subscribeBrowserTimeZone,
+    getBrowserTimeZone,
+    getServerTimeZone,
+  )
+  const timezone = trainerConfig?.timezone ?? browserTimeZone
 
   // A stable default TrainerConfig used when trainerConfig is undefined (ERP unavailable).
   // BookingSheet requires a non-optional TrainerConfig so we must always pass one.

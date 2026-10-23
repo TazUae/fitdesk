@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { PlannerToolbar } from '@/features/scheduling/components/PlannerToolbar'
 import { PlannerSidebar } from '@/components/scheduling/PlannerSidebar'
 import { cn } from '@/lib/utils'
@@ -28,10 +29,10 @@ export function PlannerShell({
   rightDrawerOpen,
   overlays,
 }: PlannerShellProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  useEffect(() => {
-    setSidebarOpen(window.matchMedia('(min-width: 1280px)').matches)
-  }, [])
+  const desktopDefault = useMediaQuery('(min-width: 1280px)')
+  // Trainer choice wins; otherwise the sidebar follows the viewport.
+  const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null)
+  const sidebarOpen = sidebarOverride ?? desktopDefault
 
   return (
     <div
@@ -40,7 +41,7 @@ export function PlannerShell({
     >
       <PlannerToolbar
         sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(v => !v)}
+        onToggleSidebar={() => setSidebarOverride(v => !(v ?? desktopDefault))}
         onCreate={onCreate}
       />
 

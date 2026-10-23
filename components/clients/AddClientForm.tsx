@@ -100,7 +100,7 @@ export interface AddClientFormProps {
    * The ref to the name input so the wrapper can focus it after animation.
    * Only the sheet variant uses this.
    */
-  nameInputRef?: React.RefObject<HTMLInputElement>
+  nameInputRef?: React.RefObject<HTMLInputElement | null>
 }
 
 // ─── Success state ─────────────────────────────────────────────────────────────

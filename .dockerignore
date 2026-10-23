@@ -19,6 +19,9 @@ node_modules
 # Local auth database — must not be baked into the image
 auth.db
 
+# Runtime verification fixtures are host-only, never shipped in the container
+scripts/verification/
+
 # Developer tooling
 .claude
 *.md

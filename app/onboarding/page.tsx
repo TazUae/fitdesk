@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { workspaceProvisioning } from "@/lib/db/schema";
 
 export default async function OnboardingPage() {
-  const session = await auth.api.getSession({ headers: headers() });
+  const session = await auth.api.getSession({ headers: await headers() });
 
   if (!session?.user?.id) {
     redirect("/auth/login?callbackUrl=/onboarding");

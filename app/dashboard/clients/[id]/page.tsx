@@ -59,10 +59,11 @@ function outstandingBalance(invoices: Invoice[]): number {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Props = { params: { id: string } }
+type Props = { params: Promise<{ id: string }> }
 
 export default async function ClientDetailPage({ params }: Props) {
-  const clientId = decodeURIComponent(params.id)
+  const routeParams = await params
+  const clientId = decodeURIComponent(routeParams.id)
 
   // Phase 4 — trainerId/timezone resolution, same pattern as the Home
   // Dashboard (app/dashboard/page.tsx), so session history reads live FD
@@ -142,7 +143,7 @@ export default async function ClientDetailPage({ params }: Props) {
         </Link>
         <span className="flex-1" />
         <Link
-          href={`/dashboard/clients/${params.id}/edit`}
+          href={`/dashboard/clients/${routeParams.id}/edit`}
           className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold"
           style={{ borderColor: 'var(--fd-border)', color: 'var(--fd-muted)' }}
         >
@@ -245,7 +246,7 @@ export default async function ClientDetailPage({ params }: Props) {
             {/* WhatsApp button */}
             {client.phone && (
               <Link
-                href={`/dashboard/messages/${params.id}`}
+                href={`/dashboard/messages/${routeParams.id}`}
                 className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
                 style={{ backgroundColor: 'var(--fd-card)', color: 'var(--fd-green)' }}
               >

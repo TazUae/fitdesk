@@ -361,16 +361,25 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
   const [displayCount, setDisplayCount]     = useState(LOAD_MORE_STEP)
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set())
 
+  // Reset only when opening or switching the visible statement, not from
+  // a synchronous effect which would trigger a second render cascade.
+  const visibleClientId = open ? clientId : null
+  const [previousVisibleClientId, setPreviousVisibleClientId] = useState<string | null>(null)
+  if (visibleClientId !== previousVisibleClientId) {
+    setPreviousVisibleClientId(visibleClientId)
+    if (open) {
+      setLoadState('loading')
+      setStatement(null)
+      setRangeFilter('90_days')
+      setTypeFilter('all')
+      setDisplayCount(LOAD_MORE_STEP)
+      setCollapsedMonths(new Set())
+    }
+  }
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setLoadState('loading')
-    setStatement(null)
-    setRangeFilter('90_days')
-    setTypeFilter('all')
-    setDisplayCount(LOAD_MORE_STEP)
-    setCollapsedMonths(new Set())
-
     getClientStatement(clientId).then(result => {
       if (cancelled) return
       if (!result.success) {
@@ -378,23 +387,15 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
         return
       }
       setStatement(result.data)
+      setTypeFilter(prev => normalizeTypeFilterForAvailability(prev, result.data.paymentHistoryAvailable))
       setLoadState('ready')
     })
 
     return () => { cancelled = true }
   }, [open, clientId])
 
-  // Switching filters restarts pagination so the trainer isn't stranded mid-list.
-  useEffect(() => {
-    setDisplayCount(LOAD_MORE_STEP)
-  }, [rangeFilter, typeFilter])
-
-  // If payment history is unavailable, "Payments" isn't a selectable filter —
-  // fall back to "All" rather than leaving the UI on a disabled selection.
-  useEffect(() => {
-    if (!statement) return
-    setTypeFilter(prev => normalizeTypeFilterForAvailability(prev, statement.paymentHistoryAvailable))
-  }, [statement])
+  // Filter transitions reset pagination inside the corresponding UI handlers.
+  // Payment availability is reconciled when the authoritative fetch completes.
 
   /**
    * Re-runs the same read-only fetch so payment rows can be retried without
@@ -407,6 +408,7 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
     const result = await getClientStatement(clientId)
     if (result.success) {
       setStatement(result.data)
+      setTypeFilter(prev => normalizeTypeFilterForAvailability(prev, result.data.paymentHistoryAvailable))
       setLoadState('ready')
     }
     setRetryingPayments(false)
@@ -508,11 +510,11 @@ export function StatementSheet({ open, onClose, clientId }: StatementSheetProps)
             ) : (
               <>
                 <div className="space-y-2">
-                  <FilterPillRow tabs={RANGE_TABS} active={rangeFilter} onChange={setRangeFilter} />
+                  <FilterPillRow tabs={RANGE_TABS} active={rangeFilter} onChange={value => { setRangeFilter(value); setDisplayCount(LOAD_MORE_STEP) }} />
                   <FilterPillRow
                     tabs={TYPE_TABS}
                     active={typeFilter}
-                    onChange={setTypeFilter}
+                    onChange={value => { setTypeFilter(value); setDisplayCount(LOAD_MORE_STEP) }}
                     isDisabled={id => isTypeFilterDisabled(id, statement.paymentHistoryAvailable)}
                     disabledTitle={PAYMENTS_DISABLED_TITLE}
                   />

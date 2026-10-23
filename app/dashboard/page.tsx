@@ -35,7 +35,7 @@ function timeGreeting(hour: number): string {
 
 export default async function DashboardPage() {
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const authSession = await auth.api.getSession({ headers: headers() })
+  const authSession = await auth.api.getSession({ headers: await headers() })
   const trainerName = authSession?.user?.name ?? 'Trainer'
 
   // ── Trainer resolution + timezone ─────────────────────────────────────────

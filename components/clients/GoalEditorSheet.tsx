@@ -39,15 +39,16 @@ export function GoalEditorSheet({ open, clientIndexId, goals, onClose }: GoalEdi
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Re-seed whenever the sheet is (re)opened, so it always reflects the latest
-  // server state and discards any un-saved edits from a previous open.
-  useEffect(() => {
+  // On re-open, discard unsaved edits and use the latest confirmed server goals.
+  // Guarded render adjustment avoids a sync state cascade from useEffect.
+  const [previousOpen, setPreviousOpen] = useState(open)
+  if (open !== previousOpen) {
+    setPreviousOpen(open)
     if (open) {
       dispatch({ type: 'HYDRATE', state: workspaceStateFromGoals(goals) })
       setError(null)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }
 
   // Escape closes (only when not mid-save).
   useEffect(() => {

@@ -15,13 +15,13 @@ import { describe, expect, it } from 'vitest'
 const SRC = readFileSync(join(__dirname, 'DashboardClientShell.tsx'), 'utf-8')
 
 describe('DashboardClientShell — closes the account menu on route change', () => {
-  it('imports useEffect', () => {
-    expect(SRC).toContain("import { useEffect, useState } from 'react'")
+  it('uses a guarded state snapshot rather than an effect for route changes', () => {
+    expect(SRC).toContain("import { useState } from 'react'")
+    expect(SRC).toMatch(/const \[previousPathname, setPreviousPathname\] = useState\(pathname\)/)
   })
 
-  it('has an effect that closes the menu, depending only on pathname', () => {
-    const effectMatch = SRC.match(/useEffect\(\(\) => \{\s*setMenuOpen\(false\)\s*\}, \[pathname\]\)/)
-    expect(effectMatch).not.toBeNull()
+  it('resets the menu only when pathname changes', () => {
+    expect(SRC).toMatch(/if \(previousPathname !== pathname\) \{\s*setPreviousPathname\(pathname\)\s*setMenuOpen\(false\)\s*\}/)
   })
 
   it('the close-on-route-change effect is declared before the early-return for full-width routes', () => {

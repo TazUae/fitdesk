@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth'
 import { ensureTrainerIdForUser } from '@/lib/trainer'
 
 export async function resolveTrainerId(): Promise<{ trainerId: string } | { error: string }> {
-  const session = await auth.api.getSession({ headers: headers() })
+  const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return { error: 'Not authenticated.' }
   const sessionPhone =
     typeof (session.user as { phone?: string | null }).phone === 'string'

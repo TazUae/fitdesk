@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -35,14 +35,15 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
   const initial = selectedDate ?? today
   const [viewMonth, setViewMonth] = useState<Date>(startOfMonth(initial))
 
-  useEffect(() => {
-    if (!selectedDate) return
-    setViewMonth(prev => {
-      const next = startOfMonth(selectedDate)
-      if (next.getFullYear() === prev.getFullYear() && next.getMonth() === prev.getMonth()) return prev
-      return next
-    })
-  }, [selectedDate])
+  // Follow a genuinely new selection while preserving trainer month navigation.
+  const selectedTimestamp = selectedDate?.getTime() ?? null
+  const [previousSelection, setPreviousSelection] = useState(selectedTimestamp)
+  if (selectedTimestamp !== previousSelection) {
+    setPreviousSelection(selectedTimestamp)
+    if (selectedDate) {
+      setViewMonth(startOfMonth(selectedDate))
+    }
+  }
 
   const days = useMemo(() => {
     const first = startOfMonth(viewMonth)

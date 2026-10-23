@@ -8,13 +8,20 @@
  * Usage: npm run build:verify
  */
 import { spawnSync } from 'child_process'
+import { randomBytes } from 'node:crypto'
 
-process.env.FITDESK_VERIFY_BUILD = '1'
+// Build-only random value exists solely in the child process environment.
+// It is not a deploy/runtime credential and must never be written to disk.
+const buildEnv = {
+  ...process.env,
+  FITDESK_VERIFY_BUILD: '1',
+  BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
+}
 
 const result = spawnSync(
   'npx',
   ['next', 'build'],
-  { stdio: 'inherit', env: process.env, shell: true },
+  { stdio: 'inherit', env: buildEnv, shell: true },
 )
 
 process.exit(result.status ?? 1)

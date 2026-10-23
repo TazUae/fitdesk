@@ -7,14 +7,15 @@ import { MessagesView }    from '@/features/messaging/components/MessagesView'
 import { isErpUnavailableError } from '@/lib/errors/is-unavailable-error'
 
 interface Props {
-  params:      { clientId: string }
-  searchParams: { type?: string; invoiceId?: string }
+  params:      Promise<{ clientId: string }>
+  searchParams: Promise<{ type?: string; invoiceId?: string }>
 }
 
 export default async function MessagesPage({ params, searchParams }: Props) {
+  const [routeParams, queryParams] = await Promise.all([params, searchParams])
   const [clientResult, messagesResult] = await Promise.all([
-    getClientById(params.clientId),
-    getMessages(params.clientId),
+    getClientById(routeParams.clientId),
+    getMessages(routeParams.clientId),
   ])
 
   if (!clientResult.success) {
@@ -54,8 +55,8 @@ export default async function MessagesPage({ params, searchParams }: Props) {
     <MessagesView
       client={clientResult.data}
       messages={messagesResult.success ? messagesResult.data : []}
-      initialType={searchParams.type}
-      invoiceId={searchParams.invoiceId}
+      initialType={queryParams.type}
+      invoiceId={queryParams.invoiceId}
     />
   )
 }

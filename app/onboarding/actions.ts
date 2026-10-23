@@ -52,7 +52,7 @@ export async function startWorkspace(input: StartWorkspaceInput): Promise<StartW
   const { workspaceName, countryCode } = input
 
   // 1. Require authenticated session
-  const session = await auth.api.getSession({ headers: headers() })
+  const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user?.id) {
     return { success: false, error: 'Not authenticated. Please sign in again.' }
   }
